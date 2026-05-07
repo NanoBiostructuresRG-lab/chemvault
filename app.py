@@ -10,18 +10,27 @@ def get_connection(db_name):
     return sqlite3.connect(f"SQL/{db_name}", check_same_thread=False)
 
 
-def count_rows(connection):
+def count_rows_group_by(connection):
+
     cursor = connection.cursor()
 
-    cursor.execute(f"""
-    SELECT COUNT(*)
-    FROM main
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM (
+            SELECT Bioactivity_ID
+            FROM main
+            GROUP BY Bioactivity_ID
+        )
     """)
 
     total = cursor.fetchone()[0]
 
     return total
-
+def count_rows(connection): 
+    cursor = connection.cursor()
+    cursor.execute(f""" SELECT COUNT(*) FROM main """) 
+    total = cursor.fetchone()[0] 
+    return total
 
 def build_from_proteins(progreso):
     obtener_CIDs_Pubchem(get_connection(st.session_state["database_id"]),st.session_state["selected_proteins"],progreso)

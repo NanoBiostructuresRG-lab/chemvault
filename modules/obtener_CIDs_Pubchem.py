@@ -37,7 +37,7 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
            print(f"Error con {protein}: {e}")
     
     total_steps = len(trabajos)
-
+    print(f"Total de AIDs: {total_steps}")
 
     for step, (protein, aid) in enumerate(trabajos, start=1):
         try:
@@ -47,7 +47,7 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
             )
             response = requests.get(url_cids, timeout=30)
             response.raise_for_status()
-
+            print(response.status_code)
             cid_data = response.json()
 
             cids = (
