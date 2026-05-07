@@ -2,61 +2,120 @@
 
 import requests
 import pandas as pd
-
+import sqlite3
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 
 
-def obtener_CIDs_Pubchem(protein, df, placeholder, progreso, estado):
+def obtener_CIDs_Pubchem(connection, proteins, progreso):
+    cursor = connection.cursor()
+    table = "main"
 
-    url_aids = f"{BASE_URL}/assay/target/accession/{protein}/aids/JSON"
-
-    try:
-        response = requests.get(url_aids, timeout=30)
-        response.raise_for_status()
-
-        data = response.json()
-        aids = data["IdentifierList"]["AID"]
-
-    except Exception as e:
-        estado.error(f"Error con {protein}: {e}")
-        return
-
-    if "CID" not in df.columns:
-        df["CID"] = pd.Series(dtype="Int64")
-    # dropna para eliminar datos vacios, en teoria no deberia de pasar
-    cids_agregados = set(df["CID"].dropna().astype(int).tolist())
-
-    fila_actual = len(df)
-    total = len(aids)
-
-    for i, aid in enumerate(aids):
-
-        estado.write(f"{protein} | AID {aid}")
+    
+    cursor.execute(f"ALTER TABLE {table} ADD COLUMN CID TEXT")
+    cursor.execute(f"ALTER TABLE {table} ADD COLUMN AIDs TEXT")
+    cursor.execute(f"ALTER TABLE {table} ADD COLUMN Proteins TEXT")
+    cursor.execute(f"""
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_cid_unique
+    ON {table}(CID)
+    """)
+    connection.commit()
+    
+    #########
+    trabajos = []
+    for protein in proteins:
+        url_aids = f"{BASE_URL}/assay/target/accession/{protein}/aids/JSON"
 
         try:
-            url_cids = f"{BASE_URL}/assay/aid/{aid}/cids/JSON"
+            response = requests.get(url_aids, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            aids = data["IdentifierList"]["AID"]
+            for aid in aids:
+                trabajos.append((protein, aid))
 
+        except Exception as e:
+           print(f"Error con {protein}: {e}")
+    
+    total_steps = len(trabajos)
+
+
+    for step, (protein, aid) in enumerate(trabajos, start=1):
+        try:
+            url_cids = (
+                f"{BASE_URL}/assay/aid/"
+                f"{aid}/cids/JSON"
+            )
             response = requests.get(url_cids, timeout=30)
             response.raise_for_status()
 
             cid_data = response.json()
 
-            cids = cid_data["InformationList"]["Information"][0]["CID"]
-
+            cids = (
+                cid_data["InformationList"]
+                ["Information"][0]["CID"]
+            )
             for cid in cids:
+                cursor.execute(f"""
+                SELECT AIDs, Proteins
+                FROM {table}
+                WHERE CID = ?
+                """, (cid,))
 
-                if cid not in cids_agregados:
-                    cids_agregados.add(cid)
+                result = cursor.fetchone()
+                if result is None:
+                    cursor.execute(f"""
+                    INSERT INTO {table}
+                    (CID, AIDs, Proteins)
+                    VALUES (?, ?, ?)
+                    """, (
+                        cid,
+                        str(aid),
+                        protein
+                    ))
 
-                    # modifica df 
-                    df.loc[fila_actual, "CID"] = cid
-                    fila_actual += 1
+                # =============================================
+                # Si SI existe -> actualizar
+                # =============================================
+                else:
 
-                    # actualizar streamlit en vivo
-                    placeholder.dataframe(df, use_container_width=True)
+                    current_aids, current_proteins = result
+
+                    aids_set = set(
+                        current_aids.split(", ")
+                    )
+
+                    proteins_set = set(
+                        current_proteins.split(", ")
+                    )
+
+                    aids_set.add(str(aid))
+                    proteins_set.add(protein)
+
+                    updated_aids = ", ".join(
+                        sorted(aids_set)
+                    )
+
+                    updated_proteins = ", ".join(
+                        sorted(proteins_set)
+                    )
+
+                    cursor.execute(f"""
+                    UPDATE {table}
+                    SET
+                        AIDs = ?,
+                        Proteins = ?
+                    WHERE CID = ?
+                    """, (
+                        updated_aids,
+                        updated_proteins,
+                        cid
+                    ))
+
+            connection.commit()
 
 
-        except:
-            pass
-
-        progreso.progress((i + 1) / total)
+        except Exception as e:
+            print(
+                f"Error procesando AID {aid}: {e}"
+            )
+        progreso.progress(step / total_steps)
