@@ -1,0 +1,50 @@
+=====================================================
+                       CHAMANP
+     Curation-hierarchical analysis for molecular 
+            annotation of natural products
+-----------------------------------------------------
+Developer: Flavio F. Contreras-Torres
+Version: 0.20.0
+Status: pre-stable development
+Execution Date: 2026-05-27 12:18:23
+-----------------------------------------------------
+GitHub: https://github.com/NanoBiostructuresRG
+=====================================================
+
+# Pipeline Report - ML-stage: Input Preparation
+
+Title: PubChem NPs - Dataset Preparation
+Tag: pubchem
+----------------------------------------------------
+Original database size:       15
+Stereo-duplicates removed:    0
+Remaining after deduplication: 15
+
+Target collections:           ['PubChem NPs']
+Logic:                        OR
+Final compounds retained:     1
+Invalid SMILES rows:          0
+Valid molecules fingerprinted: 1
+
+Execution metadata:
+- Collection tag:    pubchem
+- Input CSV:         ../source_data/example_chamanp.csv
+- Fingerprint radius: 2
+- Fingerprint bits:   1024
+
+Properties retained:
+- identifier
+- canonical_smiles
+- name
+- molecular_weight
+- alogp
+- topological_polar_surface_area
+- np_likeness
+- collections
+
+Output files:
+- Curated CSV:       artifacts/curated_pubchem.csv
+- Filtered CSV:      artifacts/filtered_pubchem.csv
+- Metadata CSV:      artifacts/valid_metadata_pubchem.csv
+- Fingerprints NPY:  artifacts/X_pubchem.npy
+- Invalid SMILES CSV: artifacts/invalid_smiles_pubchem.csv

@@ -2,13 +2,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import sqlite3
+import os
 from modules.obtener_CIDs_Pubchem import obtener_CIDs_Pubchem
+from modules.use_harmonsmile import use_PubchemIngest
+from modules.use_chamanp import use_chamanp
 
 
 @st.cache_resource #esto se usa para manejar la persistencia de la conexion
 def get_connection(db_name):
     return sqlite3.connect(f"SQL/{db_name}", check_same_thread=False)
-
 
 def count_rows_group_by(connection):
 
@@ -156,7 +158,6 @@ def build_preview_table():
         table = "main"
 
         if len(st.session_state["selected_headers"]) == 0:
-            query = f"SELECT * FROM {table}"
             return pd.DataFrame()
         else:
             cols = ", ".join(st.session_state["selected_headers"])
@@ -165,7 +166,71 @@ def build_preview_table():
     else:
         return pd.DataFrame()
 
+def get_selected_columns(): #diferencia entre build_preview_table es que esta no tiene limite de 10
+    if st.session_state["database_id"] != "":
+        conn = get_connection(st.session_state["database_id"])
+        table = "main"
 
+        if len(st.session_state["selected_headers"]) == 0:
+            return pd.DataFrame()
+        else:
+            cols = ", ".join(st.session_state["selected_headers"])
+            query = f"SELECT {cols} FROM {table}"
+            return pd.read_sql_query(query, conn)
+    else:
+        return pd.DataFrame()
+
+def agregar_df_por_pk(df, pk, fk): # agregar dataframe por primary key
+    conn = get_connection(st.session_state["database_id"])
+    cursor = conn.cursor()
+    table = "main"
+    print(df)
+    # agregar las columnas que vamos a agregar (excluyendo la llave foreign key)
+    columnas_a_actualizar = [col for col in df.columns if col != fk]
+    print(columnas_a_actualizar)
+    if not columnas_a_actualizar:
+        return False # No hay columnas nuevas que actualizar
+        
+    try:
+        #Paso 1: Asegurarnos de que las columnas nuevas existan en la tabla 'main'
+        # Buscamos qué columnas ya existen en 'main' para no duplicar errores
+        cursor.execute(f"PRAGMA table_info({table})")
+        columnas_existentes = [row[1] for row in cursor.fetchall()]
+        
+        for col in columnas_a_actualizar:
+            if col not in columnas_existentes:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+        print("Columnas agregadas")
+        
+        #Paso 2: Subir el DataFrame actual a una tabla temporal
+        temp_table_name = "_temp_updates"
+        df.to_sql(temp_table_name, conn, if_exists="replace", index=False)
+        
+        # 4. Paso 3: Ejecutar el UPDATE masivo mediante un JOIN con la tabla temporal
+        set_clause = ", ".join([f"{col} = (SELECT {col} FROM {temp_table_name} WHERE {temp_table_name}.{fk} = {table}.{pk})" for col in columnas_a_actualizar])
+        
+        # Solo actualizamos las filas donde realmente coincidan las llaves para no borrar datos existentes con NULLs
+        update_query = f"""
+            UPDATE {table}
+            SET {set_clause}
+            WHERE {pk} IN (SELECT {fk} FROM {temp_table_name})
+        """
+        print("Query construido")
+        cursor.execute(update_query)
+        print("query ejecutado")
+        # 5. Paso 4: Limpieza de la tabla temporal y guardar cambios
+        cursor.execute(f"DROP TABLE IF EXISTS {temp_table_name}")
+        print("tabla eliminada")
+
+        conn.commit()
+        print("after commit")
+
+        return True
+        
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Error al actualizar la base de datos: {e}")
+        return False
 
 ### Definicion session state vars
 if "database_id" not in st.session_state:
@@ -185,6 +250,17 @@ if "selected_proteins" not in st.session_state:
 
 
 ### SIDE BAR MENU ###
+#variables de estado
+
+if "selecting_harmonsmile" not in st.session_state:
+    st.session_state["selecting_harmonsmile"] = ""
+if "selecting_chamanp" not in st.session_state:
+    st.session_state["selecting_chamanp"] = ""
+
+def set_curados_false():
+    st.session_state["selecting_harmonsmile"] = False 
+    st.session_state["selecting_chamanp"] = False 
+
 with st.sidebar:
     st.header("Acciones")
     #if st.session_state["database_id"] == "":
@@ -205,6 +281,62 @@ with st.sidebar:
                 st.rerun()
 
     st.subheader("Curado")
+    if st.button("HARMONSMILE"): 
+        set_curados_false()
+        st.session_state["selecting_harmonsmile"] = True 
+    if st.button("CHAMANP"): 
+        set_curados_false()
+        st.session_state["selecting_chamanp"] = True 
+    
+    #procesos
+    if st.session_state["selecting_harmonsmile"]:
+        st.text("Seleccione únicamente la columna de CIDs")
+        if len(st.session_state["selected_headers"]) == 1:
+            if st.button("Run"):
+                new_table_df = use_PubchemIngest(get_selected_columns())
+                #new_table_df = pd.read_csv("tempFilesHarmonsile/res_pubchem_harmonized.csv")#use_PubchemIngest(get_selected_columns())
+                #new_table_df.columns = ( #preparamos los datos para ser procesados por sql
+                #    new_table_df.columns
+                #    .str.replace(" ", "_", regex=False)
+                #    .str.replace(":", "", regex=False)
+                #)
+                
+                
+                #NOTA: asumo que la fk de la tabla regresada siempre incluye Pubchem CID
+                if agregar_df_por_pk(new_table_df, st.session_state["selected_headers"][0], "PubChem_CID"):
+                    st.text("HarmonSmile exitoso")
+                else:
+                    st.text("Error en HarmonSmile")
+                update_headers()
+                st.rerun()
+    if st.session_state["selecting_chamanp"]:
+        st.text("Selecciona las columnas a procesar")
+        st.text(f"Columnas Seleccionadas : {st.session_state['selected_headers']}")
+        st.selectbox("Selecciona canonical_smiles", st.session_state['selected_headers'], key="selected_smiles")
+        st.selectbox("Selecciona collections", st.session_state['selected_headers'], key="selected_collections")
+
+        if st.button("Run"):
+            use_chamanp(get_selected_columns(), st.session_state["selected_smiles"], st.session_state["selected_collections"])
+            st.text("Chamanp exitoso")
+            st.text("Descargando archivos")
+        folder_path = "artifacts"
+        files = os.listdir(folder_path)
+            
+        for file_name in files:
+            file_path = os.path.join(folder_path, file_name)
+            print(file_name)
+            with open(file_path, "rb") as f:
+                downloaded = st.download_button(
+                    label=f"Descargar {file_name}",
+                    data=f,
+                    file_name=file_name,
+                    mime="application/octet-stream",
+                    key=file_name
+                )
+            if downloaded:
+                os.remove(file_path)
+                st.success(f"{file_name} eliminado del servidor")
+                    
     st.subheader("Export")
     st.download_button(
         label="Download CSV",
@@ -265,6 +397,7 @@ with container2:
         st.markdown(f"Your selected headers: {st.session_state["selected_headers"]}.")
          #tabla preview de headers seleccionados
         st.dataframe(build_preview_table(), hide_index=True)
+        
     else:
         st.markdown("No headers selected")
     
