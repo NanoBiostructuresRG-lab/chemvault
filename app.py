@@ -3,9 +3,11 @@ import pandas as pd
 import numpy as np
 import sqlite3
 import os
+from PIL import Image
 from modules.obtener_CIDs_Pubchem import obtener_CIDs_Pubchem
 from modules.use_harmonsmile import use_PubchemIngest
 from modules.use_chamanp import use_chamanp
+
 
 
 @st.cache_resource #esto se usa para manejar la persistencia de la conexion
@@ -152,6 +154,37 @@ def export_table():
 
     return df.to_csv(index=False).encode("utf-8")
 
+def export_table_by_sub_grupo(codigo_buscar: str, columna_filtro: str):
+    if st.session_state["database_id"] == "":
+        empty_df = pd.DataFrame()
+        return empty_df.to_csv(index=False).encode("utf-8")
+
+    conn = get_connection(st.session_state["database_id"])
+
+    table = "main"
+
+    # columnas seleccionadas
+    if len(st.session_state["selected_headers"]) == 0:
+        cols = "*"
+    else:
+        cols = ", ".join(st.session_state["selected_headers"])
+
+    # query con filtro LIKE
+    query = f"""
+        SELECT {cols}
+        FROM {table}
+        WHERE {columna_filtro} LIKE ?
+    """
+
+    df = pd.read_sql_query(
+        query,
+        conn,
+        params=[f"%{codigo_buscar}%"]
+    )
+
+    return df.to_csv(index=False).encode("utf-8")
+
+
 def build_preview_table():
     if st.session_state["database_id"] != "":
         conn = get_connection(st.session_state["database_id"])
@@ -249,6 +282,16 @@ if "selected_proteins" not in st.session_state:
     st.session_state["selected_proteins"] = []
 
 
+### Decor ###
+logo = Image.open("assets/logo.jpeg")
+
+# Configuración de página
+st.set_page_config(
+    page_title="Curador",
+    page_icon=logo,
+    layout="wide"
+)
+
 ### SIDE BAR MENU ###
 #variables de estado
 
@@ -321,7 +364,8 @@ with st.sidebar:
             st.text("Descargando archivos")
         folder_path = "artifacts"
         files = os.listdir(folder_path)
-            
+
+         #manejar la descraga de los archivos, en caso de que se corra de nuevo, en use chamanp se eliminan los archivos    
         for file_name in files:
             file_path = os.path.join(folder_path, file_name)
             print(file_name)
@@ -338,6 +382,27 @@ with st.sidebar:
                 st.success(f"{file_name} eliminado del servidor")
                     
     st.subheader("Export")
+    st.text("Use sub group")
+    header_options = st.session_state['selected_headers']
+    if len(st.session_state['selected_headers']) == 0:
+        header_options = st.session_state['headers']
+    st.selectbox("Selecciona SMILES", header_options, key="selected_smiles")
+    st.text_input("Ingresa código a buscar en la columna seleccionada", key="codigo_buscar")
+    if (
+        st.session_state["selected_smiles"] != ""
+        and st.session_state["codigo_buscar"].strip() != ""
+    ):
+
+        st.download_button(
+            label="Download SubGroup CSV",
+            data=export_table_by_sub_grupo(
+                codigo_buscar=st.session_state["codigo_buscar"],
+                columna_filtro=st.session_state["selected_smiles"]
+            ),
+            file_name="data.csv",
+            mime="text/csv",
+            icon=":material/download:",
+        )
     st.download_button(
         label="Download CSV",
         data=export_table(),
@@ -348,6 +413,7 @@ with st.sidebar:
 ### MAIN PAGE ###
 
 ## Session --- Current Progress
+container0 = st.container(horizontal=True, horizontal_alignment="distribute", gap="large")
 container1 = st.container(horizontal=True, horizontal_alignment="distribute", gap="large")
 st.html("""
     <hr style="
@@ -374,6 +440,17 @@ st.html("""
 
 ### Escritura de datos y logica ###
 # 1 #
+col_logo, col_titulo = container0.columns([0.1, 0.9])
+
+# Colocamos el logo en la primera columna}
+
+with col_logo:
+    st.image("assets/logo.jpeg", use_container_width=True)
+
+# Colocamos el título en la segunda columna
+with col_titulo:
+    st.header("Construcción y Curado de Conjuntos de Datos Moleculares Tabulares")
+
 if st.session_state["database_id"] =="":
     container1.text_input(
         label="SQL Database name",
