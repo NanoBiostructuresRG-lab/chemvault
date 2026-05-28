@@ -368,28 +368,28 @@ with st.sidebar:
          #manejar la descraga de los archivos, en caso de que se corra de nuevo, en use chamanp se eliminan los archivos    
         for file_name in files:
             file_path = os.path.join(folder_path, file_name)
-            print(file_name)
-            with open(file_path, "rb") as f:
-                downloaded = st.download_button(
-                    label=f"Descargar {file_name}",
-                    data=f,
-                    file_name=file_name,
-                    mime="application/octet-stream",
-                    key=file_name
-                )
-            if downloaded:
-                os.remove(file_path)
-                st.success(f"{file_name} eliminado del servidor")
+            if(file_name != "notes.txt"):
+                with open(file_path, "rb") as f:
+                    downloaded = st.download_button(
+                        label=f"Descargar {file_name}",
+                        data=f,
+                        file_name=file_name,
+                        mime="application/octet-stream",
+                        key=file_name
+                    )
+                if downloaded:
+                    os.remove(file_path)
+                    st.success(f"{file_name} eliminado del servidor")
                     
     st.subheader("Export")
     st.text("Use sub group")
     header_options = st.session_state['selected_headers']
     if len(st.session_state['selected_headers']) == 0:
         header_options = st.session_state['headers']
-    st.selectbox("Selecciona SMILES", header_options, key="selected_smiles")
+    st.selectbox("Selecciona SMILES", header_options, key="selected_smiles_for_export")
     st.text_input("Ingresa código a buscar en la columna seleccionada", key="codigo_buscar")
     if (
-        st.session_state["selected_smiles"] != ""
+        st.session_state["selected_smiles_for_export"] != ""
         and st.session_state["codigo_buscar"].strip() != ""
     ):
 
