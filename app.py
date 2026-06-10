@@ -12,7 +12,7 @@ from modules.use_chamanp import use_chamanp
 
 @st.cache_resource #esto se usa para manejar la persistencia de la conexion
 def get_connection(db_name):
-    return sqlite3.connect(f"SQL/{db_name}", check_same_thread=False)
+    return sqlite3.connect(f"SQL/{db_name}.db", check_same_thread=False)
 
 def count_rows_group_by(connection):
 
@@ -97,6 +97,8 @@ def update_headers():
     else: return []
 
 def build_from_csv(uploaded_file):
+    if os.path.isfile(f"SQL/{db_name}.db"):
+        os.remove(f"SQL/{db_name}.db")
     conn = get_connection(st.session_state["database_id"])
     cursor = conn.cursor()
     table = "main"
@@ -106,11 +108,11 @@ def build_from_csv(uploaded_file):
     df.columns = [col.strip().replace(" ", "_") for col in df.columns]
 
     ### para eliminar errores de duplicados de keys, se hace un drop
-    cursor.execute(f"""
-        DROP TABLE IF EXISTS {table}
-        """)
-    conn.commit()
-
+    #cursor.execute(f"""
+    #    DROP TABLE IF EXISTS {table}
+    #    """)
+    #conn.commit()
+    #ya no hace falta porque eliminamos el archivo
     
     cursor.execute(f"""
         CREATE TABLE {table} (
