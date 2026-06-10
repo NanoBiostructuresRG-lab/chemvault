@@ -10,7 +10,6 @@ from modules.use_chamanp import use_chamanp
 
 
 
-@st.cache_resource #esto se usa para manejar la persistencia de la conexion
 def get_connection(db_name):
     return sqlite3.connect(f"SQL/{db_name}.db", check_same_thread=False)
 
@@ -108,11 +107,10 @@ def build_from_csv(uploaded_file):
     df.columns = [col.strip().replace(" ", "_") for col in df.columns]
 
     ### para eliminar errores de duplicados de keys, se hace un drop
-    #cursor.execute(f"""
-    #    DROP TABLE IF EXISTS {table}
-    #    """)
-    #conn.commit()
-    #ya no hace falta porque eliminamos el archivo
+    cursor.execute(f"""
+        DROP TABLE IF EXISTS {table}
+        """)
+    conn.commit()
     
     cursor.execute(f"""
         CREATE TABLE {table} (
@@ -268,7 +266,25 @@ def agregar_df_por_pk(df, pk, fk): # agregar dataframe por primary key
         return False
 
 ### Definicion session state vars
-if "database_id" not in st.session_state:
+def verify_directories():
+    if not os.path.exists("SQL"):
+        os.makedirs("SQL")
+    if not os.path.exists("artifacts"):
+        os.makedirs("artifacts")
+    else:
+        files = os.listdir("artifacts")  
+        for file_name in files:
+            file_path = os.path.join("artifacts", file_name)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+    if not os.path.exists("tempFilesChamanp"):
+        os.makedirs("tempFilesChamanp")
+    if not os.path.exists("tempFilesHarmonsile"):
+        os.makedirs("tempFilesHarmonsile")
+
+
+if "database_id" not in st.session_state: ##aqui tambien verifico y creo las carpetas para sql, harmonsmile y chamanp
+    verify_directories()
     st.session_state["database_id"] = ""
 
 if "set_text_input_locked" not in st.session_state:
@@ -357,11 +373,12 @@ with st.sidebar:
     if st.session_state["selecting_chamanp"]:
         st.text("Selecciona las columnas a procesar")
         st.text(f"Columnas Seleccionadas : {st.session_state['selected_headers']}")
+        st.selectbox("Selecciona identifier", st.session_state['selected_headers'], key="selected_identifier")
         st.selectbox("Selecciona canonical_smiles", st.session_state['selected_headers'], key="selected_smiles")
         st.selectbox("Selecciona collections", st.session_state['selected_headers'], key="selected_collections")
 
         if st.button("Run"):
-            use_chamanp(get_selected_columns(), st.session_state["selected_smiles"], st.session_state["selected_collections"])
+            use_chamanp(get_selected_columns(), st.session_state["selected_identifier"], st.session_state["selected_smiles"], st.session_state["selected_collections"])
             st.text("Chamanp exitoso")
             st.text("Descargando archivos")
         folder_path = "artifacts"

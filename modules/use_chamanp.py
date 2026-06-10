@@ -3,15 +3,11 @@ import pandas as pd
 import os
 
 
-def use_chamanp(df: pd.DataFrame, smiles_col: str, collections_col: str):
-    files = os.listdir("artifacts")  
-    for file_name in files:
-        file_path = os.path.join("artifacts", file_name)
-        if os.path.isfile(file_path) and not file_name == "notes.txt":
-            os.remove(file_path)
+def use_chamanp(df: pd.DataFrame, identifier_col: str, smiles_col: str, collections_col: str):
     input_path = "tempFilesChamanp/data.csv"
     temp_df = df.copy()
     temp_df = temp_df.rename(columns={
+        identifier_col: "identifier",
         smiles_col: "canonical_smiles",
         collections_col: "collections"
     })
