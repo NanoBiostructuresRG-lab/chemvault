@@ -13,14 +13,14 @@ from modules.use_chamanp import use_chamanp
 def get_connection(db_name):
     return sqlite3.connect(f"SQL/{db_name}.db", check_same_thread=False)
 def count_rows_group_by(connection):
-
+    if st.session_state["grupo_a_contar"] == "": return 0
     cursor = connection.cursor()
 
     cursor.execute(f"""
         SELECT COUNT(*)
         FROM (
             SELECT {st.session_state["grupo_a_contar"]}
-            FROM main
+            FROM {st.session_state["current_table"]}
             GROUP BY {st.session_state["grupo_a_contar"]}
         )
     """)
@@ -30,7 +30,7 @@ def count_rows_group_by(connection):
     return total
 def count_rows(connection): 
     cursor = connection.cursor()
-    cursor.execute(f""" SELECT COUNT(*) FROM main """) 
+    cursor.execute(f""" SELECT COUNT(*) FROM {st.session_state["current_table"]} """) 
     total = cursor.fetchone()[0] 
     return total
 
@@ -71,28 +71,44 @@ def set_database_id():
     st.toast(f"SQL Database set to { st.session_state["database_id"]}")
 
     ### construir o cargar datos ###
+    st.session_state["current_table"] = "main"
     update_headers()
+def get_tables():
+    if os.path.isfile(f"SQL/{st.session_state["database_id"] }.db"):#cargar tablas
+        conn = get_connection(st.session_state["database_id"])
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT name
+            FROM sqlite_master
+            WHERE type='table'
+            AND name NOT LIKE 'sqlite_%'
+        """)
+
+        tables = [row[0] for row in cursor.fetchall()]
+        st.session_state["all_tables"] = tables
 
 def update_headers():
     if st.session_state["database_id"] != "":
-        conn = get_connection(st.session_state["database_id"])
-        cursor = conn.cursor()
-        table = st.session_state["current_table"]
+            conn = get_connection(st.session_state["database_id"])
+            cursor = conn.cursor()
+            table = st.session_state["current_table"]
 
-        cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {table} (
-            primary_id INTEGER PRIMARY KEY AUTOINCREMENT
-        )
-        """)
-        conn.commit()
+            cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table} (
+                primary_id INTEGER PRIMARY KEY AUTOINCREMENT
+            )
+            """)
+            conn.commit()
 
-        cursor.execute(f"PRAGMA table_info({table})")
-        columns_info = cursor.fetchall()
+            cursor.execute(f"PRAGMA table_info({table})")
+            columns_info = cursor.fetchall()
 
-        headers = [col[1] for col in columns_info]
-        st.session_state["headers"] = headers
+            headers = [col[1] for col in columns_info]
+            st.session_state["headers"] = headers
+            get_tables()
     else: return []
-
+#st.session_state['all_tables']
 def build_from_csv(uploaded_file):
     if os.path.isfile(f"SQL/{db_name}.db"):
         os.remove(f"SQL/{db_name}.db")
@@ -132,6 +148,7 @@ def build_from_csv(uploaded_file):
     )
 
     conn.commit()
+    
 
 def build_from_proteins(progreso):
     st.session_state["current_table"] = "main"
@@ -188,7 +205,6 @@ def export_table_by_sub_grupo(codigo_buscar: str, columna_filtro: str):
     )
 
     return df.to_csv(index=False).encode("utf-8")
-
 
 def build_preview_table():
     if st.session_state["database_id"] != "":
@@ -306,6 +322,12 @@ if "selected_proteins" not in st.session_state:
 
 if "current_table" not in st.session_state: 
     st.session_state["current_table"] = ""
+
+if "all_tables" not in st.session_state: 
+    st.session_state["all_tables"] =[]
+
+if "grupo_a_contar" not in st.session_state: 
+    st.session_state["grupo_a_contar"] =""
 
 
 ### Decor ###
@@ -478,6 +500,7 @@ st.html("""
         margin: 20px 0;
     ">
     """)
+container3 = st.container(horizontal=False, horizontal_alignment="left")
 
 
 
@@ -504,10 +527,11 @@ if st.session_state["database_id"] =="":
     )
 else:
     container1.text("Data Base: " +st.session_state["database_id"])
-    container1.text("Table: " + st.session_state["current_table"])
+    #container1.text("Table: " + st.session_state["current_table"])
+    container1.selectbox("Selecciona Table", st.session_state['all_tables'], key="current_table", index = 0,on_change=update_headers)
     container1.write("Rows: " + str(count_rows(get_connection(st.session_state["database_id"]))))
-    container1.selectbox("Contar por grupos", st.session_state['headers'], key="grupo_a_contar")
-    container1.write("Rows by group: " + str(count_rows_group_by(get_connection(st.session_state["database_id"]))))
+    container1.selectbox(f"Contar por grupos: { str(count_rows_group_by(get_connection(st.session_state["database_id"])))}", st.session_state['headers'], key="grupo_a_contar")
+    #container1.write("Rows by group: " + str(count_rows_group_by(get_connection(st.session_state["database_id"]))))
 
 # 2 #
 
@@ -525,4 +549,34 @@ with container2:
         st.markdown("No headers selected")
     
    
-    
+with container3:
+    if st.session_state["database_id"] != "" and len(st.session_state["headers"]) > 0:
+        st.subheader("Información Adicional")
+        conn = get_connection(st.session_state["database_id"])
+        cursor = conn.cursor()
+        cursor.execute(f"PRAGMA table_info({st.session_state['current_table']})")
+        columns_info = cursor.fetchall()
+        if columns_info:
+            headers_types_df = pd.DataFrame(
+                [(col[1], col[2]) for col in columns_info],
+                columns=["Header", "Type"]
+            )
+            st.dataframe(headers_types_df, hide_index=True)
+            
+            st.subheader("Cambiar tipo de columna")
+            col_to_change = st.selectbox("Selecciona columna", [col[1] for col in columns_info], key="col_to_change_select")
+            new_type = st.selectbox("Nuevo tipo", ["TEXT", "INTEGER", "REAL", "BLOB"], key="new_col_type_select")
+            
+            if st.button("Aplicar cambio de tipo"):
+                try:
+                    cursor.execute(f"ALTER TABLE {st.session_state['current_table']} ADD COLUMN {col_to_change}_new {new_type}")
+                    cursor.execute(f"UPDATE {st.session_state['current_table']} SET {col_to_change}_new = CAST({col_to_change} AS {new_type})")
+                    cursor.execute(f"ALTER TABLE {st.session_state['current_table']} DROP COLUMN {col_to_change}")
+                    cursor.execute(f"ALTER TABLE {st.session_state['current_table']} RENAME COLUMN {col_to_change}_new TO {col_to_change}")
+                    conn.commit()
+                    st.success(f"Tipo de '{col_to_change}' cambiado a {new_type}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al cambiar el tipo: {e}")
+        else:
+            st.markdown("No se encontró información de tipos de datos.")
