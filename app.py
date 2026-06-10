@@ -12,17 +12,16 @@ from modules.use_chamanp import use_chamanp
 
 def get_connection(db_name):
     return sqlite3.connect(f"SQL/{db_name}.db", check_same_thread=False)
-
 def count_rows_group_by(connection):
 
     cursor = connection.cursor()
 
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT COUNT(*)
         FROM (
-            SELECT Bioactivity_ID
+            SELECT {st.session_state["grupo_a_contar"]}
             FROM main
-            GROUP BY Bioactivity_ID
+            GROUP BY {st.session_state["grupo_a_contar"]}
         )
     """)
 
@@ -35,14 +34,10 @@ def count_rows(connection):
     total = cursor.fetchone()[0] 
     return total
 
-def build_from_proteins(progreso):
-    obtener_CIDs_Pubchem(get_connection(st.session_state["database_id"]),st.session_state["selected_proteins"],progreso)
-
 @st.dialog("Seleccionar Proteínas", dismissible=False )
 def select_proteins():
     st.write("Buscar CIDs por BioAssayss, usando proteína como target")
     st.text_input(label="Protein", key="input_protein",value="P34971")
-
     if st.button("Agregar a selección"):
         st.session_state["selected_proteins"].append(st.session_state["input_protein"])
         st.markdown(f"Tus proteinas: {st.session_state["selected_proteins"]}.")
@@ -60,6 +55,9 @@ def select_proteins():
             build_from_proteins(progreso)
             update_headers()
         st.rerun()
+    if st.button("Cancelar"):
+        st.session_state["selected_proteins"] = []
+        st.rerun()  
 
 
 
@@ -79,7 +77,7 @@ def update_headers():
     if st.session_state["database_id"] != "":
         conn = get_connection(st.session_state["database_id"])
         cursor = conn.cursor()
-        table = "main"
+        table = st.session_state["current_table"]
 
         cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS {table} (
@@ -100,7 +98,10 @@ def build_from_csv(uploaded_file):
         os.remove(f"SQL/{db_name}.db")
     conn = get_connection(st.session_state["database_id"])
     cursor = conn.cursor()
-    table = "main"
+
+    if st.session_state["current_table"] == "":
+        st.session_state["current_table"] = "main"
+    table = st.session_state["current_table"]
 
     df = pd.read_csv(uploaded_file)
 
@@ -132,6 +133,10 @@ def build_from_csv(uploaded_file):
 
     conn.commit()
 
+def build_from_proteins(progreso):
+    st.session_state["current_table"] = "main"
+    obtener_CIDs_Pubchem(get_connection(st.session_state["database_id"]),st.session_state["selected_proteins"],progreso)
+
 def export_table():
     if st.session_state["database_id"] == "":
         empty_df = pd.DataFrame()
@@ -141,7 +146,7 @@ def export_table():
 
     conn = get_connection(st.session_state["database_id"])
 
-    table = "main"
+    table = st.session_state["current_table"]
 
     # si no hay selección -> usar todas
     if len(st.session_state["selected_headers"]) == 0:
@@ -161,7 +166,7 @@ def export_table_by_sub_grupo(codigo_buscar: str, columna_filtro: str):
 
     conn = get_connection(st.session_state["database_id"])
 
-    table = "main"
+    table = st.session_state["current_table"]
 
     # columnas seleccionadas
     if len(st.session_state["selected_headers"]) == 0:
@@ -188,7 +193,7 @@ def export_table_by_sub_grupo(codigo_buscar: str, columna_filtro: str):
 def build_preview_table():
     if st.session_state["database_id"] != "":
         conn = get_connection(st.session_state["database_id"])
-        table = "main"
+        table = st.session_state["current_table"]
 
         if len(st.session_state["selected_headers"]) == 0:
             return pd.DataFrame()
@@ -202,7 +207,7 @@ def build_preview_table():
 def get_selected_columns(): #diferencia entre build_preview_table es que esta no tiene limite de 10
     if st.session_state["database_id"] != "":
         conn = get_connection(st.session_state["database_id"])
-        table = "main"
+        table = st.session_state["current_table"]
 
         if len(st.session_state["selected_headers"]) == 0:
             return pd.DataFrame()
@@ -216,7 +221,7 @@ def get_selected_columns(): #diferencia entre build_preview_table es que esta no
 def agregar_df_por_pk(df, pk, fk): # agregar dataframe por primary key
     conn = get_connection(st.session_state["database_id"])
     cursor = conn.cursor()
-    table = "main"
+    table = st.session_state["current_table"]
     print(df)
     # agregar las columnas que vamos a agregar (excluyendo la llave foreign key)
     columnas_a_actualizar = [col for col in df.columns if col != fk]
@@ -299,6 +304,9 @@ if "selected_headers" not in st.session_state:
 if "selected_proteins" not in st.session_state: 
     st.session_state["selected_proteins"] = []
 
+if "current_table" not in st.session_state: 
+    st.session_state["current_table"] = ""
+
 
 ### Decor ###
 logo = Image.open("assets/logo.jpeg")
@@ -324,23 +332,39 @@ def set_curados_false():
 
 with st.sidebar:
     st.header("Acciones")
-    #if st.session_state["database_id"] == "":
-    st.subheader("Construcción")
-        ### por proteina ###
-    if st.button("Buscar Proteínas") : select_proteins()
-        ### por csv ###
-    uploaded_file = st.file_uploader("Sube un CSV", type=["csv"])
-    if st.session_state["database_id"] == "":
-        if uploaded_file != None:
-                st.session_state["set_text_input_locked"] = True
+    #Construccion
+    if st.session_state["current_table"] == "":
+        st.subheader("Construcción")
+            ### por proteina ###
+        if st.button("Buscar Proteínas") : select_proteins()
+            ### por csv ###
+        uploaded_file = st.file_uploader("Sube un CSV", type=["csv"])
+        if st.session_state["database_id"] == "":
+            if uploaded_file != None:
+                    st.session_state["set_text_input_locked"] = True
 
-                db_name = uploaded_file.name.replace(".csv", "")
-                st.session_state["database_id"] = db_name
+                    db_name = uploaded_file.name.replace(".csv", "")
+                    st.session_state["database_id"] = db_name
 
-                build_from_csv(uploaded_file)
-                update_headers()
-                st.rerun()
-
+                    build_from_csv(uploaded_file)
+                    update_headers()
+                    st.rerun()
+    else:#Depurado
+        st.subheader("Depurado")
+        st.text_input(label="Nombre", key="new_table_name",value="Nueva_tabla")
+        if st.button("Crear Nueva Tabla con selección actual"):
+            conn = get_connection(st.session_state["database_id"])
+            cursor = conn.cursor()
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {st.session_state["new_table_name"]} AS
+                SELECT {", ".join(st.session_state["selected_headers"])} FROM {st.session_state["current_table"]}
+            """)
+            conn.commit()
+            st.session_state["current_table"] = st.session_state["new_table_name"]
+            update_headers()
+            
+            st.rerun()  
+        
     st.subheader("Curado")
     if st.button("HARMONSMILE"): 
         set_curados_false()
@@ -479,8 +503,11 @@ if st.session_state["database_id"] =="":
         disabled=st.session_state["set_text_input_locked"]
     )
 else:
-    container1.text(st.session_state["database_id"])
-    container1.write("Compounds: " + str(count_rows(get_connection(st.session_state["database_id"]))))
+    container1.text("Data Base: " +st.session_state["database_id"])
+    container1.text("Table: " + st.session_state["current_table"])
+    container1.write("Rows: " + str(count_rows(get_connection(st.session_state["database_id"]))))
+    container1.selectbox("Contar por grupos", st.session_state['headers'], key="grupo_a_contar")
+    container1.write("Rows by group: " + str(count_rows_group_by(get_connection(st.session_state["database_id"]))))
 
 # 2 #
 
