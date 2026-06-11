@@ -351,6 +351,23 @@ if "selecting_chamanp" not in st.session_state:
 def set_curados_false():
     st.session_state["selecting_harmonsmile"] = False 
     st.session_state["selecting_chamanp"] = False 
+def construir_linea_query():
+    base_query = f"""
+    CREATE TABLE IF NOT EXISTS {st.session_state["new_table_name"]} AS
+    SELECT {", ".join(st.session_state["selected_headers"])} FROM {st.session_state["current_table"]}
+    """
+    filter_clause = ""
+    match st.session_state["type_of_filter"]:
+        case "Ninguno":
+            pass
+        case "GROUP BY":
+            filter_clause = f"GROUP BY {st.session_state['group_by_column']}"
+        case "WHERE":
+            filter_clause = f"WHERE {st.session_state['where_column']} {st.session_state['where_condition']}"
+        case "ORDER BY":
+            filter_clause = f"ORDER BY {st.session_state['order_by_column']} {st.session_state['order_direction']}"
+    
+    return base_query + filter_clause
 
 with st.sidebar:
     st.header("Acciones")
@@ -374,18 +391,33 @@ with st.sidebar:
     else:#Depurado
         st.subheader("Depurado")
         st.text_input(label="Nombre", key="new_table_name",value="Nueva_tabla")
+        st.selectbox("Filtrado Adicional", ["Ninguno", "GROUP BY", "WHERE","ORDER BY"], key="type_of_filter")
+        match st.session_state["type_of_filter"]:
+            case "Ninguno":
+                pass
+            case "GROUP BY":
+                st.selectbox("Columna a agrupar", st.session_state["selected_headers"], key="group_by_column")
+            case "WHERE":
+                st.selectbox("Columna a condicionar", st.session_state["selected_headers"], key="where_column")
+                st.text_input("Condición (ejemplo: > 100, = 'HarmonSmile', etc)", key="where_condition")
+            case "ORDER BY":
+                st.selectbox("Columna a ordenar", st.session_state["selected_headers"], key="order_by_column")
+                st.selectbox("Ascendente o Descendente", ["ASC", "DESC"], key="order_direction")
+        if st.button("Construir Query"):
+            st.text_area(disabled = True,label="Query personalizado (opcional)", key="custom_query", value=construir_linea_query())
+        
         if st.button("Crear Nueva Tabla con selección actual"):
             conn = get_connection(st.session_state["database_id"])
             cursor = conn.cursor()
-            cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS {st.session_state["new_table_name"]} AS
-                SELECT {", ".join(st.session_state["selected_headers"])} FROM {st.session_state["current_table"]}
-            """)
+            cursor.execute(st.session_state["custom_query"])
             conn.commit()
             st.session_state["current_table"] = st.session_state["new_table_name"]
             update_headers()
             
             st.rerun()  
+        
+#falta agregar order by
+#hacer un text box que muestre el query
         
     st.subheader("Curado")
     if st.button("HARMONSMILE"): 
@@ -525,6 +557,7 @@ if st.session_state["database_id"] =="":
         on_change=set_database_id,
         disabled=st.session_state["set_text_input_locked"]
     )
+
 else:
     container1.text("Data Base: " +st.session_state["database_id"])
     #container1.text("Table: " + st.session_state["current_table"])
