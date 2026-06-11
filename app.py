@@ -557,7 +557,11 @@ if st.session_state["database_id"] =="":
         on_change=set_database_id,
         disabled=st.session_state["set_text_input_locked"]
     )
-
+    files = os.listdir("SQL")  
+    dbs = []
+    for file_name in files:
+        dbs.append(file_name.replace(".db", ""))
+    container1.selectbox("O selecciona una SQL Database existente", dbs, key="existing_db_select", on_change=update_headers)
 else:
     container1.text("Data Base: " +st.session_state["database_id"])
     #container1.text("Table: " + st.session_state["current_table"])

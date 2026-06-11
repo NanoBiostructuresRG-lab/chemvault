@@ -16,9 +16,22 @@ Una aplicación de Streamlit para gestionar, visualizar y explorar bases de dato
 git clone https://github.com/DiegoCF8377/Curador-BD.git
 cd CURADOR-BD
 ```
-2. Instala las dependencias:
+2. Crear un entorno de conda (opcional)
+```bash
+conda create -n NOMBRE python=3.12
+```
+
+3. Instala las dependencias:
 ```bash
 pip install -r requirements.txt
+```
+4. Correr la app
+```bash
+python3 -m streamlit run app.py
+```
+O solamente
+```bash
+streamlit run app.py
 ```
 
 ## Uso
