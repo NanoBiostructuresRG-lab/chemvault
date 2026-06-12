@@ -13,7 +13,7 @@ Una aplicación de Streamlit para gestionar, visualizar y explorar bases de dato
 
 1. Clona el repositorio:
 ```bash
-git clone https://github.com/DiegoCF8377/Curador-BD.git
+git clone https://github.com/NanoBiostructuresRG-lab/Curador-BD.git
 cd CURADOR-BD
 ```
 2. Crear un entorno de conda (opcional)
