@@ -110,8 +110,11 @@ def update_headers():
     else: return []
 #st.session_state['all_tables']
 def build_from_csv(uploaded_file):
-    if os.path.isfile(f"SQL/{db_name}.db"):
-        os.remove(f"SQL/{db_name}.db")
+    if os.path.isfile(f"SQL/{st.session_state['database_id']}.db"):
+        try:
+            os.remove(f"SQL/{st.session_state['database_id']}.db")
+        except PermissionError:
+            pass
     conn = get_connection(st.session_state["database_id"])
     cursor = conn.cursor()
 
@@ -155,7 +158,7 @@ def build_from_proteins(progreso):
     obtener_CIDs_Pubchem(get_connection(st.session_state["database_id"]),st.session_state["selected_proteins"],progreso)
 
 def export_table():
-    if st.session_state["database_id"] == "":
+    if st.session_state["database_id"] == "" or st.session_state["current_table"] == "":
         empty_df = pd.DataFrame()
         return empty_df.to_csv(index=False).encode("utf-8")
     
@@ -297,7 +300,10 @@ def verify_directories():
         for file_name in files:
             file_path = os.path.join("artifacts", file_name)
             if os.path.isfile(file_path):
-                os.remove(file_path)
+                try:
+                    os.remove(file_path)
+                except PermissionError:
+                    pass
     if not os.path.exists("tempFilesChamanp"):
         os.makedirs("tempFilesChamanp")
     if not os.path.exists("tempFilesHarmonsile"):
@@ -329,6 +335,8 @@ if "all_tables" not in st.session_state:
 if "grupo_a_contar" not in st.session_state: 
     st.session_state["grupo_a_contar"] =""
 
+if "custom_query" not in st.session_state:
+    st.session_state["custom_query"] = ""
 
 ### Decor ###
 logo = Image.open("assets/logo.jpeg")
