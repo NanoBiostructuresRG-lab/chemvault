@@ -546,7 +546,7 @@ container3 = st.container(horizontal=False, horizontal_alignment="left")
 
 ### Escritura de datos y logica ###
 # 1 #
-col_logo, col_titulo = container0.columns([0.1, 0.9])
+col_logo, col_titulo = container0.columns([0.1, 0.9], vertical_alignment="center")
 
 # Colocamos el logo en la primera columna}
 
@@ -555,7 +555,9 @@ with col_logo:
 
 # Colocamos el título en la segunda columna
 with col_titulo:
-    st.header("Construcción y Curado de Conjuntos de Datos Moleculares Tabulares")
+    st.title("ChemVault")
+    st.caption("A molecular dataset builder and curator")
+    #st.header("Construcción y Curado de Conjuntos de Datos Moleculares Tabulares")
 
 if st.session_state["database_id"] =="":
     container1.text_input(
