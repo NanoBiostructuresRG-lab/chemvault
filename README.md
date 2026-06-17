@@ -89,11 +89,26 @@ Then open your browser at `http://localhost:8501`
 
 ## Quick Start
 
+### From a CSV file
+
 1. Launch the app and open your browser at `http://localhost:8501`
-2. In the sidebar, upload `examples/example_chamanp.csv`
-3. Explore the loaded dataset using the **Headers** pills
-4. Use the **Depurado** section in the sidebar to filter and create new tables
-5. Click **Download CSV** to export your curated dataset
+2. Enter a name for your SQL database in the **SQL Database name** field
+3. In the sidebar, upload `examples/example_chamanp.csv`
+4. Explore the loaded dataset using the **Headers** pills
+5. Use the **Depurado** section in the sidebar to filter and create new tables
+6. Click **Download CSV** to export your curated dataset
+
+### From PubChem (protein targets)
+
+1. Launch the app and open your browser at `http://localhost:8501`
+2. Enter a name for your SQL database in the **SQL Database name** field
+3. Click **Buscar Proteínas** in the sidebar
+4. Enter a UniProt accession (e.g. `P34971`), click **Agregar a selección**, then **Confirmar selección**
+5. Wait for ChemVault to fetch CIDs from PubChem — this may take a few minutes
+6. Select the `CID` pill in the **Headers** section
+7. Click **HARMONSMILE** in the sidebar, then **Run**
+8. Wait for HARMONSMILE to enrich your dataset with molecular properties
+9. Click **Download CSV** to export your curated dataset
 
 ---
 
