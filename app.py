@@ -73,6 +73,7 @@ def set_database_id():
     ### construir o cargar datos ###
     st.session_state["current_table"] = "main"
     update_headers()
+
 def get_tables():
     if os.path.isfile(f"SQL/{st.session_state["database_id"] }.db"):#cargar tablas
         conn = get_connection(st.session_state["database_id"])
@@ -359,6 +360,7 @@ if "selecting_chamanp" not in st.session_state:
 def set_curados_false():
     st.session_state["selecting_harmonsmile"] = False 
     st.session_state["selecting_chamanp"] = False 
+
 def construir_linea_query():
     base_query = f"""
     CREATE TABLE IF NOT EXISTS {st.session_state["new_table_name"]} AS
@@ -491,8 +493,8 @@ with st.sidebar:
     header_options = st.session_state['selected_headers']
     if len(st.session_state['selected_headers']) == 0:
         header_options = st.session_state['headers']
-    st.selectbox("Selecciona SMILES", header_options, key="selected_smiles_for_export")
-    st.text_input("Ingresa código a buscar en la columna seleccionada", key="codigo_buscar")
+    st.selectbox("Select column to filter", header_options, key="selected_smiles_for_export")
+    st.text_input("Enter value to search in selected column", key="codigo_buscar")
     if (
         st.session_state["selected_smiles_for_export"] != ""
         and st.session_state["codigo_buscar"].strip() != ""
@@ -502,16 +504,16 @@ with st.sidebar:
             label="Download SubGroup CSV",
             data=export_table_by_sub_grupo(
                 codigo_buscar=st.session_state["codigo_buscar"],
-                columna_filtro=st.session_state["selected_smiles"]
+                columna_filtro=st.session_state["selected_smiles_for_export"]
             ),
-            file_name="data.csv",
+            file_name=f"{st.session_state['current_table']}_subgroup.csv",
             mime="text/csv",
             icon=":material/download:",
         )
     st.download_button(
         label="Download CSV",
         data=export_table(),
-        file_name="data.csv",
+        file_name=f"{st.session_state['current_table']}_export.csv",
         mime="text/csv",
         icon=":material/download:",
     )

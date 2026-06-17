@@ -87,6 +87,16 @@ Then open your browser at `http://localhost:8501`
 
 ---
 
+## Quick Start
+
+1. Launch the app and open your browser at `http://localhost:8501`
+2. In the sidebar, upload `examples/example_chamanp.csv`
+3. Explore the loaded dataset using the **Headers** pills
+4. Use the **Depurado** section in the sidebar to filter and create new tables
+5. Click **Download CSV** to export your curated dataset
+
+---
+
 ## Related Tools
 
 CHEMVAULT is part of a broader ecosystem developed by the NanoBiostructures Research Group:
