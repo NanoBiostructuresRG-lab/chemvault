@@ -106,9 +106,12 @@ Then open your browser at `http://localhost:8501`
 4. Enter a UniProt accession (e.g. `P34971`), click **Agregar a selección**, then **Confirmar selección**
 5. Wait for ChemVault to fetch CIDs from PubChem — this may take a few minutes
 6. Select the `CID` pill in the **Headers** section
-7. Click **HARMONSMILE** in the sidebar, then **Run**
+7. Click **HARMONSMILE** in the sidebar, then **Run** 
 8. Wait for HARMONSMILE to enrich your dataset with molecular properties
-9. Click **Download CSV** to export your curated dataset
+9. Once complete, use **Depurado** to create a focused subtable — for example, select only `CID` and `SMILES` to prepare a clean input for ML pipelines
+10. Click **Download CSV** to export your curated dataset
+
+> **Note:** Each session stores your database in the `SQL/` folder. Use a different database name each session to start fresh.
 
 ---
 
