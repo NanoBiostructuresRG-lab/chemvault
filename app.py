@@ -382,7 +382,7 @@ def construir_linea_query():
 with st.sidebar:
     st.header("Acciones")
     #Construccion
-    if st.session_state["current_table"] == "" or len(st.session_state["headers"]) <= 1:
+    if st.session_state["current_table"] == "" or (st.session_state["database_id"] != "" and count_rows(get_connection(st.session_state["database_id"])) == 0):
         st.subheader("Construcción")
             ### por proteina ###
         if st.button("Buscar Proteínas") : select_proteins()
