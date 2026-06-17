@@ -382,7 +382,7 @@ def construir_linea_query():
 with st.sidebar:
     st.header("Acciones")
     #Construccion
-    if st.session_state["current_table"] == "":
+    if st.session_state["current_table"] == "" or len(st.session_state["headers"]) <= 1:
         st.subheader("Construcción")
             ### por proteina ###
         if st.button("Buscar Proteínas") : select_proteins()
@@ -391,10 +391,8 @@ with st.sidebar:
         if st.session_state["database_id"] == "":
             if uploaded_file != None:
                     st.session_state["set_text_input_locked"] = True
-
                     db_name = uploaded_file.name.replace(".csv", "")
                     st.session_state["database_id"] = db_name
-
                     build_from_csv(uploaded_file)
                     update_headers()
                     st.rerun()
