@@ -440,7 +440,11 @@ with st.sidebar:
         st.text("Seleccione únicamente la columna de CIDs")
         if len(st.session_state["selected_headers"]) == 1:
             if st.button("Run"):
-                new_table_df = use_PubchemIngest(get_selected_columns())
+                try:
+                    new_table_df = use_PubchemIngest(get_selected_columns())
+                except ValueError as e:
+                    st.toast(str(e))
+                    st.stop()
                 #new_table_df = pd.read_csv("tempFilesHarmonsile/res_pubchem_harmonized.csv")#use_PubchemIngest(get_selected_columns())
                 #new_table_df.columns = ( #preparamos los datos para ser procesados por sql
                 #    new_table_df.columns
@@ -448,14 +452,14 @@ with st.sidebar:
                 #    .str.replace(":", "", regex=False)
                 #)
                 
-                
                 #NOTA: asumo que la fk de la tabla regresada siempre incluye Pubchem CID
                 if agregar_df_por_pk(new_table_df, st.session_state["selected_headers"][0], "PubChem_CID"):
-                    st.text("HarmonSmile exitoso")
+                    st.toast("HarmonSmile completed successfully")
                 else:
-                    st.text("Error en HarmonSmile")
+                    st.toast("HarmonSmile failed")
                 update_headers()
                 st.rerun()
+
     if st.session_state["selecting_chamanp"]:
         st.text("Selecciona las columnas a procesar")
         st.text(f"Columnas Seleccionadas : {st.session_state['selected_headers']}")

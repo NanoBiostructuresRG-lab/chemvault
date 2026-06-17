@@ -5,6 +5,17 @@ import os
 def use_PubchemIngest(df: pd.DataFrame) -> pd.DataFrame:
     if df.shape[1] != 1:
         raise ValueError("El DataFrame debe tener exactamente una columna.")
+    # Validación dura: la columna debe contener solo CIDs (enteros positivos)
+    col = df.iloc[:, 0]
+    numeric = pd.to_numeric(col, errors="coerce")
+    SQLITE_MAX_INT = 9223372036854775807  # límite de INTEGER en SQLite (64 bits)
+    if numeric.isna().any() or (numeric <= 0).any() or (numeric > SQLITE_MAX_INT).any():
+        raise ValueError(
+            "The selected column does not contain valid PubChem CIDs. "
+            "CIDs must be positive integers within a valid range. "
+            "Please select the column that contains PubChem CIDs."
+        )
+
     input_path = "tempFilesHarmonsile/res_pubchem.csv"
     output_path = "tempFilesHarmonsile/res_pubchem_harmonized.csv"
     temp_df = df.copy()
