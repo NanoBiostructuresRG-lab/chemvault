@@ -388,14 +388,14 @@ with st.sidebar:
         if st.button("Buscar Proteínas") : select_proteins()
             ### por csv ###
         uploaded_file = st.file_uploader("Sube un CSV", type=["csv"])
-        if st.session_state["database_id"] == "":
-            if uploaded_file != None:
-                    st.session_state["set_text_input_locked"] = True
-                    db_name = uploaded_file.name.replace(".csv", "")
-                    st.session_state["database_id"] = db_name
-                    build_from_csv(uploaded_file)
-                    update_headers()
-                    st.rerun()
+        if uploaded_file != None:
+                st.session_state["set_text_input_locked"] = True
+                db_name = uploaded_file.name.replace(".csv", "")
+                st.session_state["database_id"] = db_name
+                st.session_state["current_table"] = "main"
+                build_from_csv(uploaded_file)
+                update_headers()
+                st.rerun()
     else:#Depurado
         st.subheader("Depurado")
         st.text_input(label="Nombre", key="new_table_name",value="Nueva_tabla")
