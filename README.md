@@ -115,6 +115,20 @@ Then open your browser at `http://localhost:8501`
 
 ---
 
+## Understanding HARMONSMILE output
+
+When you run HARMONSMILE on a column of PubChem CIDs, ChemVault enriches your table with molecular properties retrieved and standardized from PubChem. The output includes three SMILES variants:
+
+- **SMILES** — the original SMILES as retrieved from PubChem.
+- **SMILES_RDKit** — the harmonized SMILES, recanonized by RDKit following a consistent convention (canonical + isomeric + Kekulized). **This is the recommended column for downstream cheminformatics and ML workflows**, as it provides a standardized, uniform representation.
+- **ConnectivitySMILES** — a simplified SMILES describing only atom connectivity, without stereochemistry. Useful for comparing molecular skeletons.
+
+Additional columns include molecular descriptors such as `MolecularFormula`, `MW` (molecular weight), `InChI`, `InChIKey`, `XLogP`, `TPSA`, `Charge`, `HBondDonorCount`, `HBondAcceptorCount`, `RotatableBondCount`, and `HeavyAtomCount`.
+
+> **Tip:** To prepare a clean dataset for ML, use the **Depurado** section to create a new table with just the columns you need (e.g. `CID` + `SMILES_RDKit` + selected descriptors), then export it via **Download CSV**.
+
+---
+
 ## Related Tools
 
 CHEMVAULT is part of a broader ecosystem developed by the NanoBiostructures Research Group:
