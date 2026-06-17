@@ -406,7 +406,7 @@ with st.sidebar:
             case "GROUP BY":
                 st.selectbox("Columna a agrupar", st.session_state["selected_headers"], key="group_by_column")
             case "WHERE":
-                st.selectbox("Columna a condicionar", st.session_state["selected_headers"], key="where_column")
+                st.selectbox("Columna a condicionar", st.session_state["headers"], key="where_column")
                 st.text_input("Condición (ejemplo: > 100, = 'HarmonSmile', etc)", key="where_condition")
             case "ORDER BY":
                 st.selectbox("Columna a ordenar", st.session_state["selected_headers"], key="order_by_column")
