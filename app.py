@@ -582,7 +582,12 @@ else:
 
 with container2:
     options = st.session_state["headers"]
-    st.session_state["selected_headers"] = st.pills("Headers", options, selection_mode="multi")
+    st.session_state["selected_headers"] = st.pills(
+        "Headers",
+        options,
+        selection_mode="multi",
+        default=st.session_state.get("selected_headers", [])
+        )
     
 
     if len(st.session_state["selected_headers"]) >0:
