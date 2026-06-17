@@ -36,14 +36,12 @@ Before installing CHEMVAULT, make sure you have the following installed on your 
 
 ## Installation
 
-1. Open a terminal and navigate to the folder where you want to store the project:
+> **Windows users:** All the following steps are run from **Anaconda Prompt**.
+> **macOS / Linux users:** Use your system **Terminal**.
+> **Advanced users:** PowerShell or VS Code integrated terminal also work if conda is properly configured.
 
-- **Windows (PowerShell):**
-```powershell
-cd path\to\your\folder  # e.g. cd Documents\GitHub
-```
+1. Navigate to the folder where you want to store the project:
 
-- **macOS / Linux:**
 ```bash
 cd path/to/your/folder  # e.g. cd Documents/GitHub
 ```
@@ -55,14 +53,21 @@ git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
 ```
 
-3. Create and activate a conda environment:
+3. Create a conda environment:
 
 ```bash
 conda create -n chemvault_env python=3.12
+```
+
+4. Activate the environment:
+
+```bash
 conda activate chemvault_env
 ```
 
-4. Install dependencies:
+> You should now see `(chemvault_env)` at the beginning of your prompt.
+
+5. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -72,7 +77,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-Launch the app with:
+> Make sure `chemvault_env` is activated before running the app.
 
 ```bash
 streamlit run app.py
@@ -106,4 +111,4 @@ Castro-Flores, D. and Contreras-Torres, F. F. (2026). CHEMVAULT: Streamlit app f
 
 This project is licensed under the terms of the
 [GNU Lesser General Public License v3.0 or later](LICENSE). See `LICENSE`, `COPYING`, and `COPYING.LESSER`.
-SPDX identifier: `LGPL-3.0-or-later`. 
+SPDX identifier: `LGPL-3.0-or-later`.
