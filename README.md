@@ -38,6 +38,12 @@ Before installing CHEMVAULT, make sure you have the following installed on your 
 
 1. Open a terminal and navigate to the folder where you want to store the project:
 
+- **Windows (PowerShell):**
+```powershell
+cd path\to\your\folder  # e.g. cd Documents\GitHub
+```
+
+- **macOS / Linux:**
 ```bash
 cd path/to/your/folder  # e.g. cd Documents/GitHub
 ```
