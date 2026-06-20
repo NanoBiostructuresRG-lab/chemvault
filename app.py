@@ -637,29 +637,9 @@ with st.sidebar:
     if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
         st.info("Carga o selecciona una base de datos antes de exportar.")
     else:
-        st.text("Use sub group")
         selected_headers = get_active_selected_headers()
         header_options = selected_headers if len(selected_headers) > 0 else st.session_state.get("headers", [])
-        if len(header_options) > 0:
-            if st.session_state.get("selected_smiles_for_export", "") not in header_options:
-                st.session_state["selected_smiles_for_export"] = header_options[0]
-            st.selectbox("Select column to filter", header_options, key="selected_smiles_for_export")
-            st.text_input("Enter value to search in selected column", key="codigo_buscar")
-            if (
-                st.session_state.get("selected_smiles_for_export", "") != ""
-                and st.session_state.get("codigo_buscar", "").strip() != ""
-            ):
 
-                st.download_button(
-                    label="Download SubGroup CSV",
-                    data=export_table_by_sub_grupo(
-                        codigo_buscar=st.session_state["codigo_buscar"],
-                        columna_filtro=st.session_state["selected_smiles_for_export"]
-                    ),
-                    file_name=f"{st.session_state['current_table']}_subgroup.csv",
-                    mime="text/csv",
-                    icon=":material/download:",
-                )
         st.download_button(
             label="Download CSV",
             data=export_table(),
@@ -667,6 +647,31 @@ with st.sidebar:
             mime="text/csv",
             icon=":material/download:",
         )
+
+        with st.expander("Optional: export a filtered subgroup", expanded=False):
+            st.caption("Use this only when you want to filter rows before exporting a subgroup.")
+            if len(header_options) > 0:
+                if st.session_state.get("selected_smiles_for_export", "") not in header_options:
+                    st.session_state["selected_smiles_for_export"] = header_options[0]
+                st.selectbox("Column to filter", header_options, key="selected_smiles_for_export")
+                st.text_input("Value to search in selected column", key="codigo_buscar")
+                if (
+                    st.session_state.get("selected_smiles_for_export", "") != ""
+                    and st.session_state.get("codigo_buscar", "").strip() != ""
+                ):
+
+                    st.download_button(
+                        label="Download subgroup CSV",
+                        data=export_table_by_sub_grupo(
+                            codigo_buscar=st.session_state["codigo_buscar"],
+                            columna_filtro=st.session_state["selected_smiles_for_export"]
+                        ),
+                        file_name=f"{st.session_state['current_table']}_subgroup.csv",
+                        mime="text/csv",
+                        icon=":material/download:",
+                    )
+            else:
+                st.info("No columns are available for subgroup filtering.")
 ### MAIN PAGE ###
 
 ## Session --- Current Progress
