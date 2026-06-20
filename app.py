@@ -572,13 +572,12 @@ with st.sidebar:
     #procesos
     if st.session_state["selecting_harmonsmile"]:
         selected_headers = get_active_selected_headers()
-        st.text("Seleccione únicamente la columna de CIDs")
         if len(selected_headers) == 0:
-            st.warning("Selecciona la columna CID antes de ejecutar HARMONSMILE.")
+            st.warning("Select the CID column before running HARMONSMILE.")
         elif len(selected_headers) > 1:
-            st.warning("HARMONSMILE requiere exactamente una columna: CID.")
+            st.warning("HARMONSMILE requires exactly one column: CID.")
         elif not is_cid_header(selected_headers[0]):
-            st.warning(f"La columna seleccionada es '{selected_headers[0]}'. Selecciona una columna CID válida.")
+            st.warning(f"Selected column is '{selected_headers[0]}'. HARMONSMILE requires a valid CID column.")
         else:
             if st.button("Run"):
                 try:
