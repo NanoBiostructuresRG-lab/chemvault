@@ -12,27 +12,91 @@ from modules.use_chamanp import use_chamanp
 
 def get_connection(db_name):
     return sqlite3.connect(f"SQL/{db_name}.db", check_same_thread=False)
-def count_rows_group_by(connection):
-    if st.session_state["grupo_a_contar"] == "": return 0
-    cursor = connection.cursor()
 
+
+def quote_identifier(identifier):
+    """Quote a SQLite identifier such as a table or column name."""
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def is_valid_table_name(table_name):
+    if not table_name:
+        return False
+    return str(table_name).replace("_", "").isalnum() and not str(table_name)[0].isdigit()
+
+
+def is_cid_header(header):
+    normalized = str(header).strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+    return normalized in {"cid", "cids", "pubchemcid", "pubchemcids", "compoundcid", "compoundcids"}
+
+
+def get_active_selected_headers():
+    headers = st.session_state.get("headers", [])
+    selected = st.session_state.get("selected_headers", [])
+    return [col for col in selected if col in headers]
+
+
+def sync_selected_headers():
+    st.session_state["selected_headers"] = get_active_selected_headers()
+
+
+def table_exists(connection, table_name):
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    )
+    return cursor.fetchone() is not None
+
+
+def get_tables_from_connection(connection):
+    cursor = connection.cursor()
+    cursor.execute("""
+        SELECT name
+        FROM sqlite_master
+        WHERE type='table'
+        AND name NOT LIKE 'sqlite_%'
+        ORDER BY name
+    """)
+    return [row[0] for row in cursor.fetchall()]
+
+
+def ensure_main_table(connection):
+    cursor = connection.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS "main" (
+            primary_id INTEGER PRIMARY KEY AUTOINCREMENT
+        )
+    ''')
+    connection.commit()
+
+
+def count_rows_group_by(connection):
+    group_col = st.session_state.get("grupo_a_contar", "")
+    table = st.session_state.get("current_table", "")
+    if group_col == "" or table == "":
+        return 0
+    if group_col not in st.session_state.get("headers", []):
+        return 0
+    cursor = connection.cursor()
     cursor.execute(f"""
         SELECT COUNT(*)
         FROM (
-            SELECT {st.session_state["grupo_a_contar"]}
-            FROM {st.session_state["current_table"]}
-            GROUP BY {st.session_state["grupo_a_contar"]}
+            SELECT {quote_identifier(group_col)}
+            FROM {quote_identifier(table)}
+            GROUP BY {quote_identifier(group_col)}
         )
     """)
+    return cursor.fetchone()[0]
 
-    total = cursor.fetchone()[0]
 
-    return total
-def count_rows(connection): 
+def count_rows(connection):
+    table = st.session_state.get("current_table", "")
+    if table == "" or not table_exists(connection, table):
+        return 0
     cursor = connection.cursor()
-    cursor.execute(f""" SELECT COUNT(*) FROM {st.session_state["current_table"]} """) 
-    total = cursor.fetchone()[0] 
-    return total
+    cursor.execute(f"SELECT COUNT(*) FROM {quote_identifier(table)}")
+    return cursor.fetchone()[0]
 
 @st.dialog("Seleccionar Proteínas", dismissible=False )
 def select_proteins():
@@ -66,49 +130,79 @@ def select_proteins():
 
 ### setup SQL ###
 def set_database_id():
-    st.session_state["database_id"] = st.session_state["input_database_id"]
+    db_name = st.session_state.get("input_database_id", "").strip()
+    if db_name == "":
+        st.toast("Ingresa un nombre para tu SQL Database")
+        return
+    st.session_state["database_id"] = db_name
     st.session_state["set_text_input_locked"] = True
-    st.toast(f"SQL Database set to { st.session_state["database_id"]}")
-
-    ### construir o cargar datos ###
     st.session_state["current_table"] = "main"
+    st.session_state["selected_headers"] = []
+    conn = get_connection(st.session_state["database_id"])
+    ensure_main_table(conn)
+    update_headers()
+    st.toast(f"SQL Database set to {st.session_state['database_id']}")
+
+
+def load_existing_database():
+    db_name = st.session_state.get("existing_db_select", "")
+    if db_name == "":
+        return
+    st.session_state["database_id"] = db_name
+    st.session_state["set_text_input_locked"] = True
+    st.session_state["selected_headers"] = []
+    conn = get_connection(db_name)
+    tables = get_tables_from_connection(conn)
+    if not tables:
+        ensure_main_table(conn)
+        tables = get_tables_from_connection(conn)
+    st.session_state["current_table"] = "main" if "main" in tables else tables[0]
     update_headers()
 
+
 def get_tables():
-    if os.path.isfile(f"SQL/{st.session_state["database_id"] }.db"):#cargar tablas
-        conn = get_connection(st.session_state["database_id"])
-        cursor = conn.cursor()
+    if st.session_state.get("database_id", "") == "":
+        st.session_state["all_tables"] = []
+        return []
+    db_path = f"SQL/{st.session_state['database_id']}.db"
+    if not os.path.isfile(db_path):
+        st.session_state["all_tables"] = []
+        return []
+    conn = get_connection(st.session_state["database_id"])
+    tables = get_tables_from_connection(conn)
+    st.session_state["all_tables"] = tables
+    return tables
 
-        cursor.execute("""
-            SELECT name
-            FROM sqlite_master
-            WHERE type='table'
-            AND name NOT LIKE 'sqlite_%'
-        """)
-
-        tables = [row[0] for row in cursor.fetchall()]
-        st.session_state["all_tables"] = tables
 
 def update_headers():
-    if st.session_state["database_id"] != "":
-            conn = get_connection(st.session_state["database_id"])
-            cursor = conn.cursor()
-            table = st.session_state["current_table"]
+    if st.session_state.get("database_id", "") == "":
+        st.session_state["headers"] = []
+        st.session_state["all_tables"] = []
+        st.session_state["current_table"] = ""
+        st.session_state["selected_headers"] = []
+        return []
 
-            cursor.execute(f"""
-            CREATE TABLE IF NOT EXISTS {table} (
-                primary_id INTEGER PRIMARY KEY AUTOINCREMENT
-            )
-            """)
-            conn.commit()
+    conn = get_connection(st.session_state["database_id"])
+    tables = get_tables_from_connection(conn)
+    st.session_state["all_tables"] = tables
 
-            cursor.execute(f"PRAGMA table_info({table})")
-            columns_info = cursor.fetchall()
+    if not tables:
+        st.session_state["headers"] = []
+        st.session_state["current_table"] = ""
+        st.session_state["selected_headers"] = []
+        return []
 
-            headers = [col[1] for col in columns_info]
-            st.session_state["headers"] = headers
-            get_tables()
-    else: return []
+    if st.session_state.get("current_table", "") not in tables:
+        st.session_state["current_table"] = "main" if "main" in tables else tables[0]
+
+    table = st.session_state["current_table"]
+    cursor = conn.cursor()
+    cursor.execute(f"PRAGMA table_info({quote_identifier(table)})")
+    columns_info = cursor.fetchall()
+    headers = [col[1] for col in columns_info]
+    st.session_state["headers"] = headers
+    sync_selected_headers()
+    return headers
 #st.session_state['all_tables']
 def build_from_csv(uploaded_file):
     if os.path.isfile(f"SQL/{st.session_state['database_id']}.db"):
@@ -159,84 +253,76 @@ def build_from_proteins(progreso):
     obtener_CIDs_Pubchem(get_connection(st.session_state["database_id"]),st.session_state["selected_proteins"],progreso)
 
 def export_table():
-    if st.session_state["database_id"] == "" or st.session_state["current_table"] == "":
-        empty_df = pd.DataFrame()
-        return empty_df.to_csv(index=False).encode("utf-8")
-    
-
+    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
+        return pd.DataFrame().to_csv(index=False).encode("utf-8")
 
     conn = get_connection(st.session_state["database_id"])
-
     table = st.session_state["current_table"]
+    selected_headers = get_active_selected_headers()
 
-    # si no hay selección -> usar todas
-    if len(st.session_state["selected_headers"]) == 0:
-        query = f"SELECT * FROM {table}"
+    if len(selected_headers) == 0:
+        query = f"SELECT * FROM {quote_identifier(table)}"
     else:
-        cols = ", ".join(st.session_state["selected_headers"])
-        query = f"SELECT {cols} FROM {table}"
+        cols = ", ".join(quote_identifier(col) for col in selected_headers)
+        query = f"SELECT {cols} FROM {quote_identifier(table)}"
 
     df = pd.read_sql_query(query, conn)
-
     return df.to_csv(index=False).encode("utf-8")
+
 
 def export_table_by_sub_grupo(codigo_buscar: str, columna_filtro: str):
-    if st.session_state["database_id"] == "":
-        empty_df = pd.DataFrame()
-        return empty_df.to_csv(index=False).encode("utf-8")
+    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
+        return pd.DataFrame().to_csv(index=False).encode("utf-8")
+    if columna_filtro not in st.session_state.get("headers", []):
+        return pd.DataFrame().to_csv(index=False).encode("utf-8")
 
     conn = get_connection(st.session_state["database_id"])
-
     table = st.session_state["current_table"]
+    selected_headers = get_active_selected_headers()
 
-    # columnas seleccionadas
-    if len(st.session_state["selected_headers"]) == 0:
+    if len(selected_headers) == 0:
         cols = "*"
     else:
-        cols = ", ".join(st.session_state["selected_headers"])
+        cols = ", ".join(quote_identifier(col) for col in selected_headers)
 
-    # query con filtro LIKE
     query = f"""
         SELECT {cols}
-        FROM {table}
-        WHERE {columna_filtro} LIKE ?
+        FROM {quote_identifier(table)}
+        WHERE {quote_identifier(columna_filtro)} LIKE ?
     """
 
-    df = pd.read_sql_query(
-        query,
-        conn,
-        params=[f"%{codigo_buscar}%"]
-    )
-
+    df = pd.read_sql_query(query, conn, params=[f"%{codigo_buscar}%"])
     return df.to_csv(index=False).encode("utf-8")
 
-def build_preview_table():
-    if st.session_state["database_id"] != "":
-        conn = get_connection(st.session_state["database_id"])
-        table = st.session_state["current_table"]
 
-        if len(st.session_state["selected_headers"]) == 0:
-            return pd.DataFrame()
-        else:
-            cols = ", ".join(st.session_state["selected_headers"])
-            query = f"SELECT {cols} FROM {table} LIMIT 10"
-            return pd.read_sql_query(query, conn)
-    else:
+def build_preview_table():
+    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
         return pd.DataFrame()
+
+    selected_headers = get_active_selected_headers()
+    if len(selected_headers) == 0:
+        return pd.DataFrame()
+
+    conn = get_connection(st.session_state["database_id"])
+    table = st.session_state["current_table"]
+    cols = ", ".join(quote_identifier(col) for col in selected_headers)
+    query = f"SELECT {cols} FROM {quote_identifier(table)} LIMIT 10"
+    return pd.read_sql_query(query, conn)
+
 
 def get_selected_columns(): #diferencia entre build_preview_table es que esta no tiene limite de 10
-    if st.session_state["database_id"] != "":
-        conn = get_connection(st.session_state["database_id"])
-        table = st.session_state["current_table"]
-
-        if len(st.session_state["selected_headers"]) == 0:
-            return pd.DataFrame()
-        else:
-            cols = ", ".join(st.session_state["selected_headers"])
-            query = f"SELECT {cols} FROM {table}"
-            return pd.read_sql_query(query, conn)
-    else:
+    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
         return pd.DataFrame()
+
+    selected_headers = get_active_selected_headers()
+    if len(selected_headers) == 0:
+        return pd.DataFrame()
+
+    conn = get_connection(st.session_state["database_id"])
+    table = st.session_state["current_table"]
+    cols = ", ".join(quote_identifier(col) for col in selected_headers)
+    query = f"SELECT {cols} FROM {quote_identifier(table)}"
+    return pd.read_sql_query(query, conn)
 
 def agregar_df_por_pk(df, pk, fk): # agregar dataframe por primary key
     conn = get_connection(st.session_state["database_id"])
@@ -357,26 +443,58 @@ if "selecting_harmonsmile" not in st.session_state:
 if "selecting_chamanp" not in st.session_state:
     st.session_state["selecting_chamanp"] = ""
 
+# Mantiene database_id/current_table/headers sincronizados antes de construir la sidebar.
+# Esto evita que Export/Curado/Depurado lean un estado previo y luego el cuerpo principal
+# muestre una tabla distinta ya corregida por update_headers().
+if st.session_state.get("database_id", "") != "":
+    update_headers()
+else:
+    sync_selected_headers()
+
 def set_curados_false():
     st.session_state["selecting_harmonsmile"] = False 
     st.session_state["selecting_chamanp"] = False 
 
 def construir_linea_query():
+    new_table_name = st.session_state.get("new_table_name", "").strip()
+    selected_headers = get_active_selected_headers()
+    current_table = st.session_state.get("current_table", "")
+
+    if not is_valid_table_name(new_table_name):
+        raise ValueError("Ingresa un nombre de tabla válido: usa letras, números y guiones bajos; no empieces con número.")
+    if current_table == "":
+        raise ValueError("Selecciona una tabla fuente antes de crear una nueva tabla.")
+    if len(selected_headers) == 0:
+        raise ValueError("Selecciona al menos una columna para crear una nueva tabla.")
+
+    cols = ", ".join(quote_identifier(col) for col in selected_headers)
     base_query = f"""
-    CREATE TABLE IF NOT EXISTS {st.session_state["new_table_name"]} AS
-    SELECT {", ".join(st.session_state["selected_headers"])} FROM {st.session_state["current_table"]}
+    CREATE TABLE {quote_identifier(new_table_name)} AS
+    SELECT {cols} FROM {quote_identifier(current_table)}
     """
     filter_clause = ""
-    match st.session_state["type_of_filter"]:
+    match st.session_state.get("type_of_filter", "Ninguno"):
         case "Ninguno":
             pass
         case "GROUP BY":
-            filter_clause = f"GROUP BY {st.session_state['group_by_column']}"
+            group_col = st.session_state.get("group_by_column", "")
+            if group_col not in selected_headers:
+                raise ValueError("La columna de GROUP BY debe estar dentro de las columnas seleccionadas.")
+            filter_clause = f"GROUP BY {quote_identifier(group_col)}"
         case "WHERE":
-            filter_clause = f"WHERE {st.session_state['where_column']} {st.session_state['where_condition']}"
+            where_col = st.session_state.get("where_column", "")
+            condition = st.session_state.get("where_condition", "").strip()
+            if where_col not in st.session_state.get("headers", []):
+                raise ValueError("Selecciona una columna válida para WHERE.")
+            if condition == "":
+                raise ValueError("Escribe una condición WHERE.")
+            filter_clause = f"WHERE {quote_identifier(where_col)} {condition}"
         case "ORDER BY":
-            filter_clause = f"ORDER BY {st.session_state['order_by_column']} {st.session_state['order_direction']}"
-    
+            order_col = st.session_state.get("order_by_column", "")
+            direction = st.session_state.get("order_direction", "ASC")
+            if order_col not in selected_headers:
+                raise ValueError("La columna de ORDER BY debe estar dentro de las columnas seleccionadas.")
+            filter_clause = f"ORDER BY {quote_identifier(order_col)} {direction}"
     return base_query + filter_clause
 
 with st.sidebar:
@@ -412,17 +530,33 @@ with st.sidebar:
                 st.selectbox("Columna a ordenar", st.session_state["selected_headers"], key="order_by_column")
                 st.selectbox("Ascendente o Descendente", ["ASC", "DESC"], key="order_direction")
         if st.button("Construir Query"):
-            st.text_area(disabled = True,label="Query personalizado (opcional)", key="custom_query", value=construir_linea_query())
+            try:
+                st.session_state["custom_query"] = construir_linea_query()
+            except ValueError as e:
+                st.error(str(e))
+        if st.session_state.get("custom_query", "") != "":
+            st.caption("Query personalizado (opcional)")
+            st.code(st.session_state["custom_query"], language="sql")
         
         if st.button("Crear Nueva Tabla con selección actual"):
             conn = get_connection(st.session_state["database_id"])
             cursor = conn.cursor()
-            cursor.execute(st.session_state["custom_query"])
-            conn.commit()
-            st.session_state["current_table"] = st.session_state["new_table_name"]
-            update_headers()
-            
-            st.rerun()  
+            try:
+                query_to_run = construir_linea_query()
+                new_table_name = st.session_state["new_table_name"].strip()
+                if table_exists(conn, new_table_name):
+                    raise ValueError(f"La tabla '{new_table_name}' ya existe. Usa otro nombre o elimínala primero.")
+                cursor.execute(query_to_run)
+                conn.commit()
+                st.session_state["current_table"] = new_table_name
+                st.session_state["selected_headers"] = []
+                st.session_state["custom_query"] = query_to_run
+                update_headers()
+                st.success(f"Tabla '{new_table_name}' creada correctamente.")
+                st.rerun()
+            except Exception as e:
+                conn.rollback()
+                st.error(f"No se pudo crear la tabla: {e}")
         
 #falta agregar order by
 #hacer un text box que muestre el query
@@ -437,14 +571,22 @@ with st.sidebar:
     
     #procesos
     if st.session_state["selecting_harmonsmile"]:
+        selected_headers = get_active_selected_headers()
         st.text("Seleccione únicamente la columna de CIDs")
-        if len(st.session_state["selected_headers"]) == 1:
+        if len(selected_headers) == 0:
+            st.warning("Selecciona la columna CID antes de ejecutar HARMONSMILE.")
+        elif len(selected_headers) > 1:
+            st.warning("HARMONSMILE requiere exactamente una columna: CID.")
+        elif not is_cid_header(selected_headers[0]):
+            st.warning(f"La columna seleccionada es '{selected_headers[0]}'. Selecciona una columna CID válida.")
+        else:
             if st.button("Run"):
                 try:
                     new_table_df = use_PubchemIngest(get_selected_columns())
                 except ValueError as e:
                     st.toast(str(e))
-                    st.stop()
+                    st.error(str(e))
+                    new_table_df = None
                 #new_table_df = pd.read_csv("tempFilesHarmonsile/res_pubchem_harmonized.csv")#use_PubchemIngest(get_selected_columns())
                 #new_table_df.columns = ( #preparamos los datos para ser procesados por sql
                 #    new_table_df.columns
@@ -453,12 +595,13 @@ with st.sidebar:
                 #)
                 
                 #NOTA: asumo que la fk de la tabla regresada siempre incluye Pubchem CID
-                if agregar_df_por_pk(new_table_df, st.session_state["selected_headers"][0], "PubChem_CID"):
-                    st.toast("HarmonSmile completed successfully")
-                else:
-                    st.toast("HarmonSmile failed")
-                update_headers()
-                st.rerun()
+                if new_table_df is not None:
+                    if agregar_df_por_pk(new_table_df, selected_headers[0], "PubChem_CID"):
+                        st.toast("HarmonSmile completed successfully")
+                    else:
+                        st.toast("HarmonSmile failed")
+                    update_headers()
+                    st.rerun()
 
     if st.session_state["selecting_chamanp"]:
         st.text("Selecciona las columnas a procesar")
@@ -491,34 +634,39 @@ with st.sidebar:
                     st.success(f"{file_name} eliminado del servidor")
                     
     st.subheader("Export")
-    st.text("Use sub group")
-    header_options = st.session_state['selected_headers']
-    if len(st.session_state['selected_headers']) == 0:
-        header_options = st.session_state['headers']
-    st.selectbox("Select column to filter", header_options, key="selected_smiles_for_export")
-    st.text_input("Enter value to search in selected column", key="codigo_buscar")
-    if (
-        st.session_state["selected_smiles_for_export"] != ""
-        and st.session_state["codigo_buscar"].strip() != ""
-    ):
+    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
+        st.info("Carga o selecciona una base de datos antes de exportar.")
+    else:
+        st.text("Use sub group")
+        selected_headers = get_active_selected_headers()
+        header_options = selected_headers if len(selected_headers) > 0 else st.session_state.get("headers", [])
+        if len(header_options) > 0:
+            if st.session_state.get("selected_smiles_for_export", "") not in header_options:
+                st.session_state["selected_smiles_for_export"] = header_options[0]
+            st.selectbox("Select column to filter", header_options, key="selected_smiles_for_export")
+            st.text_input("Enter value to search in selected column", key="codigo_buscar")
+            if (
+                st.session_state.get("selected_smiles_for_export", "") != ""
+                and st.session_state.get("codigo_buscar", "").strip() != ""
+            ):
 
+                st.download_button(
+                    label="Download SubGroup CSV",
+                    data=export_table_by_sub_grupo(
+                        codigo_buscar=st.session_state["codigo_buscar"],
+                        columna_filtro=st.session_state["selected_smiles_for_export"]
+                    ),
+                    file_name=f"{st.session_state['current_table']}_subgroup.csv",
+                    mime="text/csv",
+                    icon=":material/download:",
+                )
         st.download_button(
-            label="Download SubGroup CSV",
-            data=export_table_by_sub_grupo(
-                codigo_buscar=st.session_state["codigo_buscar"],
-                columna_filtro=st.session_state["selected_smiles_for_export"]
-            ),
-            file_name=f"{st.session_state['current_table']}_subgroup.csv",
+            label="Download CSV",
+            data=export_table(),
+            file_name=f"{st.session_state['current_table']}_export.csv",
             mime="text/csv",
             icon=":material/download:",
         )
-    st.download_button(
-        label="Download CSV",
-        data=export_table(),
-        file_name=f"{st.session_state['current_table']}_export.csv",
-        mime="text/csv",
-        icon=":material/download:",
-    )
 ### MAIN PAGE ###
 
 ## Session --- Current Progress
@@ -575,29 +723,38 @@ if st.session_state["database_id"] =="":
     dbs = []
     for file_name in files:
         dbs.append(file_name.replace(".db", ""))
-    container1.selectbox("O selecciona una SQL Database existente", dbs, key="existing_db_select", on_change=update_headers)
+    container1.selectbox("O selecciona una SQL Database existente", dbs, key="existing_db_select", on_change=load_existing_database)
 else:
-    container1.text("Data Base: " +st.session_state["database_id"])
-    #container1.text("Table: " + st.session_state["current_table"])
-    container1.selectbox("Selecciona Table", st.session_state['all_tables'], key="current_table", index = 0,on_change=update_headers)
-    container1.write("Rows: " + str(count_rows(get_connection(st.session_state["database_id"]))))
-    container1.selectbox(f"Contar por grupos: { str(count_rows_group_by(get_connection(st.session_state["database_id"])))}", st.session_state['headers'], key="grupo_a_contar")
-    #container1.write("Rows by group: " + str(count_rows_group_by(get_connection(st.session_state["database_id"]))))
+    update_headers()
+    container1.text("Data Base: " + st.session_state["database_id"])
+    table_options = st.session_state.get("all_tables", [])
+    if len(table_options) > 0:
+        if st.session_state.get("current_table", "") not in table_options:
+            st.session_state["current_table"] = table_options[0]
+        container1.selectbox("Selecciona Table", table_options, key="current_table", on_change=update_headers)
+        container1.write("Rows: " + str(count_rows(get_connection(st.session_state["database_id"]))))
+        if len(st.session_state.get("headers", [])) > 0:
+            if st.session_state.get("grupo_a_contar", "") not in st.session_state["headers"]:
+                st.session_state["grupo_a_contar"] = st.session_state["headers"][0]
+            container1.selectbox("Contar por grupos", st.session_state['headers'], key="grupo_a_contar")
+            container1.write("Rows by group: " + str(count_rows_group_by(get_connection(st.session_state["database_id"]))))
+    else:
+        container1.warning("La base de datos no contiene tablas.")
 
 # 2 #
 
 with container2:
     options = st.session_state["headers"]
-    st.session_state["selected_headers"] = st.pills(
+    st.pills(
         "Headers",
         options,
         selection_mode="multi",
-        default=st.session_state.get("selected_headers", [])
-        )
+        key="selected_headers",
+    )
     
 
-    if len(st.session_state["selected_headers"]) >0:
-        st.markdown(f"Your selected headers: {st.session_state["selected_headers"]}.")
+    if len(st.session_state["selected_headers"]) > 0:
+        st.markdown(f"Your selected headers: {st.session_state['selected_headers']}.")
          #tabla preview de headers seleccionados
         st.dataframe(build_preview_table(), hide_index=True)
         
@@ -610,7 +767,7 @@ with container3:
         st.subheader("Información Adicional")
         conn = get_connection(st.session_state["database_id"])
         cursor = conn.cursor()
-        cursor.execute(f"PRAGMA table_info({st.session_state['current_table']})")
+        cursor.execute(f"PRAGMA table_info({quote_identifier(st.session_state['current_table'])})")
         columns_info = cursor.fetchall()
         if columns_info:
             headers_types_df = pd.DataFrame(
