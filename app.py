@@ -1,3 +1,4 @@
+import html
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -529,15 +530,26 @@ with st.sidebar:
             case "ORDER BY":
                 st.selectbox("Columna a ordenar", st.session_state["selected_headers"], key="order_by_column")
                 st.selectbox("Ascendente o Descendente", ["ASC", "DESC"], key="order_direction")
-        if st.button("Construir Query"):
+        if st.button("Preview SQL"):
             try:
                 st.session_state["custom_query"] = construir_linea_query()
             except ValueError as e:
+                st.session_state["custom_query"] = ""
                 st.error(str(e))
         if st.session_state.get("custom_query", "") != "":
-            st.caption("Query personalizado (opcional)")
-            st.code(st.session_state["custom_query"], language="sql")
-        
+            compact_query = html.escape(" ".join(st.session_state["custom_query"].split()))
+            st.markdown("**SQL preview**")
+            st.markdown(
+                f'''
+                <div style="background-color:#111827; color:#f9fafb; padding:0.85rem 1rem;
+                            border-radius:0.55rem; font-family:monospace; font-size:0.9rem;
+                            line-height:1.5; overflow-x:auto; margin-bottom:0.85rem;">
+                    {compact_query}
+                </div>
+                ''',
+                unsafe_allow_html=True,
+            )
+
         if st.button("Crear Nueva Tabla con selección actual"):
             conn = get_connection(st.session_state["database_id"])
             cursor = conn.cursor()
@@ -552,12 +564,17 @@ with st.sidebar:
                 st.session_state["selected_headers"] = []
                 st.session_state["custom_query"] = query_to_run
                 update_headers()
-                st.success(f"Tabla '{new_table_name}' creada correctamente.")
+                st.session_state["depurado_success_table"] = new_table_name
+                st.session_state["depurado_success_message"] = f"Table '{new_table_name}' was created successfully."
                 st.rerun()
             except Exception as e:
                 conn.rollback()
                 st.error(f"No se pudo crear la tabla: {e}")
         
+        created_table = st.session_state.get("depurado_success_table", "")
+        if created_table and created_table == st.session_state.get("current_table", ""):
+            st.success(st.session_state.get("depurado_success_message", f"Table '{created_table}' was created successfully."))
+
 #falta agregar order by
 #hacer un text box que muestre el query
         
