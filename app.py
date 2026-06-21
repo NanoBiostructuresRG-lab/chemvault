@@ -13,19 +13,16 @@ from services.database import (
     set_database_id,
     update_headers,
 )
-from services.curation import agregar_df_por_pk, is_cid_header, run_chamanp, run_harmonsmile
-from services.export import export_table, export_table_by_sub_grupo
 from services.selection import (
     build_preview_table,
     get_active_selected_headers,
-    get_selected_columns,
     sync_selected_headers,
 )
 from services.sql_utils import (
     is_valid_table_name,
     quote_identifier,
 )
-from ui.sidebar import render_build_card, render_refine_card
+from ui.sidebar import render_build_card, render_curate_card, render_export_card, render_refine_card
 from ui.session_state import initialize_session_state
 
 
@@ -187,11 +184,6 @@ if st.session_state.get("database_id", "") != "":
 else:
     sync_selected_headers()
 
-def set_curados_false():
-    st.session_state["selecting_harmonsmile"] = False
-    st.session_state["selecting_chamanp"] = False
-
-
 def clear_depurado_preview():
     st.session_state["custom_query"] = ""
 
@@ -248,120 +240,9 @@ with st.sidebar:
 #falta agregar order by
 #hacer un text box que muestre el query
 
-    with st.container(border=True):
-        st.subheader("Curate")
-        st.caption("Run chemistry workflows on selected columns.")
-        if st.button("HARMONSMILE"):
-            set_curados_false()
-            st.session_state["selecting_harmonsmile"] = True
-        if st.button("CHAMANP"):
-            set_curados_false()
-            st.session_state["selecting_chamanp"] = True
+    render_curate_card()
 
-        #procesos
-        if st.session_state["selecting_harmonsmile"]:
-            selected_headers = get_active_selected_headers()
-            if len(selected_headers) == 0:
-                st.warning("Select the CID column before running HARMONSMILE.")
-            elif len(selected_headers) > 1:
-                st.warning("HARMONSMILE requires exactly one column: CID.")
-            elif not is_cid_header(selected_headers[0]):
-                st.warning(f"Selected column is '{selected_headers[0]}'. HARMONSMILE requires a valid CID column.")
-            else:
-                if st.button("Run"):
-                    try:
-                        new_table_df = run_harmonsmile(get_selected_columns())
-                    except ValueError as e:
-                        st.toast(str(e))
-                        st.error(str(e))
-                        new_table_df = None
-                    #new_table_df = pd.read_csv("tempFilesHarmonsile/res_pubchem_harmonized.csv")#use_PubchemIngest(get_selected_columns())
-                    #new_table_df.columns = ( #preparamos los datos para ser procesados por sql
-                    #    new_table_df.columns
-                    #    .str.replace(" ", "_", regex=False)
-                    #    .str.replace(":", "", regex=False)
-                    #)
-
-                    #NOTA: asumo que la fk de la tabla regresada siempre incluye Pubchem CID
-                    if new_table_df is not None:
-                        if agregar_df_por_pk(new_table_df, selected_headers[0], "PubChem_CID"):
-                            st.toast("HarmonSmile completed successfully")
-                        else:
-                            st.toast("HarmonSmile failed")
-                        update_headers()
-                        st.rerun()
-
-        if st.session_state["selecting_chamanp"]:
-            st.text("Select the columns to process")
-            st.text(f"Selected columns: {st.session_state['selected_headers']}")
-            st.selectbox("Select identifier", st.session_state['selected_headers'], key="selected_identifier")
-            st.selectbox("Select canonical_smiles", st.session_state['selected_headers'], key="selected_smiles")
-            st.selectbox("Select collections", st.session_state['selected_headers'], key="selected_collections")
-
-            if st.button("Run"):
-                run_chamanp(get_selected_columns(), st.session_state["selected_identifier"], st.session_state["selected_smiles"], st.session_state["selected_collections"])
-                st.text("Chamanp completed successfully")
-                st.text("Downloading files")
-            folder_path = "artifacts"
-            files = os.listdir(folder_path)
-
-         #manejar la descraga de los archivos, en caso de que se corra de nuevo, en use chamanp se eliminan los archivos
-            for file_name in files:
-                file_path = os.path.join(folder_path, file_name)
-                if(file_name != "notes.txt"):
-                    with open(file_path, "rb") as f:
-                        downloaded = st.download_button(
-                            label=f"Download {file_name}",
-                            data=f,
-                            file_name=file_name,
-                            mime="application/octet-stream",
-                            key=file_name
-                        )
-                    if downloaded:
-                        os.remove(file_path)
-                        st.success(f"{file_name} removed from the server")
-
-    with st.container(border=True):
-        st.subheader("Export")
-        st.caption("Download the current table or a filtered subset.")
-        if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
-            st.info("Load or select a database before exporting.")
-        else:
-            selected_headers = get_active_selected_headers()
-            header_options = selected_headers if len(selected_headers) > 0 else st.session_state.get("headers", [])
-
-            st.download_button(
-                label="Download CSV",
-                data=export_table(),
-                file_name=f"{st.session_state['current_table']}_export.csv",
-                mime="text/csv",
-                icon=":material/download:",
-            )
-
-            with st.expander("Optional: export a filtered subgroup", expanded=False):
-                st.caption("Use this only when you want to filter rows before exporting a subgroup.")
-                if len(header_options) > 0:
-                    if st.session_state.get("selected_smiles_for_export", "") not in header_options:
-                        st.session_state["selected_smiles_for_export"] = header_options[0]
-                    st.selectbox("Column to filter", header_options, key="selected_smiles_for_export")
-                    st.text_input("Value to search in selected column", key="codigo_buscar")
-                    if (
-                        st.session_state.get("selected_smiles_for_export", "") != ""
-                        and st.session_state.get("codigo_buscar", "").strip() != ""
-                    ):
-
-                        st.download_button(
-                            label="Download subgroup CSV",
-                            data=export_table_by_sub_grupo(
-                                codigo_buscar=st.session_state["codigo_buscar"],
-                                columna_filtro=st.session_state["selected_smiles_for_export"]
-                            ),
-                            file_name=f"{st.session_state['current_table']}_subgroup.csv",
-                            mime="text/csv",
-                            icon=":material/download:",
-                        )
-                else:
-                    st.info("No columns are available for subgroup filtering.")
+    render_export_card()
 ### MAIN PAGE ###
 
 ## Session --- Current Progress

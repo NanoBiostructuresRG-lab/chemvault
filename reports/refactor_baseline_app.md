@@ -390,6 +390,51 @@ The Refine card behavior remains unchanged:
 - selected-header reset
 - success message handling
 
+## Sidebar Curate Card Extracted
+
+Added `render_curate_card()` to `ui/sidebar.py`.
+
+`app.py` now delegates Curate card rendering while the underlying curation
+services remain unchanged. The card still uses:
+
+- `is_cid_header`
+- `run_harmonsmile`
+- `agregar_df_por_pk`
+- `run_chamanp`
+- `get_selected_columns`
+- `update_headers`
+
+The previous `set_curados_false` helper was moved into `ui/sidebar.py` as a
+private `_set_curados_false()` helper because it only supports Curate UI state.
+
+The Curate card behavior remains unchanged:
+
+- HARMONSMILE/CHAMANP mode toggles
+- CID column validation before HARMONSMILE
+- HARMONSMILE run and merge flow
+- CHAMANP column selectors
+- CHAMANP artifact download and cleanup
+
+## Sidebar Export Card Extracted
+
+Added `render_export_card()` to `ui/sidebar.py`.
+
+`app.py` now delegates Export card rendering while the export service remains
+unchanged. The card still uses:
+
+- `export_table`
+- `export_table_by_sub_grupo`
+- `get_active_selected_headers`
+- existing `selected_smiles_for_export` and `codigo_buscar` session-state keys
+
+The Export card behavior remains unchanged:
+
+- full current-table CSV download
+- selected-column export behavior
+- optional filtered subgroup export
+- fallback to all headers when no columns are selected
+- empty-state messaging when no database/table or columns are available
+
 ## Curation Merge Extracted
 
 Moved `agregar_df_por_pk` from `app.py` to `services/curation.py`.
