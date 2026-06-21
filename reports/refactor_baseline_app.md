@@ -357,6 +357,64 @@ The extraction preserves:
 - advanced column type change behavior
 - footer text and Nano]°[Biostructures RG link
 
+## Main Page Database Card Extracted
+
+Added `render_database_card(container)` to `ui/main_page.py`.
+
+`app.py` now delegates the full Database card rendering while preserving the
+same service calls and session-state keys:
+
+- `set_database_id`
+- `load_existing_database`
+- `update_headers`
+- `count_rows`
+- `count_rows_group_by`
+- `get_connection`
+
+The card behavior remains unchanged:
+
+- create a new SQL database when no database is active
+- select an existing SQL database from the `SQL/` directory
+- refresh headers for the active database
+- choose the active table
+- calculate row counts and unique group counts
+- show an empty-table warning when no tables are available
+
+## Main Page Columns Card Extracted
+
+Added `render_columns_card(container)` to `ui/main_page.py`.
+
+`app.py` now delegates the Columns card rendering while preserving the same
+selection behavior and session-state keys:
+
+- `headers`
+- `selected_headers`
+
+The card behavior remains unchanged:
+
+- show available headers as multi-select pills
+- keep the selected headers in `st.session_state`
+- show the selected-column count and names
+- render the selected-column preview with `build_preview_table`
+- show the same empty-state messages when no columns or selections exist
+
+## Main Page Table Information Card Extracted
+
+Added `render_table_information_card(container)` to `ui/main_page.py`.
+
+`app.py` now delegates the Table information card rendering while preserving
+the same schema inspection and advanced column-type maintenance flow.
+
+The card behavior remains unchanged:
+
+- show table schema with `PRAGMA table_info`
+- render the schema as a `Column` / `Data type` dataframe
+- expose the same advanced column-type change expander
+- run the same SQLite `ALTER TABLE`, `UPDATE`, `DROP COLUMN`, and
+  `RENAME COLUMN` sequence
+- commit on success and show the same success/error messages
+- show the same empty-state messages when schema information is unavailable
+
 ## Curation Workflow Wrappers Added
 
 Added workflow wrappers in `services/curation.py`:

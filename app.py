@@ -1,19 +1,12 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
 import os
 from PIL import Image
 from services.builders import build_from_proteins
 from services.database import (
-    count_rows,
-    count_rows_group_by,
-    get_connection,
-    load_existing_database,
-    set_database_id,
     update_headers,
 )
 from services.selection import (
-    build_preview_table,
     get_active_selected_headers,
     sync_selected_headers,
 )
@@ -23,8 +16,10 @@ from services.sql_utils import (
 )
 from ui.main_page import (
     render_app_identity,
-    render_database_metrics,
+    render_columns_card,
+    render_database_card,
     render_footer,
+    render_table_information_card,
 )
 from ui.sidebar import render_sidebar
 from ui.session_state import initialize_session_state
@@ -260,149 +255,7 @@ st.html("""
     """)
 container3 = st.container(horizontal=False, horizontal_alignment="left", border=True)
 render_app_identity(container0)
-
-if st.session_state["database_id"] == "":
-    container1.subheader("Database")
-    container1.caption("Create or select the active molecular database.")
-    container1.text_input(
-        label="SQL Database name",
-        value=st.session_state["database_id"],
-        key="input_database_id",
-        on_change=set_database_id,
-        disabled=st.session_state["set_text_input_locked"]
-    )
-    files = os.listdir("SQL")
-    dbs = []
-    for file_name in files:
-        dbs.append(file_name.replace(".db", ""))
-    container1.selectbox(
-        "Or select an existing SQL database",
-        dbs,
-        key="existing_db_select",
-        on_change=load_existing_database,
-    )
-else:
-    update_headers()
-    container1.subheader("Database")
-    container1.caption("Active table and row summary.")
-    table_options = st.session_state.get("all_tables", [])
-    if len(table_options) > 0:
-        if st.session_state.get("current_table", "") not in table_options:
-            st.session_state["current_table"] = table_options[0]
-        row_count = count_rows(get_connection(st.session_state["database_id"]))
-        if len(st.session_state.get("headers", [])) > 0:
-            if st.session_state.get("grupo_a_contar", "") not in st.session_state["headers"]:
-                st.session_state["grupo_a_contar"] = st.session_state["headers"][0]
-        group_count = count_rows_group_by(get_connection(st.session_state["database_id"]))
-        render_database_metrics(
-            container1,
-            st.session_state["database_id"],
-            st.session_state["current_table"],
-            row_count,
-            group_count,
-        )
-        container1.markdown("#### Table controls")
-        container1.selectbox(
-            "Select table",
-            table_options,
-            key="current_table",
-            on_change=update_headers,
-        )
-        if len(st.session_state.get("headers", [])) > 0:
-            container1.selectbox(
-                "Count unique groups by",
-                st.session_state["headers"],
-                key="grupo_a_contar",
-            )
-    else:
-        container1.warning("The database does not contain tables.")
-
-with container2:
-    st.subheader("Columns")
-    st.caption("Select columns to preview, refine, curate, or export.")
-    options = st.session_state["headers"]
-    if len(options) > 0:
-        st.pills(
-            "Headers",
-            options,
-            selection_mode="multi",
-            key="selected_headers",
-            label_visibility="collapsed",
-        )
-
-        selected_count = len(st.session_state["selected_headers"])
-        if selected_count > 0:
-            selected_columns = ", ".join(st.session_state["selected_headers"])
-            st.markdown(
-                f"**{selected_count} column{'s' if selected_count != 1 else ''} selected:** "
-                f"{selected_columns}"
-            )
-            st.markdown("#### Selected columns preview")
-            st.dataframe(build_preview_table(), hide_index=True)
-        else:
-            st.info("Select one or more columns to preview data and enable downstream actions.")
-    else:
-        st.info("No columns are available in the current table.")
-
-
-with container3:
-    st.subheader("Table information")
-    st.caption("Column types and maintenance tools for the active table.")
-    if st.session_state["database_id"] != "" and len(st.session_state["headers"]) > 0:
-        conn = get_connection(st.session_state["database_id"])
-        cursor = conn.cursor()
-        cursor.execute(f"PRAGMA table_info({quote_identifier(st.session_state['current_table'])})")
-        columns_info = cursor.fetchall()
-        if columns_info:
-            headers_types_df = pd.DataFrame(
-                [(col[1], col[2]) for col in columns_info],
-                columns=["Column", "Data type"]
-            )
-            st.markdown("Current schema for the active table.")
-            st.dataframe(headers_types_df, hide_index=True)
-
-            with st.expander("Advanced: change column type", expanded=False):
-                st.caption("This updates the SQLite column type for the selected column.")
-                st.warning(
-                    "Use this only when you are sure the selected values can be converted safely."
-                )
-                col_to_change = st.selectbox(
-                    "Select column",
-                    [col[1] for col in columns_info],
-                    key="col_to_change_select",
-                )
-                new_type = st.selectbox(
-                    "New type",
-                    ["TEXT", "INTEGER", "REAL", "BLOB"],
-                    key="new_col_type_select",
-                )
-
-                if st.button("Apply column type change"):
-                    try:
-                        cursor.execute(
-                            f"ALTER TABLE {st.session_state['current_table']} "
-                            f"ADD COLUMN {col_to_change}_new {new_type}"
-                        )
-                        cursor.execute(
-                            f"UPDATE {st.session_state['current_table']} "
-                            f"SET {col_to_change}_new = CAST({col_to_change} AS {new_type})"
-                        )
-                        cursor.execute(
-                            f"ALTER TABLE {st.session_state['current_table']} "
-                            f"DROP COLUMN {col_to_change}"
-                        )
-                        cursor.execute(
-                            f"ALTER TABLE {st.session_state['current_table']} "
-                            f"RENAME COLUMN {col_to_change}_new TO {col_to_change}"
-                        )
-                        conn.commit()
-                        st.success(f"Column '{col_to_change}' changed to {new_type}")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error changing type: {e}")
-        else:
-            st.markdown("No column type information was found.")
-    else:
-        st.info("Select a database with columns to view additional information.")
-
+render_database_card(container1)
+render_columns_card(container2)
+render_table_information_card(container3)
 render_footer()
