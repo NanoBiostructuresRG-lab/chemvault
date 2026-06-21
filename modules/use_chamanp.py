@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 from chamanp import ChamanpConfig, ChamanpResult, validate_config, run
 import pandas as pd
 import os

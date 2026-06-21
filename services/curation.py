@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 import streamlit as st
 
 from modules.use_chamanp import use_chamanp

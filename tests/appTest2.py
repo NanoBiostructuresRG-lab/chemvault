@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # app.py
 import streamlit as st
 import pandas as pd

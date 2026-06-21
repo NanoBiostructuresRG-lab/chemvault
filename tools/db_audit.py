@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # ============================================================
 # python tools\db_audit.py inspect SQL\harmonsmile_test_01.db
 # python tools\db_audit.py assert-clean SQL\harmonsmile_test_01.db --allowed main sqlite_sequence --expect-row main=102

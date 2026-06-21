@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
 
 from services.sql_utils import (

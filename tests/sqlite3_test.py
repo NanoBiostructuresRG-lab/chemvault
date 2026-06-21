@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
 
 # Connect (creates file if it doesn't exist)

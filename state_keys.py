@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 """Centralized Streamlit session-state keys for ChemVault.
 
 These constants intentionally preserve the existing string values used by

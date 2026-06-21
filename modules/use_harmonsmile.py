@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 from harmonsmile import PubChemIngest, PubChemConfig
 import pandas as pd
 import os 

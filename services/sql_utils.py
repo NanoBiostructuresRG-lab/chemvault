@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
 def quote_identifier(identifier):
     """Quote a SQLite identifier such as a table or column name."""
     return '"' + str(identifier).replace('"', '""') + '"'
