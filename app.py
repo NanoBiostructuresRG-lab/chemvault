@@ -22,7 +22,7 @@ from services.sql_utils import (
     is_valid_table_name,
     quote_identifier,
 )
-from ui.sidebar import render_build_card, render_curate_card, render_export_card, render_refine_card
+from ui.sidebar import render_sidebar
 from ui.session_state import initialize_session_state
 
 
@@ -229,20 +229,7 @@ def construir_linea_query():
             filter_clause = f"ORDER BY {quote_identifier(order_col)} {direction}"
     return base_query + filter_clause
 
-with st.sidebar:
-    st.header("Actions")
-    #Construccion
-    if st.session_state["current_table"] == "" or (st.session_state["database_id"] != "" and count_rows(get_connection(st.session_state["database_id"])) == 0):
-        render_build_card(select_proteins)
-    else:#Depurado
-        render_refine_card(clear_depurado_preview, construir_linea_query)
-
-#falta agregar order by
-#hacer un text box que muestre el query
-
-    render_curate_card()
-
-    render_export_card()
+render_sidebar(select_proteins, clear_depurado_preview, construir_linea_query)
 ### MAIN PAGE ###
 
 ## Session --- Current Progress

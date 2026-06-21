@@ -5,7 +5,7 @@ import streamlit as st
 
 from services.builders import build_from_csv
 from services.curation import agregar_df_por_pk, is_cid_header, run_chamanp, run_harmonsmile
-from services.database import get_connection, update_headers
+from services.database import count_rows, get_connection, update_headers
 from services.export import export_table, export_table_by_sub_grupo
 from services.selection import get_active_selected_headers, get_selected_columns
 from services.sql_utils import table_exists
@@ -52,6 +52,23 @@ def render_build_card(select_proteins_callback):
                 build_from_csv(uploaded_file)
                 update_headers()
                 st.rerun()
+
+
+def render_sidebar(select_proteins_callback, clear_preview_callback, build_query_callback):
+    with st.sidebar:
+        st.header("Actions")
+        #Construccion
+        if st.session_state[CURRENT_TABLE] == "" or (st.session_state[DATABASE_ID] != "" and count_rows(get_connection(st.session_state[DATABASE_ID])) == 0):
+            render_build_card(select_proteins_callback)
+        else:#Depurado
+            render_refine_card(clear_preview_callback, build_query_callback)
+
+        #falta agregar order by
+        #hacer un text box que muestre el query
+
+        render_curate_card()
+
+        render_export_card()
 
 
 def render_refine_card(clear_preview_callback, build_query_callback):

@@ -435,6 +435,28 @@ The Export card behavior remains unchanged:
 - fallback to all headers when no columns are selected
 - empty-state messaging when no database/table or columns are available
 
+## Sidebar Orchestrator Extracted
+
+Added `render_sidebar(select_proteins_callback, clear_preview_callback,
+build_query_callback)` to `ui/sidebar.py`.
+
+`app.py` now delegates the entire sidebar with:
+
+```python
+render_sidebar(select_proteins, clear_depurado_preview, construir_linea_query)
+```
+
+The sidebar orchestration remains unchanged:
+
+- Build is shown when there is no active table or the active database has no
+  rows.
+- Refine is shown otherwise.
+- Curate is always rendered after Build/Refine.
+- Export is always rendered after Curate.
+
+SQL query construction remains in `app.py` and is passed into the sidebar as a
+callback, preserving the current Refine SQL behavior.
+
 ## Curation Merge Extracted
 
 Moved `agregar_df_por_pk` from `app.py` to `services/curation.py`.
