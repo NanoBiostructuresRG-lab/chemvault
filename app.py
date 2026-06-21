@@ -99,28 +99,28 @@ def count_rows(connection):
     cursor.execute(f"SELECT COUNT(*) FROM {quote_identifier(table)}")
     return cursor.fetchone()[0]
 
-@st.dialog("Seleccionar Proteínas", dismissible=False )
+@st.dialog("Select Proteins", dismissible=False )
 def select_proteins():
-    st.write("Buscar CIDs por BioAssayss, usando proteína como target")
+    st.write("Search CIDs by BioAssays, using a protein as target.")
     st.text_input(label="Protein", key="input_protein",value="P34971")
-    if st.button("Agregar a selección"):
+    if st.button("Add to selection"):
         st.session_state["selected_proteins"].append(st.session_state["input_protein"])
-        st.markdown(f"Tus proteinas: {st.session_state["selected_proteins"]}.")
-    if st.button("Confirmar selección"):
+        st.markdown(f"Selected proteins: {st.session_state['selected_proteins']}.")
+    if st.button("Confirm selection"):
         if len(st.session_state["selected_proteins"]) == 0:
-            st.toast("Selecciona al menos una proteína")
-            print("Selecciona al menos una proteína")
+            st.toast("Select at least one protein")
+            print("Select at least one protein")
         elif st.session_state["database_id"] == "":
-            st.toast("Primero, ingresa un nombre para tu SQL Database")
-            print("Primero, ingresa un nombre para tu SQL Database")
+            st.toast("First, enter a name for your SQL database")
+            print("First, enter a name for your SQL database")
 
         else:
             progreso = st.progress(0)
-            st.toast(f"Construyendo base de datos con proteínas: {st.session_state["selected_proteins"]}")
+            st.toast(f"Building database with proteins: {st.session_state['selected_proteins']}")
             build_from_proteins(progreso)
             update_headers()
         st.rerun()
-    if st.button("Cancelar"):
+    if st.button("Cancel"):
         st.session_state["selected_proteins"] = []
         st.rerun()
 
@@ -133,7 +133,7 @@ def select_proteins():
 def set_database_id():
     db_name = st.session_state.get("input_database_id", "").strip()
     if db_name == "":
-        st.toast("Ingresa un nombre para tu SQL Database")
+        st.toast("Enter a name for your SQL database")
         return
     st.session_state["database_id"] = db_name
     st.session_state["set_text_input_locked"] = True
@@ -374,7 +374,7 @@ def agregar_df_por_pk(df, pk, fk): # agregar dataframe por primary key
 
     except Exception as e:
         conn.rollback()
-        st.error(f"Error al actualizar la base de datos: {e}")
+        st.error(f"Error updating the database: {e}")
         return False
 
 ### Definicion session state vars
@@ -431,9 +431,94 @@ logo = Image.open("assets/logo.jpeg")
 
 # Configuración de página
 st.set_page_config(
-    page_title="Curador",
+    page_title="ChemVault",
     page_icon=logo,
     layout="wide"
+)
+
+st.markdown(
+    """
+    <style>
+        :root {
+            --cv-bg: #ffffff;
+            --cv-panel-bg: #ffffff;
+            --cv-sidebar-bg: #f8fafc;
+            --cv-muted-bg: #f3f4f6;
+            --cv-border: #d6dbe1;
+            --cv-border-strong: rgba(71, 85, 105, 0.24);
+            --cv-text: #111827;
+            --cv-heading: #1f2937;
+            --cv-muted: #6b7280;
+            --cv-link: #4b5563;
+            --cv-control-border: #64748b;
+            --cv-accent: #b45309;
+            --cv-accent-text: #78350f;
+            --cv-accent-bg: #fff7ed;
+            --cv-code-bg: #111827;
+            --cv-code-text: #f9fafb;
+            --cv-shadow-soft: 0 8px 24px rgba(15, 23, 42, 0.04);
+            --cv-radius: 0.55rem;
+        }
+
+        section[data-testid="stSidebar"] {
+            background-color: var(--cv-sidebar-bg);
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+            gap: 0.8rem;
+        }
+
+        section[data-testid="stSidebar"] h1,
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h3 {
+            color: var(--cv-heading);
+        }
+
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h3 {
+            margin-bottom: 0.15rem;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+            color: var(--cv-muted);
+            line-height: 1.35;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
+            background-color: var(--cv-panel-bg);
+            border-color: var(--cv-border-strong);
+            box-shadow: var(--cv-shadow-soft);
+            border-radius: var(--cv-radius);
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlock"] {
+            gap: 0.55rem;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stButton"],
+        section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] {
+            width: 100%;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button,
+        section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] > button {
+            width: 100%;
+            justify-content: center;
+            border-color: var(--cv-control-border);
+            color: var(--cv-heading);
+            background-color: var(--cv-panel-bg);
+            min-height: 2.35rem;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover,
+        section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] > button:hover {
+            border-color: var(--cv-accent);
+            color: var(--cv-accent-text);
+            background-color: var(--cv-accent-bg);
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 ### SIDE BAR MENU ###
@@ -466,11 +551,11 @@ def construir_linea_query():
     current_table = st.session_state.get("current_table", "")
 
     if not is_valid_table_name(new_table_name):
-        raise ValueError("Ingresa un nombre de tabla válido: usa letras, números y guiones bajos; no empieces con número.")
+        raise ValueError("Enter a valid table name: use letters, numbers, and underscores; do not start with a number.")
     if current_table == "":
-        raise ValueError("Selecciona una tabla fuente antes de crear una nueva tabla.")
+        raise ValueError("Select a source table before creating a new table.")
     if len(selected_headers) == 0:
-        raise ValueError("Selecciona al menos una columna para crear una nueva tabla.")
+        raise ValueError("Select at least one column before creating a new table.")
 
     cols = ", ".join(quote_identifier(col) for col in selected_headers)
     base_query = f"""
@@ -478,41 +563,41 @@ def construir_linea_query():
     SELECT {cols} FROM {quote_identifier(current_table)}
     """
     filter_clause = ""
-    match st.session_state.get("type_of_filter", "Ninguno"):
-        case "Ninguno":
+    match st.session_state.get("type_of_filter", "None"):
+        case "None":
             pass
         case "GROUP BY":
             group_col = st.session_state.get("group_by_column", "")
             if group_col not in selected_headers:
-                raise ValueError("La columna de GROUP BY debe estar dentro de las columnas seleccionadas.")
+                raise ValueError("The GROUP BY column must be one of the selected columns.")
             filter_clause = f"GROUP BY {quote_identifier(group_col)}"
         case "WHERE":
             where_col = st.session_state.get("where_column", "")
             condition = st.session_state.get("where_condition", "").strip()
             if where_col not in st.session_state.get("headers", []):
-                raise ValueError("Selecciona una columna válida para WHERE.")
+                raise ValueError("Select a valid column for WHERE.")
             if condition == "":
-                raise ValueError("Escribe una condición WHERE.")
+                raise ValueError("Enter a WHERE condition.")
             filter_clause = f"WHERE {quote_identifier(where_col)} {condition}"
         case "ORDER BY":
             order_col = st.session_state.get("order_by_column", "")
             direction = st.session_state.get("order_direction", "ASC")
             if order_col not in selected_headers:
-                raise ValueError("La columna de ORDER BY debe estar dentro de las columnas seleccionadas.")
+                raise ValueError("The ORDER BY column must be one of the selected columns.")
             filter_clause = f"ORDER BY {quote_identifier(order_col)} {direction}"
     return base_query + filter_clause
 
 with st.sidebar:
-    st.header("Acciones")
+    st.header("Actions")
     #Construccion
     if st.session_state["current_table"] == "" or (st.session_state["database_id"] != "" and count_rows(get_connection(st.session_state["database_id"])) == 0):
         with st.container(border=True):
-            st.subheader("Construcción")
-            st.caption("Crear o cargar una base molecular.")
+            st.subheader("Build")
+            st.caption("Start from proteins or upload a CSV dataset.")
             ### por proteina ###
-            if st.button("Buscar Proteínas") : select_proteins()
+            if st.button("Search Proteins") : select_proteins()
             ### por csv ###
-            uploaded_file = st.file_uploader("Sube un CSV", type=["csv"])
+            uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
             if uploaded_file != None:
                     st.session_state["set_text_input_locked"] = True
                     db_name = uploaded_file.name.replace(".csv", "")
@@ -523,21 +608,23 @@ with st.sidebar:
                     st.rerun()
     else:#Depurado
         with st.container(border=True):
-            st.subheader("Depurado")
-            st.caption("Crear tablas derivadas desde columnas seleccionadas.")
-            st.text_input(label="Nombre", key="new_table_name", value="Nueva_tabla", on_change=clear_depurado_preview)
-            st.selectbox("Filtrado Adicional", ["Ninguno", "GROUP BY", "WHERE", "ORDER BY"], key="type_of_filter", on_change=clear_depurado_preview)
+            st.subheader("Refine")
+            st.caption("Create derived tables from the active column selection.")
+            st.text_input(label="New table name", key="new_table_name", value="New_table", on_change=clear_depurado_preview)
+            if st.session_state.get("type_of_filter") == "Ninguno":
+                st.session_state["type_of_filter"] = "None"
+            st.selectbox("Additional filter", ["None", "GROUP BY", "WHERE", "ORDER BY"], key="type_of_filter", on_change=clear_depurado_preview)
             match st.session_state["type_of_filter"]:
-                case "Ninguno":
+                case "None":
                     pass
                 case "GROUP BY":
-                    st.selectbox("Columna a agrupar", st.session_state["selected_headers"], key="group_by_column", on_change=clear_depurado_preview)
+                    st.selectbox("Column to group", st.session_state["selected_headers"], key="group_by_column", on_change=clear_depurado_preview)
                 case "WHERE":
-                    st.selectbox("Columna a condicionar", st.session_state["headers"], key="where_column", on_change=clear_depurado_preview)
-                    st.text_input("Condición (ejemplo: > 100, = 'HarmonSmile', etc)", key="where_condition", on_change=clear_depurado_preview)
+                    st.selectbox("Column to filter", st.session_state["headers"], key="where_column", on_change=clear_depurado_preview)
+                    st.text_input("Condition (example: > 100, = 'HarmonSmile', etc)", key="where_condition", on_change=clear_depurado_preview)
                 case "ORDER BY":
-                    st.selectbox("Columna a ordenar", st.session_state["selected_headers"], key="order_by_column", on_change=clear_depurado_preview)
-                    st.selectbox("Ascendente o Descendente", ["ASC", "DESC"], key="order_direction", on_change=clear_depurado_preview)
+                    st.selectbox("Column to sort", st.session_state["selected_headers"], key="order_by_column", on_change=clear_depurado_preview)
+                    st.selectbox("Sort direction", ["ASC", "DESC"], key="order_direction", on_change=clear_depurado_preview)
             if st.button("Preview SQL"):
                 try:
                     st.session_state["custom_query"] = construir_linea_query()
@@ -549,8 +636,8 @@ with st.sidebar:
                 st.markdown("**SQL preview**")
                 st.markdown(
                     f'''
-                    <div style="background-color:#111827; color:#f9fafb; padding:0.85rem 1rem;
-                                border-radius:0.55rem; font-family:monospace; font-size:0.9rem;
+                    <div style="background-color:var(--cv-code-bg); color:var(--cv-code-text); padding:0.85rem 1rem;
+                                border-radius:var(--cv-radius); font-family:monospace; font-size:0.9rem;
                                 line-height:1.5; overflow-x:auto; margin-bottom:0.85rem;">
                         {compact_query}
                     </div>
@@ -558,14 +645,14 @@ with st.sidebar:
                     unsafe_allow_html=True,
                 )
 
-            if st.button("Crear Nueva Tabla con selección actual"):
+            if st.button("Create table from current selection"):
                 conn = get_connection(st.session_state["database_id"])
                 cursor = conn.cursor()
                 try:
                     query_to_run = construir_linea_query()
                     new_table_name = st.session_state["new_table_name"].strip()
                     if table_exists(conn, new_table_name):
-                        raise ValueError(f"La tabla '{new_table_name}' ya existe. Usa otro nombre o elimínala primero.")
+                        raise ValueError(f"Table '{new_table_name}' already exists. Use another name or delete it first.")
                     cursor.execute(query_to_run)
                     conn.commit()
                     st.session_state["current_table"] = new_table_name
@@ -577,7 +664,7 @@ with st.sidebar:
                     st.rerun()
                 except Exception as e:
                     conn.rollback()
-                    st.error(f"No se pudo crear la tabla: {e}")
+                    st.error(f"Could not create the table: {e}")
 
             created_table = st.session_state.get("depurado_success_table", "")
             if created_table and created_table == st.session_state.get("current_table", ""):
@@ -587,8 +674,8 @@ with st.sidebar:
 #hacer un text box que muestre el query
 
     with st.container(border=True):
-        st.subheader("Curado")
-        st.caption("Ejecutar procesos sobre columnas seleccionadas.")
+        st.subheader("Curate")
+        st.caption("Run chemistry workflows on selected columns.")
         if st.button("HARMONSMILE"):
             set_curados_false()
             st.session_state["selecting_harmonsmile"] = True
@@ -630,16 +717,16 @@ with st.sidebar:
                         st.rerun()
 
         if st.session_state["selecting_chamanp"]:
-            st.text("Selecciona las columnas a procesar")
-            st.text(f"Columnas Seleccionadas : {st.session_state['selected_headers']}")
-            st.selectbox("Selecciona identifier", st.session_state['selected_headers'], key="selected_identifier")
-            st.selectbox("Selecciona canonical_smiles", st.session_state['selected_headers'], key="selected_smiles")
-            st.selectbox("Selecciona collections", st.session_state['selected_headers'], key="selected_collections")
+            st.text("Select the columns to process")
+            st.text(f"Selected columns: {st.session_state['selected_headers']}")
+            st.selectbox("Select identifier", st.session_state['selected_headers'], key="selected_identifier")
+            st.selectbox("Select canonical_smiles", st.session_state['selected_headers'], key="selected_smiles")
+            st.selectbox("Select collections", st.session_state['selected_headers'], key="selected_collections")
 
             if st.button("Run"):
                 use_chamanp(get_selected_columns(), st.session_state["selected_identifier"], st.session_state["selected_smiles"], st.session_state["selected_collections"])
-                st.text("Chamanp exitoso")
-                st.text("Descargando archivos")
+                st.text("Chamanp completed successfully")
+                st.text("Downloading files")
             folder_path = "artifacts"
             files = os.listdir(folder_path)
 
@@ -649,7 +736,7 @@ with st.sidebar:
                 if(file_name != "notes.txt"):
                     with open(file_path, "rb") as f:
                         downloaded = st.download_button(
-                            label=f"Descargar {file_name}",
+                            label=f"Download {file_name}",
                             data=f,
                             file_name=file_name,
                             mime="application/octet-stream",
@@ -657,13 +744,13 @@ with st.sidebar:
                         )
                     if downloaded:
                         os.remove(file_path)
-                        st.success(f"{file_name} eliminado del servidor")
+                        st.success(f"{file_name} removed from the server")
 
     with st.container(border=True):
         st.subheader("Export")
-        st.caption("Descargar la tabla actual o un subconjunto filtrado.")
+        st.caption("Download the current table or a filtered subset.")
         if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
-            st.info("Carga o selecciona una base de datos antes de exportar.")
+            st.info("Load or select a database before exporting.")
         else:
             selected_headers = get_active_selected_headers()
             header_options = selected_headers if len(selected_headers) > 0 else st.session_state.get("headers", [])
@@ -703,35 +790,40 @@ with st.sidebar:
 ### MAIN PAGE ###
 
 ## Session --- Current Progress
-container0 = st.container(horizontal=True, horizontal_alignment="distribute", gap="large")
-container1 = st.container(horizontal=True, horizontal_alignment="distribute", gap="large")
+container0 = st.container(horizontal=True, horizontal_alignment="distribute", gap="large", border=True)
+st.html("""
+    <div style="
+        height: 3.25rem;
+    "></div>
+    """)
+container1 = st.container(horizontal=False, horizontal_alignment="left", border=True)
 st.html("""
     <hr style="
         border: none;
         height: 2px;
-        background-color: #ccc;
-        margin: 20px 0;
+        background-color: var(--cv-border);
+        margin: 32px 0 24px 0;
     ">
     """)
 
 
 ## Encabezados
-container2 = st.container(horizontal=False, horizontal_alignment="left")
+container2 = st.container(horizontal=False, horizontal_alignment="left", border=True)
 st.html("""
     <hr style="
         border: none;
         height: 2px;
-        background-color: #ccc;
-        margin: 20px 0;
+        background-color: var(--cv-border);
+        margin: 32px 0 24px 0;
     ">
     """)
-container3 = st.container(horizontal=False, horizontal_alignment="left")
+container3 = st.container(horizontal=False, horizontal_alignment="left", border=True)
 
 
 
 ### Escritura de datos y logica ###
 # 1 #
-col_logo, col_titulo = container0.columns([0.1, 0.9], vertical_alignment="center")
+col_logo, col_titulo = container0.columns([0.12, 0.88], vertical_alignment="center")
 
 # Colocamos el logo en la primera columna}
 
@@ -740,11 +832,24 @@ with col_logo:
 
 # Colocamos el título en la segunda columna
 with col_titulo:
-    st.title("ChemVault")
-    st.caption("A molecular dataset builder and curator")
+    st.markdown(
+        """
+        <div style="padding: 0.15rem 0;">
+            <div style="font-size: 2.45rem; line-height: 1.05; font-weight: 700; color: var(--cv-heading);">
+                ChemVault
+            </div>
+            <div style="margin-top: 0.25rem; font-size: 0.98rem; color: var(--cv-muted);">
+                Molecular dataset construction, curation, and export workspace.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     #st.header("Construcción y Curado de Conjuntos de Datos Moleculares Tabulares")
 
 if st.session_state["database_id"] =="":
+    container1.subheader("Database")
+    container1.caption("Create or select the active molecular database.")
     container1.text_input(
         label="SQL Database name",
         value=st.session_state["database_id"],
@@ -756,48 +861,91 @@ if st.session_state["database_id"] =="":
     dbs = []
     for file_name in files:
         dbs.append(file_name.replace(".db", ""))
-    container1.selectbox("O selecciona una SQL Database existente", dbs, key="existing_db_select", on_change=load_existing_database)
+    container1.selectbox("Or select an existing SQL database", dbs, key="existing_db_select", on_change=load_existing_database)
 else:
     update_headers()
-    container1.text("Data Base: " + st.session_state["database_id"])
+    container1.subheader("Database")
+    container1.caption("Active table and row summary.")
     table_options = st.session_state.get("all_tables", [])
     if len(table_options) > 0:
         if st.session_state.get("current_table", "") not in table_options:
             st.session_state["current_table"] = table_options[0]
-        container1.selectbox("Selecciona Table", table_options, key="current_table", on_change=update_headers)
-        container1.write("Rows: " + str(count_rows(get_connection(st.session_state["database_id"]))))
+        row_count = count_rows(get_connection(st.session_state["database_id"]))
         if len(st.session_state.get("headers", [])) > 0:
             if st.session_state.get("grupo_a_contar", "") not in st.session_state["headers"]:
                 st.session_state["grupo_a_contar"] = st.session_state["headers"][0]
-            container1.selectbox("Contar por grupos", st.session_state['headers'], key="grupo_a_contar")
-            container1.write("Rows by group: " + str(count_rows_group_by(get_connection(st.session_state["database_id"]))))
+        group_count = count_rows_group_by(get_connection(st.session_state["database_id"]))
+        container1.markdown(
+            f"""
+            <div style="
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 0.35rem 1.5rem;
+                margin: 0.7rem 0 1rem 0;
+                padding: 0.85rem 0;
+                border-top: 1px solid var(--cv-border);
+                border-bottom: 1px solid var(--cv-border);
+            ">
+                <div>
+                    <div style="font-size: 0.76rem; color: var(--cv-muted);">Database</div>
+                    <div style="font-size: 0.95rem; color: var(--cv-text); overflow-wrap: anywhere;">{html.escape(st.session_state["database_id"])}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.76rem; color: var(--cv-muted);">Table</div>
+                    <div style="font-size: 0.95rem; color: var(--cv-text);">{html.escape(st.session_state["current_table"])}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.76rem; color: var(--cv-muted);">Rows</div>
+                    <div style="font-size: 0.95rem; color: var(--cv-text);">{row_count}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.76rem; color: var(--cv-muted);">Unique groups</div>
+                    <div style="font-size: 0.95rem; color: var(--cv-text);">{group_count}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        container1.markdown("#### Table controls")
+        container1.selectbox("Select table", table_options, key="current_table", on_change=update_headers)
+        if len(st.session_state.get("headers", [])) > 0:
+            container1.selectbox("Count unique groups by", st.session_state['headers'], key="grupo_a_contar")
     else:
-        container1.warning("La base de datos no contiene tablas.")
+        container1.warning("The database does not contain tables.")
 
 # 2 #
 
 with container2:
+    st.subheader("Columns")
+    st.caption("Select columns to preview, refine, curate, or export.")
     options = st.session_state["headers"]
-    st.pills(
-        "Headers",
-        options,
-        selection_mode="multi",
-        key="selected_headers",
-    )
+    if len(options) > 0:
+        st.pills(
+            "Headers",
+            options,
+            selection_mode="multi",
+            key="selected_headers",
+            label_visibility="collapsed",
+        )
 
+        selected_count = len(st.session_state["selected_headers"])
+        if selected_count > 0:
+            selected_columns = ", ".join(st.session_state["selected_headers"])
+            st.markdown(f"**{selected_count} column{'s' if selected_count != 1 else ''} selected:** {selected_columns}")
+             #tabla preview de headers seleccionados
+            st.markdown("#### Selected columns preview")
+            st.dataframe(build_preview_table(), hide_index=True)
 
-    if len(st.session_state["selected_headers"]) > 0:
-        st.markdown(f"Your selected headers: {st.session_state['selected_headers']}.")
-         #tabla preview de headers seleccionados
-        st.dataframe(build_preview_table(), hide_index=True)
-
+        else:
+            st.info("Select one or more columns to preview data and enable downstream actions.")
     else:
-        st.markdown("No headers selected")
+        st.info("No columns are available in the current table.")
 
 
 with container3:
+    st.subheader("Table information")
+    st.caption("Column types and maintenance tools for the active table.")
     if st.session_state["database_id"] != "" and len(st.session_state["headers"]) > 0:
-        st.subheader("Información Adicional")
         conn = get_connection(st.session_state["database_id"])
         cursor = conn.cursor()
         cursor.execute(f"PRAGMA table_info({quote_identifier(st.session_state['current_table'])})")
@@ -805,24 +953,53 @@ with container3:
         if columns_info:
             headers_types_df = pd.DataFrame(
                 [(col[1], col[2]) for col in columns_info],
-                columns=["Header", "Type"]
+                columns=["Column", "Data type"]
             )
+            st.markdown("Current schema for the active table.")
             st.dataframe(headers_types_df, hide_index=True)
 
-            st.subheader("Cambiar tipo de columna")
-            col_to_change = st.selectbox("Selecciona columna", [col[1] for col in columns_info], key="col_to_change_select")
-            new_type = st.selectbox("Nuevo tipo", ["TEXT", "INTEGER", "REAL", "BLOB"], key="new_col_type_select")
+            with st.expander("Advanced: change column type", expanded=False):
+                st.caption("This updates the SQLite column type for the selected column.")
+                st.warning("Use this only when you are sure the selected values can be converted safely.")
+                col_to_change = st.selectbox("Select column", [col[1] for col in columns_info], key="col_to_change_select")
+                new_type = st.selectbox("New type", ["TEXT", "INTEGER", "REAL", "BLOB"], key="new_col_type_select")
 
-            if st.button("Aplicar cambio de tipo"):
-                try:
-                    cursor.execute(f"ALTER TABLE {st.session_state['current_table']} ADD COLUMN {col_to_change}_new {new_type}")
-                    cursor.execute(f"UPDATE {st.session_state['current_table']} SET {col_to_change}_new = CAST({col_to_change} AS {new_type})")
-                    cursor.execute(f"ALTER TABLE {st.session_state['current_table']} DROP COLUMN {col_to_change}")
-                    cursor.execute(f"ALTER TABLE {st.session_state['current_table']} RENAME COLUMN {col_to_change}_new TO {col_to_change}")
-                    conn.commit()
-                    st.success(f"Tipo de '{col_to_change}' cambiado a {new_type}")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error al cambiar el tipo: {e}")
+                if st.button("Apply column type change"):
+                    try:
+                        cursor.execute(f"ALTER TABLE {st.session_state['current_table']} ADD COLUMN {col_to_change}_new {new_type}")
+                        cursor.execute(f"UPDATE {st.session_state['current_table']} SET {col_to_change}_new = CAST({col_to_change} AS {new_type})")
+                        cursor.execute(f"ALTER TABLE {st.session_state['current_table']} DROP COLUMN {col_to_change}")
+                        cursor.execute(f"ALTER TABLE {st.session_state['current_table']} RENAME COLUMN {col_to_change}_new TO {col_to_change}")
+                        conn.commit()
+                        st.success(f"Column '{col_to_change}' changed to {new_type}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error changing type: {e}")
         else:
-            st.markdown("No se encontró información de tipos de datos.")
+            st.markdown("No column type information was found.")
+    else:
+        st.info("Select a database with columns to view additional information.")
+
+st.markdown(
+    """
+    <footer style="
+        margin-top: 3rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--cv-border);
+        text-align: center;
+        color: var(--cv-muted);
+        font-size: 0.85rem;
+        line-height: 1.6;
+    ">
+        <div>D.R. © ChemVault 2026</div>
+        <div>
+            Developed by the
+            <a href="https://nanobiostructuresrg.github.io/" style="color: var(--cv-link);">
+                Nano]°[Biostructures RG
+            </a>
+            at Tecnológico de Monterrey.
+        </div>
+    </footer>
+    """,
+    unsafe_allow_html=True,
+)
