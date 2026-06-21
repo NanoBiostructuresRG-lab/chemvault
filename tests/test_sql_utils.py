@@ -1,0 +1,37 @@
+import sqlite3
+
+from services.sql_utils import (
+    ensure_main_table,
+    get_tables_from_connection,
+    table_exists,
+)
+
+
+def test_ensure_main_table_creates_main_with_primary_id():
+    connection = sqlite3.connect(":memory:")
+
+    ensure_main_table(connection)
+
+    cursor = connection.cursor()
+    cursor.execute('PRAGMA table_info("main")')
+    columns = cursor.fetchall()
+    assert columns[0][1] == "primary_id"
+    assert columns[0][2] == "INTEGER"
+    assert columns[0][5] == 1
+
+
+def test_table_exists_detects_existing_and_missing_tables():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "main" (primary_id INTEGER PRIMARY KEY AUTOINCREMENT)')
+
+    assert table_exists(connection, "main") is True
+    assert table_exists(connection, "missing") is False
+
+
+def test_get_tables_from_connection_excludes_sqlite_internal_tables_and_orders_names():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "z_table" (id INTEGER PRIMARY KEY AUTOINCREMENT)')
+    connection.execute('CREATE TABLE "a_table" (id INTEGER)')
+    connection.execute('INSERT INTO "z_table" DEFAULT VALUES')
+
+    assert get_tables_from_connection(connection) == ["a_table", "z_table"]

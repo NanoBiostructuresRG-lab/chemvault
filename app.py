@@ -2,102 +2,33 @@ import html
 import streamlit as st
 import pandas as pd
 import numpy as np
-import sqlite3
 import os
 from PIL import Image
-from modules.obtener_CIDs_Pubchem import obtener_CIDs_Pubchem
-from modules.use_harmonsmile import use_PubchemIngest
-from modules.use_chamanp import use_chamanp
+from services.builders import build_from_csv, build_from_proteins
+from services.database import (
+    count_rows,
+    count_rows_group_by,
+    get_connection,
+    load_existing_database,
+    set_database_id,
+    update_headers,
+)
+from services.curation import agregar_df_por_pk, is_cid_header, run_chamanp, run_harmonsmile
+from services.export import export_table, export_table_by_sub_grupo
+from services.selection import (
+    build_preview_table,
+    get_active_selected_headers,
+    get_selected_columns,
+    sync_selected_headers,
+)
+from services.sql_utils import (
+    is_valid_table_name,
+    quote_identifier,
+    table_exists,
+)
+from ui.session_state import initialize_session_state
 
 
-
-def get_connection(db_name):
-    return sqlite3.connect(f"SQL/{db_name}.db", check_same_thread=False)
-
-
-def quote_identifier(identifier):
-    """Quote a SQLite identifier such as a table or column name."""
-    return '"' + str(identifier).replace('"', '""') + '"'
-
-
-def is_valid_table_name(table_name):
-    if not table_name:
-        return False
-    return str(table_name).replace("_", "").isalnum() and not str(table_name)[0].isdigit()
-
-
-def is_cid_header(header):
-    normalized = str(header).strip().lower().replace("_", "").replace("-", "").replace(" ", "")
-    return normalized in {"cid", "cids", "pubchemcid", "pubchemcids", "compoundcid", "compoundcids"}
-
-
-def get_active_selected_headers():
-    headers = st.session_state.get("headers", [])
-    selected = st.session_state.get("selected_headers", [])
-    return [col for col in selected if col in headers]
-
-
-def sync_selected_headers():
-    st.session_state["selected_headers"] = get_active_selected_headers()
-
-
-def table_exists(connection, table_name):
-    cursor = connection.cursor()
-    cursor.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (table_name,),
-    )
-    return cursor.fetchone() is not None
-
-
-def get_tables_from_connection(connection):
-    cursor = connection.cursor()
-    cursor.execute("""
-        SELECT name
-        FROM sqlite_master
-        WHERE type='table'
-        AND name NOT LIKE 'sqlite_%'
-        ORDER BY name
-    """)
-    return [row[0] for row in cursor.fetchall()]
-
-
-def ensure_main_table(connection):
-    cursor = connection.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS "main" (
-            primary_id INTEGER PRIMARY KEY AUTOINCREMENT
-        )
-    ''')
-    connection.commit()
-
-
-def count_rows_group_by(connection):
-    group_col = st.session_state.get("grupo_a_contar", "")
-    table = st.session_state.get("current_table", "")
-    if group_col == "" or table == "":
-        return 0
-    if group_col not in st.session_state.get("headers", []):
-        return 0
-    cursor = connection.cursor()
-    cursor.execute(f"""
-        SELECT COUNT(*)
-        FROM (
-            SELECT {quote_identifier(group_col)}
-            FROM {quote_identifier(table)}
-            GROUP BY {quote_identifier(group_col)}
-        )
-    """)
-    return cursor.fetchone()[0]
-
-
-def count_rows(connection):
-    table = st.session_state.get("current_table", "")
-    if table == "" or not table_exists(connection, table):
-        return 0
-    cursor = connection.cursor()
-    cursor.execute(f"SELECT COUNT(*) FROM {quote_identifier(table)}")
-    return cursor.fetchone()[0]
 
 @st.dialog("Select Proteins", dismissible=False )
 def select_proteins():
@@ -129,254 +60,6 @@ def select_proteins():
 
 
 
-### setup SQL ###
-def set_database_id():
-    db_name = st.session_state.get("input_database_id", "").strip()
-    if db_name == "":
-        st.toast("Enter a name for your SQL database")
-        return
-    st.session_state["database_id"] = db_name
-    st.session_state["set_text_input_locked"] = True
-    st.session_state["current_table"] = "main"
-    st.session_state["selected_headers"] = []
-    conn = get_connection(st.session_state["database_id"])
-    ensure_main_table(conn)
-    update_headers()
-    st.toast(f"SQL Database set to {st.session_state['database_id']}")
-
-
-def load_existing_database():
-    db_name = st.session_state.get("existing_db_select", "")
-    if db_name == "":
-        return
-    st.session_state["database_id"] = db_name
-    st.session_state["set_text_input_locked"] = True
-    st.session_state["selected_headers"] = []
-    conn = get_connection(db_name)
-    tables = get_tables_from_connection(conn)
-    if not tables:
-        ensure_main_table(conn)
-        tables = get_tables_from_connection(conn)
-    st.session_state["current_table"] = "main" if "main" in tables else tables[0]
-    update_headers()
-
-
-def get_tables():
-    if st.session_state.get("database_id", "") == "":
-        st.session_state["all_tables"] = []
-        return []
-    db_path = f"SQL/{st.session_state['database_id']}.db"
-    if not os.path.isfile(db_path):
-        st.session_state["all_tables"] = []
-        return []
-    conn = get_connection(st.session_state["database_id"])
-    tables = get_tables_from_connection(conn)
-    st.session_state["all_tables"] = tables
-    return tables
-
-
-def update_headers():
-    if st.session_state.get("database_id", "") == "":
-        st.session_state["headers"] = []
-        st.session_state["all_tables"] = []
-        st.session_state["current_table"] = ""
-        st.session_state["selected_headers"] = []
-        return []
-
-    conn = get_connection(st.session_state["database_id"])
-    tables = get_tables_from_connection(conn)
-    st.session_state["all_tables"] = tables
-
-    if not tables:
-        st.session_state["headers"] = []
-        st.session_state["current_table"] = ""
-        st.session_state["selected_headers"] = []
-        return []
-
-    if st.session_state.get("current_table", "") not in tables:
-        st.session_state["current_table"] = "main" if "main" in tables else tables[0]
-
-    table = st.session_state["current_table"]
-    cursor = conn.cursor()
-    cursor.execute(f"PRAGMA table_info({quote_identifier(table)})")
-    columns_info = cursor.fetchall()
-    headers = [col[1] for col in columns_info]
-    st.session_state["headers"] = headers
-    sync_selected_headers()
-    return headers
-#st.session_state['all_tables']
-def build_from_csv(uploaded_file):
-    if os.path.isfile(f"SQL/{st.session_state['database_id']}.db"):
-        try:
-            os.remove(f"SQL/{st.session_state['database_id']}.db")
-        except PermissionError:
-            pass
-    conn = get_connection(st.session_state["database_id"])
-    cursor = conn.cursor()
-
-    if st.session_state["current_table"] == "":
-        st.session_state["current_table"] = "main"
-    table = st.session_state["current_table"]
-
-    df = pd.read_csv(uploaded_file)
-
-    df.columns = [col.strip().replace(" ", "_") for col in df.columns]
-
-    ### para eliminar errores de duplicados de keys, se hace un drop
-    cursor.execute(f"""
-        DROP TABLE IF EXISTS {table}
-        """)
-    conn.commit()
-
-    cursor.execute(f"""
-        CREATE TABLE {table} (
-            primary_id INTEGER PRIMARY KEY AUTOINCREMENT
-        )
-    """)
-
-    for col in df.columns:
-        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
-
-
-    # insertar datos
-    cols_str = ", ".join([f"'{col}'" for col in df.columns])
-    placeholders = ", ".join(["?"] * len(df.columns))
-    cursor.executemany(
-        f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders})",
-        df.astype(str).values.tolist()
-    )
-
-    conn.commit()
-
-
-def build_from_proteins(progreso):
-    st.session_state["current_table"] = "main"
-    obtener_CIDs_Pubchem(get_connection(st.session_state["database_id"]),st.session_state["selected_proteins"],progreso)
-
-def export_table():
-    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
-        return pd.DataFrame().to_csv(index=False).encode("utf-8")
-
-    conn = get_connection(st.session_state["database_id"])
-    table = st.session_state["current_table"]
-    selected_headers = get_active_selected_headers()
-
-    if len(selected_headers) == 0:
-        query = f"SELECT * FROM {quote_identifier(table)}"
-    else:
-        cols = ", ".join(quote_identifier(col) for col in selected_headers)
-        query = f"SELECT {cols} FROM {quote_identifier(table)}"
-
-    df = pd.read_sql_query(query, conn)
-    return df.to_csv(index=False).encode("utf-8")
-
-
-def export_table_by_sub_grupo(codigo_buscar: str, columna_filtro: str):
-    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
-        return pd.DataFrame().to_csv(index=False).encode("utf-8")
-    if columna_filtro not in st.session_state.get("headers", []):
-        return pd.DataFrame().to_csv(index=False).encode("utf-8")
-
-    conn = get_connection(st.session_state["database_id"])
-    table = st.session_state["current_table"]
-    selected_headers = get_active_selected_headers()
-
-    if len(selected_headers) == 0:
-        cols = "*"
-    else:
-        cols = ", ".join(quote_identifier(col) for col in selected_headers)
-
-    query = f"""
-        SELECT {cols}
-        FROM {quote_identifier(table)}
-        WHERE {quote_identifier(columna_filtro)} LIKE ?
-    """
-
-    df = pd.read_sql_query(query, conn, params=[f"%{codigo_buscar}%"])
-    return df.to_csv(index=False).encode("utf-8")
-
-
-def build_preview_table():
-    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
-        return pd.DataFrame()
-
-    selected_headers = get_active_selected_headers()
-    if len(selected_headers) == 0:
-        return pd.DataFrame()
-
-    conn = get_connection(st.session_state["database_id"])
-    table = st.session_state["current_table"]
-    cols = ", ".join(quote_identifier(col) for col in selected_headers)
-    query = f"SELECT {cols} FROM {quote_identifier(table)} LIMIT 10"
-    return pd.read_sql_query(query, conn)
-
-
-def get_selected_columns(): #diferencia entre build_preview_table es que esta no tiene limite de 10
-    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
-        return pd.DataFrame()
-
-    selected_headers = get_active_selected_headers()
-    if len(selected_headers) == 0:
-        return pd.DataFrame()
-
-    conn = get_connection(st.session_state["database_id"])
-    table = st.session_state["current_table"]
-    cols = ", ".join(quote_identifier(col) for col in selected_headers)
-    query = f"SELECT {cols} FROM {quote_identifier(table)}"
-    return pd.read_sql_query(query, conn)
-
-def agregar_df_por_pk(df, pk, fk): # agregar dataframe por primary key
-    conn = get_connection(st.session_state["database_id"])
-    cursor = conn.cursor()
-    table = st.session_state["current_table"]
-    print(df)
-    # agregar las columnas que vamos a agregar (excluyendo la llave foreign key)
-    columnas_a_actualizar = [col for col in df.columns if col != fk]
-    print(columnas_a_actualizar)
-    if not columnas_a_actualizar:
-        return False # No hay columnas nuevas que actualizar
-
-    try:
-        #Paso 1: Asegurarnos de que las columnas nuevas existan en la tabla 'main'
-        # Buscamos qué columnas ya existen en 'main' para no duplicar errores
-        cursor.execute(f"PRAGMA table_info({table})")
-        columnas_existentes = [row[1] for row in cursor.fetchall()]
-
-        for col in columnas_a_actualizar:
-            if col not in columnas_existentes:
-                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
-        print("Columnas agregadas")
-
-        #Paso 2: Subir el DataFrame actual a una tabla temporal
-        temp_table_name = "_temp_updates"
-        df.to_sql(temp_table_name, conn, if_exists="replace", index=False)
-
-        # 4. Paso 3: Ejecutar el UPDATE masivo mediante un JOIN con la tabla temporal
-        set_clause = ", ".join([f"{col} = (SELECT {col} FROM {temp_table_name} WHERE {temp_table_name}.{fk} = {table}.{pk})" for col in columnas_a_actualizar])
-
-        # Solo actualizamos las filas donde realmente coincidan las llaves para no borrar datos existentes con NULLs
-        update_query = f"""
-            UPDATE {table}
-            SET {set_clause}
-            WHERE {pk} IN (SELECT {fk} FROM {temp_table_name})
-        """
-        print("Query construido")
-        cursor.execute(update_query)
-        print("query ejecutado")
-        # 5. Paso 4: Limpieza de la tabla temporal y guardar cambios
-        cursor.execute(f"DROP TABLE IF EXISTS {temp_table_name}")
-        print("tabla eliminada")
-
-        conn.commit()
-        print("after commit")
-
-        return True
-
-    except Exception as e:
-        conn.rollback()
-        st.error(f"Error updating the database: {e}")
-        return False
-
 ### Definicion session state vars
 def verify_directories():
     if not os.path.exists("SQL"):
@@ -398,33 +81,7 @@ def verify_directories():
         os.makedirs("tempFilesHarmonsile")
 
 
-if "database_id" not in st.session_state: ##aqui tambien verifico y creo las carpetas para sql, harmonsmile y chamanp
-    verify_directories()
-    st.session_state["database_id"] = ""
-
-if "set_text_input_locked" not in st.session_state:
-    st.session_state["set_text_input_locked"] = False
-
-if "headers" not in st.session_state:
-    st.session_state["headers"] = []
-
-if "selected_headers" not in st.session_state:
-    st.session_state["selected_headers"] = []
-
-if "selected_proteins" not in st.session_state:
-    st.session_state["selected_proteins"] = []
-
-if "current_table" not in st.session_state:
-    st.session_state["current_table"] = ""
-
-if "all_tables" not in st.session_state:
-    st.session_state["all_tables"] =[]
-
-if "grupo_a_contar" not in st.session_state:
-    st.session_state["grupo_a_contar"] =""
-
-if "custom_query" not in st.session_state:
-    st.session_state["custom_query"] = ""
+initialize_session_state(st.session_state, verify_directories)
 
 ### Decor ###
 logo = Image.open("assets/logo.jpeg")
@@ -522,13 +179,6 @@ st.markdown(
 )
 
 ### SIDE BAR MENU ###
-#variables de estado
-
-if "selecting_harmonsmile" not in st.session_state:
-    st.session_state["selecting_harmonsmile"] = ""
-if "selecting_chamanp" not in st.session_state:
-    st.session_state["selecting_chamanp"] = ""
-
 # Mantiene database_id/current_table/headers sincronizados antes de construir la sidebar.
 # Esto evita que Export/Curado/Depurado lean un estado previo y luego el cuerpo principal
 # muestre una tabla distinta ya corregida por update_headers().
@@ -695,7 +345,7 @@ with st.sidebar:
             else:
                 if st.button("Run"):
                     try:
-                        new_table_df = use_PubchemIngest(get_selected_columns())
+                        new_table_df = run_harmonsmile(get_selected_columns())
                     except ValueError as e:
                         st.toast(str(e))
                         st.error(str(e))
@@ -724,7 +374,7 @@ with st.sidebar:
             st.selectbox("Select collections", st.session_state['selected_headers'], key="selected_collections")
 
             if st.button("Run"):
-                use_chamanp(get_selected_columns(), st.session_state["selected_identifier"], st.session_state["selected_smiles"], st.session_state["selected_collections"])
+                run_chamanp(get_selected_columns(), st.session_state["selected_identifier"], st.session_state["selected_smiles"], st.session_state["selected_collections"])
                 st.text("Chamanp completed successfully")
                 st.text("Downloading files")
             folder_path = "artifacts"
