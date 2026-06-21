@@ -456,6 +456,10 @@ def set_curados_false():
     st.session_state["selecting_harmonsmile"] = False 
     st.session_state["selecting_chamanp"] = False 
 
+
+def clear_depurado_preview():
+    st.session_state["custom_query"] = ""
+
 def construir_linea_query():
     new_table_name = st.session_state.get("new_table_name", "").strip()
     selected_headers = get_active_selected_headers()
@@ -517,19 +521,19 @@ with st.sidebar:
                 st.rerun()
     else:#Depurado
         st.subheader("Depurado")
-        st.text_input(label="Nombre", key="new_table_name",value="Nueva_tabla")
-        st.selectbox("Filtrado Adicional", ["Ninguno", "GROUP BY", "WHERE","ORDER BY"], key="type_of_filter")
+        st.text_input(label="Nombre", key="new_table_name", value="Nueva_tabla", on_change=clear_depurado_preview)
+        st.selectbox("Filtrado Adicional", ["Ninguno", "GROUP BY", "WHERE", "ORDER BY"], key="type_of_filter", on_change=clear_depurado_preview)
         match st.session_state["type_of_filter"]:
             case "Ninguno":
                 pass
             case "GROUP BY":
-                st.selectbox("Columna a agrupar", st.session_state["selected_headers"], key="group_by_column")
+                st.selectbox("Columna a agrupar", st.session_state["selected_headers"], key="group_by_column", on_change=clear_depurado_preview)
             case "WHERE":
-                st.selectbox("Columna a condicionar", st.session_state["headers"], key="where_column")
-                st.text_input("Condición (ejemplo: > 100, = 'HarmonSmile', etc)", key="where_condition")
+                st.selectbox("Columna a condicionar", st.session_state["headers"], key="where_column", on_change=clear_depurado_preview)
+                st.text_input("Condición (ejemplo: > 100, = 'HarmonSmile', etc)", key="where_condition", on_change=clear_depurado_preview)
             case "ORDER BY":
-                st.selectbox("Columna a ordenar", st.session_state["selected_headers"], key="order_by_column")
-                st.selectbox("Ascendente o Descendente", ["ASC", "DESC"], key="order_direction")
+                st.selectbox("Columna a ordenar", st.session_state["selected_headers"], key="order_by_column", on_change=clear_depurado_preview)
+                st.selectbox("Ascendente o Descendente", ["ASC", "DESC"], key="order_direction", on_change=clear_depurado_preview)
         if st.button("Preview SQL"):
             try:
                 st.session_state["custom_query"] = construir_linea_query()
