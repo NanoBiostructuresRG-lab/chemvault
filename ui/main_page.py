@@ -26,6 +26,41 @@ from state_keys import (
 )
 
 
+def create_main_layout():
+    container0 = st.container(
+        horizontal=True,
+        horizontal_alignment="distribute",
+        gap="large",
+        border=True,
+    )
+    st.html("""
+        <div style="
+            height: 3.25rem;
+        "></div>
+        """)
+    container1 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+    st.html("""
+        <hr style="
+            border: none;
+            height: 2px;
+            background-color: var(--cv-border);
+            margin: 32px 0 24px 0;
+        ">
+        """)
+
+    container2 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+    st.html("""
+        <hr style="
+            border: none;
+            height: 2px;
+            background-color: var(--cv-border);
+            margin: 32px 0 24px 0;
+        ">
+        """)
+    container3 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+    return container0, container1, container2, container3
+
+
 def render_app_identity(container):
     col_logo, col_titulo = container.columns([0.12, 0.88], vertical_alignment="center")
 

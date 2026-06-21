@@ -4,6 +4,19 @@ from pathlib import Path
 
 import pytest
 
+from state_keys import (
+    CURRENT_TABLE,
+    CUSTOM_QUERY,
+    DATABASE_ID,
+    GROUP_BY_COLUMN,
+    HEADERS,
+    NEW_TABLE_NAME,
+    ORDER_BY_COLUMN,
+    ORDER_DIRECTION,
+    TYPE_OF_FILTER,
+    WHERE_COLUMN,
+    WHERE_CONDITION,
+)
 from services.sql_utils import is_valid_table_name, quote_identifier
 
 
@@ -24,6 +37,17 @@ def load_app_functions(function_names):
         "st": types.SimpleNamespace(session_state={}),
         "quote_identifier": quote_identifier,
         "is_valid_table_name": is_valid_table_name,
+        "CURRENT_TABLE": CURRENT_TABLE,
+        "CUSTOM_QUERY": CUSTOM_QUERY,
+        "DATABASE_ID": DATABASE_ID,
+        "GROUP_BY_COLUMN": GROUP_BY_COLUMN,
+        "HEADERS": HEADERS,
+        "NEW_TABLE_NAME": NEW_TABLE_NAME,
+        "ORDER_BY_COLUMN": ORDER_BY_COLUMN,
+        "ORDER_DIRECTION": ORDER_DIRECTION,
+        "TYPE_OF_FILTER": TYPE_OF_FILTER,
+        "WHERE_COLUMN": WHERE_COLUMN,
+        "WHERE_CONDITION": WHERE_CONDITION,
     }
     exec(compile(module, str(APP_PATH), "exec"), namespace)
     return namespace

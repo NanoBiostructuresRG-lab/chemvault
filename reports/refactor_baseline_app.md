@@ -415,6 +415,63 @@ The card behavior remains unchanged:
 - commit on success and show the same success/error messages
 - show the same empty-state messages when schema information is unavailable
 
+## App Session-State Constants Applied
+
+Replaced direct `st.session_state` string-key references in `app.py` with
+constants from `state_keys.py`.
+
+The underlying string values remain unchanged. This keeps the Streamlit state
+contract stable while making future refactors safer.
+
+Updated areas:
+
+- protein-selection dialog
+- initial database/header synchronization
+- Refine preview reset callback
+- Refine SQL query construction
+
+## Protein Selection Dialog Extracted
+
+Added `ui/dialogs.py` with `select_proteins()`.
+
+`app.py` now imports the dialog and passes it to the sidebar renderer, preserving
+the same callback contract:
+
+```python
+render_sidebar(select_proteins, clear_depurado_preview, construir_linea_query)
+```
+
+The dialog behavior remains unchanged:
+
+- add proteins to `selected_proteins`
+- require at least one protein before confirming
+- require an active SQL database name before building
+- call `build_from_proteins`
+- refresh headers with `update_headers`
+- clear selected proteins on cancel
+
+## Global Theme Extracted
+
+Added `ui/theme.py` with `apply_global_theme()`.
+
+`app.py` now delegates the global CSS injection to the UI theme module. The
+theme values and sidebar styling remain unchanged; only the location of the
+CSS block changed.
+
+## Main Layout Extracted
+
+Added `create_main_layout()` to `ui/main_page.py`.
+
+`app.py` now delegates creation of the main page containers and separators to
+the UI module. The same four containers are returned in order:
+
+- app identity
+- Database
+- Columns
+- Table information
+
+The visual spacing and bordered container structure remain unchanged.
+
 ## Curation Workflow Wrappers Added
 
 Added workflow wrappers in `services/curation.py`:
