@@ -472,6 +472,17 @@ the UI module. The same four containers are returned in order:
 
 The visual spacing and bordered container structure remain unchanged.
 
+## Legacy Naming Notes Added
+
+Added `reports/legacy_naming_notes.md`.
+
+The document records Spanish/legacy names that remain intentionally preserved
+after the refactor, including session-state keys, service function names,
+parameter names, and filesystem paths. It also proposes future English aliases
+and a safe migration strategy.
+
+No legacy names were renamed in this step.
+
 ## Curation Workflow Wrappers Added
 
 Added workflow wrappers in `services/curation.py`:
