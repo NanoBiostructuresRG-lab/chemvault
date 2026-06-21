@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import os
 from PIL import Image
-from services.builders import build_from_csv, build_from_proteins
+from services.builders import build_from_proteins
 from services.database import (
     count_rows,
     count_rows_group_by,
@@ -24,8 +24,8 @@ from services.selection import (
 from services.sql_utils import (
     is_valid_table_name,
     quote_identifier,
-    table_exists,
 )
+from ui.sidebar import render_build_card, render_refine_card
 from ui.session_state import initialize_session_state
 
 
@@ -241,84 +241,9 @@ with st.sidebar:
     st.header("Actions")
     #Construccion
     if st.session_state["current_table"] == "" or (st.session_state["database_id"] != "" and count_rows(get_connection(st.session_state["database_id"])) == 0):
-        with st.container(border=True):
-            st.subheader("Build")
-            st.caption("Start from proteins or upload a CSV dataset.")
-            ### por proteina ###
-            if st.button("Search Proteins") : select_proteins()
-            ### por csv ###
-            uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
-            if uploaded_file != None:
-                    st.session_state["set_text_input_locked"] = True
-                    db_name = uploaded_file.name.replace(".csv", "")
-                    st.session_state["database_id"] = db_name
-                    st.session_state["current_table"] = "main"
-                    build_from_csv(uploaded_file)
-                    update_headers()
-                    st.rerun()
+        render_build_card(select_proteins)
     else:#Depurado
-        with st.container(border=True):
-            st.subheader("Refine")
-            st.caption("Create derived tables from the active column selection.")
-            st.text_input(label="New table name", key="new_table_name", value="New_table", on_change=clear_depurado_preview)
-            if st.session_state.get("type_of_filter") == "Ninguno":
-                st.session_state["type_of_filter"] = "None"
-            st.selectbox("Additional filter", ["None", "GROUP BY", "WHERE", "ORDER BY"], key="type_of_filter", on_change=clear_depurado_preview)
-            match st.session_state["type_of_filter"]:
-                case "None":
-                    pass
-                case "GROUP BY":
-                    st.selectbox("Column to group", st.session_state["selected_headers"], key="group_by_column", on_change=clear_depurado_preview)
-                case "WHERE":
-                    st.selectbox("Column to filter", st.session_state["headers"], key="where_column", on_change=clear_depurado_preview)
-                    st.text_input("Condition (example: > 100, = 'HarmonSmile', etc)", key="where_condition", on_change=clear_depurado_preview)
-                case "ORDER BY":
-                    st.selectbox("Column to sort", st.session_state["selected_headers"], key="order_by_column", on_change=clear_depurado_preview)
-                    st.selectbox("Sort direction", ["ASC", "DESC"], key="order_direction", on_change=clear_depurado_preview)
-            if st.button("Preview SQL"):
-                try:
-                    st.session_state["custom_query"] = construir_linea_query()
-                except ValueError as e:
-                    st.session_state["custom_query"] = ""
-                    st.error(str(e))
-            if st.session_state.get("custom_query", "") != "":
-                compact_query = html.escape(" ".join(st.session_state["custom_query"].split()))
-                st.markdown("**SQL preview**")
-                st.markdown(
-                    f'''
-                    <div style="background-color:var(--cv-code-bg); color:var(--cv-code-text); padding:0.85rem 1rem;
-                                border-radius:var(--cv-radius); font-family:monospace; font-size:0.9rem;
-                                line-height:1.5; overflow-x:auto; margin-bottom:0.85rem;">
-                        {compact_query}
-                    </div>
-                    ''',
-                    unsafe_allow_html=True,
-                )
-
-            if st.button("Create table from current selection"):
-                conn = get_connection(st.session_state["database_id"])
-                cursor = conn.cursor()
-                try:
-                    query_to_run = construir_linea_query()
-                    new_table_name = st.session_state["new_table_name"].strip()
-                    if table_exists(conn, new_table_name):
-                        raise ValueError(f"Table '{new_table_name}' already exists. Use another name or delete it first.")
-                    cursor.execute(query_to_run)
-                    conn.commit()
-                    st.session_state["current_table"] = new_table_name
-                    st.session_state["selected_headers"] = []
-                    st.session_state["custom_query"] = query_to_run
-                    update_headers()
-                    st.session_state["depurado_success_table"] = new_table_name
-                    st.session_state["depurado_success_message"] = f"Table '{new_table_name}' was created successfully."
-                    st.rerun()
-                except Exception as e:
-                    conn.rollback()
-                    st.error(f"Could not create the table: {e}")
-
-            created_table = st.session_state.get("depurado_success_table", "")
-            if created_table and created_table == st.session_state.get("current_table", ""):
-                st.success(st.session_state.get("depurado_success_message", f"Table '{created_table}' was created successfully."))
+        render_refine_card(clear_depurado_preview, construir_linea_query)
 
 #falta agregar order by
 #hacer un text box que muestre el query

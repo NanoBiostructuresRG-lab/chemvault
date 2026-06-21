@@ -353,6 +353,43 @@ No HARMONSMILE or CHAMANP internals were changed.
 Added tests in `tests/test_curation_service.py` to verify delegation without
 running real HARMONSMILE or CHAMANP work.
 
+## Sidebar Build Card Extracted
+
+Added `ui/sidebar.py` with:
+
+- `render_build_card(select_proteins_callback)`
+
+`app.py` now delegates only the Build card rendering to this helper while
+keeping the rest of the sidebar in place. The callback for protein selection is
+passed in from `app.py` to avoid circular imports with the Streamlit dialog.
+
+The Build card behavior remains unchanged:
+
+- "Search Proteins" opens the existing protein dialog callback.
+- CSV upload locks the database input, derives the database name from the file,
+  sets the active table to `main`, calls `build_from_csv`, refreshes headers,
+  and reruns Streamlit.
+
+## Sidebar Refine Card Extracted
+
+Added `render_refine_card(clear_preview_callback, build_query_callback)` to
+`ui/sidebar.py`.
+
+`app.py` now delegates Refine card rendering while keeping SQL query
+construction in `app.py` for this step. The query builder is passed as a
+callback to avoid changing SQL semantics during the UI extraction.
+
+The Refine card behavior remains unchanged:
+
+- new table name input
+- filter selector and filter-specific controls
+- SQL preview rendering
+- create-table action
+- duplicate-table validation
+- active table update
+- selected-header reset
+- success message handling
+
 ## Curation Merge Extracted
 
 Moved `agregar_df_por_pk` from `app.py` to `services/curation.py`.
