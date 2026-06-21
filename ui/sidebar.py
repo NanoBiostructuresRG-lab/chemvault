@@ -4,7 +4,12 @@ import os
 import streamlit as st
 
 from services.builders import build_from_csv
-from services.curation import agregar_df_por_pk, is_cid_header, run_chamanp, run_harmonsmile
+from services.curation import (
+    agregar_df_por_pk,
+    is_cid_header,
+    run_chamanp,
+    run_harmonsmile,
+)
 from services.database import count_rows, get_connection, update_headers
 from services.export import export_table, export_table_by_sub_grupo
 from services.selection import get_active_selected_headers, get_selected_columns
@@ -39,35 +44,31 @@ def render_build_card(select_proteins_callback):
     with st.container(border=True):
         st.subheader("Build")
         st.caption("Start from proteins or upload a CSV dataset.")
-        ### por proteina ###
         if st.button("Search Proteins"):
             select_proteins_callback()
-        ### por csv ###
         uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
-        if uploaded_file != None:
-                st.session_state[SET_TEXT_INPUT_LOCKED] = True
-                db_name = uploaded_file.name.replace(".csv", "")
-                st.session_state[DATABASE_ID] = db_name
-                st.session_state[CURRENT_TABLE] = "main"
-                build_from_csv(uploaded_file)
-                update_headers()
-                st.rerun()
+        if uploaded_file is not None:
+            st.session_state[SET_TEXT_INPUT_LOCKED] = True
+            db_name = uploaded_file.name.replace(".csv", "")
+            st.session_state[DATABASE_ID] = db_name
+            st.session_state[CURRENT_TABLE] = "main"
+            build_from_csv(uploaded_file)
+            update_headers()
+            st.rerun()
 
 
 def render_sidebar(select_proteins_callback, clear_preview_callback, build_query_callback):
     with st.sidebar:
         st.header("Actions")
-        #Construccion
-        if st.session_state[CURRENT_TABLE] == "" or (st.session_state[DATABASE_ID] != "" and count_rows(get_connection(st.session_state[DATABASE_ID])) == 0):
+        if st.session_state[CURRENT_TABLE] == "" or (
+            st.session_state[DATABASE_ID] != ""
+            and count_rows(get_connection(st.session_state[DATABASE_ID])) == 0
+        ):
             render_build_card(select_proteins_callback)
-        else:#Depurado
+        else:
             render_refine_card(clear_preview_callback, build_query_callback)
 
-        #falta agregar order by
-        #hacer un text box que muestre el query
-
         render_curate_card()
-
         render_export_card()
 
 
@@ -75,21 +76,55 @@ def render_refine_card(clear_preview_callback, build_query_callback):
     with st.container(border=True):
         st.subheader("Refine")
         st.caption("Create derived tables from the active column selection.")
-        st.text_input(label="New table name", key=NEW_TABLE_NAME, value="New_table", on_change=clear_preview_callback)
+        st.text_input(
+            label="New table name",
+            key=NEW_TABLE_NAME,
+            value="New_table",
+            on_change=clear_preview_callback,
+        )
         if st.session_state.get(TYPE_OF_FILTER) == "Ninguno":
             st.session_state[TYPE_OF_FILTER] = "None"
-        st.selectbox("Additional filter", ["None", "GROUP BY", "WHERE", "ORDER BY"], key=TYPE_OF_FILTER, on_change=clear_preview_callback)
+        st.selectbox(
+            "Additional filter",
+            ["None", "GROUP BY", "WHERE", "ORDER BY"],
+            key=TYPE_OF_FILTER,
+            on_change=clear_preview_callback,
+        )
         match st.session_state[TYPE_OF_FILTER]:
             case "None":
                 pass
             case "GROUP BY":
-                st.selectbox("Column to group", st.session_state[SELECTED_HEADERS], key=GROUP_BY_COLUMN, on_change=clear_preview_callback)
+                st.selectbox(
+                    "Column to group",
+                    st.session_state[SELECTED_HEADERS],
+                    key=GROUP_BY_COLUMN,
+                    on_change=clear_preview_callback,
+                )
             case "WHERE":
-                st.selectbox("Column to filter", st.session_state[HEADERS], key=WHERE_COLUMN, on_change=clear_preview_callback)
-                st.text_input("Condition (example: > 100, = 'HarmonSmile', etc)", key=WHERE_CONDITION, on_change=clear_preview_callback)
+                st.selectbox(
+                    "Column to filter",
+                    st.session_state[HEADERS],
+                    key=WHERE_COLUMN,
+                    on_change=clear_preview_callback,
+                )
+                st.text_input(
+                    "Condition (example: > 100, = 'HarmonSmile', etc)",
+                    key=WHERE_CONDITION,
+                    on_change=clear_preview_callback,
+                )
             case "ORDER BY":
-                st.selectbox("Column to sort", st.session_state[SELECTED_HEADERS], key=ORDER_BY_COLUMN, on_change=clear_preview_callback)
-                st.selectbox("Sort direction", ["ASC", "DESC"], key=ORDER_DIRECTION, on_change=clear_preview_callback)
+                st.selectbox(
+                    "Column to sort",
+                    st.session_state[SELECTED_HEADERS],
+                    key=ORDER_BY_COLUMN,
+                    on_change=clear_preview_callback,
+                )
+                st.selectbox(
+                    "Sort direction",
+                    ["ASC", "DESC"],
+                    key=ORDER_DIRECTION,
+                    on_change=clear_preview_callback,
+                )
         if st.button("Preview SQL"):
             try:
                 st.session_state[CUSTOM_QUERY] = build_query_callback()
@@ -117,7 +152,9 @@ def render_refine_card(clear_preview_callback, build_query_callback):
                 query_to_run = build_query_callback()
                 new_table_name = st.session_state[NEW_TABLE_NAME].strip()
                 if table_exists(conn, new_table_name):
-                    raise ValueError(f"Table '{new_table_name}' already exists. Use another name or delete it first.")
+                    raise ValueError(
+                        f"Table '{new_table_name}' already exists. Use another name or delete it first."
+                    )
                 cursor.execute(query_to_run)
                 conn.commit()
                 st.session_state[CURRENT_TABLE] = new_table_name
@@ -125,7 +162,9 @@ def render_refine_card(clear_preview_callback, build_query_callback):
                 st.session_state[CUSTOM_QUERY] = query_to_run
                 update_headers()
                 st.session_state[DEPURADO_SUCCESS_TABLE] = new_table_name
-                st.session_state[DEPURADO_SUCCESS_MESSAGE] = f"Table '{new_table_name}' was created successfully."
+                st.session_state[DEPURADO_SUCCESS_MESSAGE] = (
+                    f"Table '{new_table_name}' was created successfully."
+                )
                 st.rerun()
             except Exception as e:
                 conn.rollback()
@@ -133,7 +172,12 @@ def render_refine_card(clear_preview_callback, build_query_callback):
 
         created_table = st.session_state.get(DEPURADO_SUCCESS_TABLE, "")
         if created_table and created_table == st.session_state.get(CURRENT_TABLE, ""):
-            st.success(st.session_state.get(DEPURADO_SUCCESS_MESSAGE, f"Table '{created_table}' was created successfully."))
+            st.success(
+                st.session_state.get(
+                    DEPURADO_SUCCESS_MESSAGE,
+                    f"Table '{created_table}' was created successfully.",
+                )
+            )
 
 
 def _set_curados_false():
@@ -152,7 +196,6 @@ def render_curate_card():
             _set_curados_false()
             st.session_state[SELECTING_CHAMANP] = True
 
-        #procesos
         if st.session_state[SELECTING_HARMONSMILE]:
             selected_headers = get_active_selected_headers()
             if len(selected_headers) == 0:
@@ -160,7 +203,9 @@ def render_curate_card():
             elif len(selected_headers) > 1:
                 st.warning("HARMONSMILE requires exactly one column: CID.")
             elif not is_cid_header(selected_headers[0]):
-                st.warning(f"Selected column is '{selected_headers[0]}'. HARMONSMILE requires a valid CID column.")
+                st.warning(
+                    f"Selected column is '{selected_headers[0]}'. HARMONSMILE requires a valid CID column."
+                )
             else:
                 if st.button("Run"):
                     try:
@@ -169,14 +214,6 @@ def render_curate_card():
                         st.toast(str(e))
                         st.error(str(e))
                         new_table_df = None
-                    #new_table_df = pd.read_csv("tempFilesHarmonsile/res_pubchem_harmonized.csv")#use_PubchemIngest(get_selected_columns())
-                    #new_table_df.columns = ( #preparamos los datos para ser procesados por sql
-                    #    new_table_df.columns
-                    #    .str.replace(" ", "_", regex=False)
-                    #    .str.replace(":", "", regex=False)
-                    #)
-
-                    #NOTA: asumo que la fk de la tabla regresada siempre incluye Pubchem CID
                     if new_table_df is not None:
                         if agregar_df_por_pk(new_table_df, selected_headers[0], "PubChem_CID"):
                             st.toast("HarmonSmile completed successfully")
@@ -204,17 +241,16 @@ def render_curate_card():
             folder_path = "artifacts"
             files = os.listdir(folder_path)
 
-         #manejar la descraga de los archivos, en caso de que se corra de nuevo, en use chamanp se eliminan los archivos
             for file_name in files:
                 file_path = os.path.join(folder_path, file_name)
-                if(file_name != "notes.txt"):
+                if file_name != "notes.txt":
                     with open(file_path, "rb") as f:
                         downloaded = st.download_button(
                             label=f"Download {file_name}",
                             data=f,
                             file_name=file_name,
                             mime="application/octet-stream",
-                            key=file_name
+                            key=file_name,
                         )
                     if downloaded:
                         os.remove(file_path)
@@ -229,7 +265,9 @@ def render_export_card():
             st.info("Load or select a database before exporting.")
         else:
             selected_headers = get_active_selected_headers()
-            header_options = selected_headers if len(selected_headers) > 0 else st.session_state.get(HEADERS, [])
+            header_options = (
+                selected_headers if len(selected_headers) > 0 else st.session_state.get(HEADERS, [])
+            )
 
             st.download_button(
                 label="Download CSV",
@@ -255,7 +293,7 @@ def render_export_card():
                             label="Download subgroup CSV",
                             data=export_table_by_sub_grupo(
                                 codigo_buscar=st.session_state[CODIGO_BUSCAR],
-                                columna_filtro=st.session_state[SELECTED_SMILES_FOR_EXPORT]
+                                columna_filtro=st.session_state[SELECTED_SMILES_FOR_EXPORT],
                             ),
                             file_name=f"{st.session_state[CURRENT_TABLE]}_subgroup.csv",
                             mime="text/csv",

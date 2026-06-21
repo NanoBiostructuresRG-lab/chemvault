@@ -335,6 +335,28 @@ python -m pytest tests/test_curation_service.py tests/test_builders_service.py t
 python -m py_compile app.py state_keys.py ui/session_state.py services/sql_utils.py services/database.py services/export.py services/selection.py services/builders.py services/curation.py
 ```
 
+## Main Page Visual Helpers Extracted
+
+Added `ui/main_page.py` with visual-only helpers:
+
+- `render_app_identity(container)`
+- `render_database_metrics(container, database_id, current_table, row_count, group_count)`
+- `render_footer()`
+
+`app.py` still owns the main-page state decisions, table selection, row/group
+counts, schema inspection, and column-type maintenance flow. The new helpers
+only render existing HTML/Streamlit presentation.
+
+The extraction preserves:
+
+- database creation and loading controls
+- active table selection
+- row and group-count calculations
+- selected column preview
+- table schema display
+- advanced column type change behavior
+- footer text and Nano]°[Biostructures RG link
+
 ## Curation Workflow Wrappers Added
 
 Added workflow wrappers in `services/curation.py`:

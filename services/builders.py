@@ -25,7 +25,6 @@ def build_from_csv(uploaded_file):
 
     df.columns = [col.strip().replace(" ", "_") for col in df.columns]
 
-    ### para eliminar errores de duplicados de keys, se hace un drop
     cursor.execute(f"""
         DROP TABLE IF EXISTS {table}
         """)
@@ -40,7 +39,6 @@ def build_from_csv(uploaded_file):
     for col in df.columns:
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
 
-    # insertar datos
     cols_str = ", ".join([f"'{col}'" for col in df.columns])
     placeholders = ", ".join(["?"] * len(df.columns))
     cursor.executemany(

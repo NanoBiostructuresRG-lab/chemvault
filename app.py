@@ -1,4 +1,3 @@
-import html
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -22,15 +21,19 @@ from services.sql_utils import (
     is_valid_table_name,
     quote_identifier,
 )
+from ui.main_page import (
+    render_app_identity,
+    render_database_metrics,
+    render_footer,
+)
 from ui.sidebar import render_sidebar
 from ui.session_state import initialize_session_state
 
 
-
-@st.dialog("Select Proteins", dismissible=False )
+@st.dialog("Select Proteins", dismissible=False)
 def select_proteins():
     st.write("Search CIDs by BioAssays, using a protein as target.")
-    st.text_input(label="Protein", key="input_protein",value="P34971")
+    st.text_input(label="Protein", key="input_protein", value="P34971")
     if st.button("Add to selection"):
         st.session_state["selected_proteins"].append(st.session_state["input_protein"])
         st.markdown(f"Selected proteins: {st.session_state['selected_proteins']}.")
@@ -41,7 +44,6 @@ def select_proteins():
         elif st.session_state["database_id"] == "":
             st.toast("First, enter a name for your SQL database")
             print("First, enter a name for your SQL database")
-
         else:
             progreso = st.progress(0)
             st.toast(f"Building database with proteins: {st.session_state['selected_proteins']}")
@@ -53,11 +55,6 @@ def select_proteins():
         st.rerun()
 
 
-
-
-
-
-### Definicion session state vars
 def verify_directories():
     if not os.path.exists("SQL"):
         os.makedirs("SQL")
@@ -80,10 +77,8 @@ def verify_directories():
 
 initialize_session_state(st.session_state, verify_directories)
 
-### Decor ###
 logo = Image.open("assets/logo.jpeg")
 
-# Configuración de página
 st.set_page_config(
     page_title="ChemVault",
     page_icon=logo,
@@ -175,17 +170,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-### SIDE BAR MENU ###
-# Mantiene database_id/current_table/headers sincronizados antes de construir la sidebar.
-# Esto evita que Export/Curado/Depurado lean un estado previo y luego el cuerpo principal
-# muestre una tabla distinta ya corregida por update_headers().
+# Keep shared table state synchronized before rendering the sidebar.
 if st.session_state.get("database_id", "") != "":
     update_headers()
 else:
     sync_selected_headers()
 
+
 def clear_depurado_preview():
     st.session_state["custom_query"] = ""
+
 
 def construir_linea_query():
     new_table_name = st.session_state.get("new_table_name", "").strip()
@@ -193,7 +187,10 @@ def construir_linea_query():
     current_table = st.session_state.get("current_table", "")
 
     if not is_valid_table_name(new_table_name):
-        raise ValueError("Enter a valid table name: use letters, numbers, and underscores; do not start with a number.")
+        raise ValueError(
+            "Enter a valid table name: use letters, numbers, and underscores; "
+            "do not start with a number."
+        )
     if current_table == "":
         raise ValueError("Select a source table before creating a new table.")
     if len(selected_headers) == 0:
@@ -230,10 +227,13 @@ def construir_linea_query():
     return base_query + filter_clause
 
 render_sidebar(select_proteins, clear_depurado_preview, construir_linea_query)
-### MAIN PAGE ###
 
-## Session --- Current Progress
-container0 = st.container(horizontal=True, horizontal_alignment="distribute", gap="large", border=True)
+container0 = st.container(
+    horizontal=True,
+    horizontal_alignment="distribute",
+    gap="large",
+    border=True,
+)
 st.html("""
     <div style="
         height: 3.25rem;
@@ -249,8 +249,6 @@ st.html("""
     ">
     """)
 
-
-## Encabezados
 container2 = st.container(horizontal=False, horizontal_alignment="left", border=True)
 st.html("""
     <hr style="
@@ -261,36 +259,9 @@ st.html("""
     ">
     """)
 container3 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+render_app_identity(container0)
 
-
-
-### Escritura de datos y logica ###
-# 1 #
-col_logo, col_titulo = container0.columns([0.12, 0.88], vertical_alignment="center")
-
-# Colocamos el logo en la primera columna}
-
-with col_logo:
-    st.image("assets/logo.jpeg", use_container_width=True)
-
-# Colocamos el título en la segunda columna
-with col_titulo:
-    st.markdown(
-        """
-        <div style="padding: 0.15rem 0;">
-            <div style="font-size: 2.45rem; line-height: 1.05; font-weight: 700; color: var(--cv-heading);">
-                ChemVault
-            </div>
-            <div style="margin-top: 0.25rem; font-size: 0.98rem; color: var(--cv-muted);">
-                Molecular dataset construction, curation, and export workspace.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    #st.header("Construcción y Curado de Conjuntos de Datos Moleculares Tabulares")
-
-if st.session_state["database_id"] =="":
+if st.session_state["database_id"] == "":
     container1.subheader("Database")
     container1.caption("Create or select the active molecular database.")
     container1.text_input(
@@ -304,7 +275,12 @@ if st.session_state["database_id"] =="":
     dbs = []
     for file_name in files:
         dbs.append(file_name.replace(".db", ""))
-    container1.selectbox("Or select an existing SQL database", dbs, key="existing_db_select", on_change=load_existing_database)
+    container1.selectbox(
+        "Or select an existing SQL database",
+        dbs,
+        key="existing_db_select",
+        on_change=load_existing_database,
+    )
 else:
     update_headers()
     container1.subheader("Database")
@@ -318,45 +294,28 @@ else:
             if st.session_state.get("grupo_a_contar", "") not in st.session_state["headers"]:
                 st.session_state["grupo_a_contar"] = st.session_state["headers"][0]
         group_count = count_rows_group_by(get_connection(st.session_state["database_id"]))
-        container1.markdown(
-            f"""
-            <div style="
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-                gap: 0.35rem 1.5rem;
-                margin: 0.7rem 0 1rem 0;
-                padding: 0.85rem 0;
-                border-top: 1px solid var(--cv-border);
-                border-bottom: 1px solid var(--cv-border);
-            ">
-                <div>
-                    <div style="font-size: 0.76rem; color: var(--cv-muted);">Database</div>
-                    <div style="font-size: 0.95rem; color: var(--cv-text); overflow-wrap: anywhere;">{html.escape(st.session_state["database_id"])}</div>
-                </div>
-                <div>
-                    <div style="font-size: 0.76rem; color: var(--cv-muted);">Table</div>
-                    <div style="font-size: 0.95rem; color: var(--cv-text);">{html.escape(st.session_state["current_table"])}</div>
-                </div>
-                <div>
-                    <div style="font-size: 0.76rem; color: var(--cv-muted);">Rows</div>
-                    <div style="font-size: 0.95rem; color: var(--cv-text);">{row_count}</div>
-                </div>
-                <div>
-                    <div style="font-size: 0.76rem; color: var(--cv-muted);">Unique groups</div>
-                    <div style="font-size: 0.95rem; color: var(--cv-text);">{group_count}</div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        render_database_metrics(
+            container1,
+            st.session_state["database_id"],
+            st.session_state["current_table"],
+            row_count,
+            group_count,
         )
         container1.markdown("#### Table controls")
-        container1.selectbox("Select table", table_options, key="current_table", on_change=update_headers)
+        container1.selectbox(
+            "Select table",
+            table_options,
+            key="current_table",
+            on_change=update_headers,
+        )
         if len(st.session_state.get("headers", [])) > 0:
-            container1.selectbox("Count unique groups by", st.session_state['headers'], key="grupo_a_contar")
+            container1.selectbox(
+                "Count unique groups by",
+                st.session_state["headers"],
+                key="grupo_a_contar",
+            )
     else:
         container1.warning("The database does not contain tables.")
-
-# 2 #
 
 with container2:
     st.subheader("Columns")
@@ -374,11 +333,12 @@ with container2:
         selected_count = len(st.session_state["selected_headers"])
         if selected_count > 0:
             selected_columns = ", ".join(st.session_state["selected_headers"])
-            st.markdown(f"**{selected_count} column{'s' if selected_count != 1 else ''} selected:** {selected_columns}")
-             #tabla preview de headers seleccionados
+            st.markdown(
+                f"**{selected_count} column{'s' if selected_count != 1 else ''} selected:** "
+                f"{selected_columns}"
+            )
             st.markdown("#### Selected columns preview")
             st.dataframe(build_preview_table(), hide_index=True)
-
         else:
             st.info("Select one or more columns to preview data and enable downstream actions.")
     else:
@@ -403,16 +363,38 @@ with container3:
 
             with st.expander("Advanced: change column type", expanded=False):
                 st.caption("This updates the SQLite column type for the selected column.")
-                st.warning("Use this only when you are sure the selected values can be converted safely.")
-                col_to_change = st.selectbox("Select column", [col[1] for col in columns_info], key="col_to_change_select")
-                new_type = st.selectbox("New type", ["TEXT", "INTEGER", "REAL", "BLOB"], key="new_col_type_select")
+                st.warning(
+                    "Use this only when you are sure the selected values can be converted safely."
+                )
+                col_to_change = st.selectbox(
+                    "Select column",
+                    [col[1] for col in columns_info],
+                    key="col_to_change_select",
+                )
+                new_type = st.selectbox(
+                    "New type",
+                    ["TEXT", "INTEGER", "REAL", "BLOB"],
+                    key="new_col_type_select",
+                )
 
                 if st.button("Apply column type change"):
                     try:
-                        cursor.execute(f"ALTER TABLE {st.session_state['current_table']} ADD COLUMN {col_to_change}_new {new_type}")
-                        cursor.execute(f"UPDATE {st.session_state['current_table']} SET {col_to_change}_new = CAST({col_to_change} AS {new_type})")
-                        cursor.execute(f"ALTER TABLE {st.session_state['current_table']} DROP COLUMN {col_to_change}")
-                        cursor.execute(f"ALTER TABLE {st.session_state['current_table']} RENAME COLUMN {col_to_change}_new TO {col_to_change}")
+                        cursor.execute(
+                            f"ALTER TABLE {st.session_state['current_table']} "
+                            f"ADD COLUMN {col_to_change}_new {new_type}"
+                        )
+                        cursor.execute(
+                            f"UPDATE {st.session_state['current_table']} "
+                            f"SET {col_to_change}_new = CAST({col_to_change} AS {new_type})"
+                        )
+                        cursor.execute(
+                            f"ALTER TABLE {st.session_state['current_table']} "
+                            f"DROP COLUMN {col_to_change}"
+                        )
+                        cursor.execute(
+                            f"ALTER TABLE {st.session_state['current_table']} "
+                            f"RENAME COLUMN {col_to_change}_new TO {col_to_change}"
+                        )
                         conn.commit()
                         st.success(f"Column '{col_to_change}' changed to {new_type}")
                         st.rerun()
@@ -423,26 +405,4 @@ with container3:
     else:
         st.info("Select a database with columns to view additional information.")
 
-st.markdown(
-    """
-    <footer style="
-        margin-top: 3rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--cv-border);
-        text-align: center;
-        color: var(--cv-muted);
-        font-size: 0.85rem;
-        line-height: 1.6;
-    ">
-        <div>D.R. © ChemVault 2026</div>
-        <div>
-            Developed by the
-            <a href="https://nanobiostructuresrg.github.io/" style="color: var(--cv-link);">
-                Nano]°[Biostructures RG
-            </a>
-            at Tecnológico de Monterrey.
-        </div>
-    </footer>
-    """,
-    unsafe_allow_html=True,
-)
+render_footer()
