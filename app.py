@@ -122,7 +122,7 @@ def select_proteins():
         st.rerun()
     if st.button("Cancelar"):
         st.session_state["selected_proteins"] = []
-        st.rerun()  
+        st.rerun()
 
 
 
@@ -227,7 +227,7 @@ def build_from_csv(uploaded_file):
         DROP TABLE IF EXISTS {table}
         """)
     conn.commit()
-    
+
     cursor.execute(f"""
         CREATE TABLE {table} (
             primary_id INTEGER PRIMARY KEY AUTOINCREMENT
@@ -236,8 +236,8 @@ def build_from_csv(uploaded_file):
 
     for col in df.columns:
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
-    
-    
+
+
     # insertar datos
     cols_str = ", ".join([f"'{col}'" for col in df.columns])
     placeholders = ", ".join(["?"] * len(df.columns))
@@ -247,7 +247,7 @@ def build_from_csv(uploaded_file):
     )
 
     conn.commit()
-    
+
 
 def build_from_proteins(progreso):
     st.session_state["current_table"] = "main"
@@ -335,25 +335,25 @@ def agregar_df_por_pk(df, pk, fk): # agregar dataframe por primary key
     print(columnas_a_actualizar)
     if not columnas_a_actualizar:
         return False # No hay columnas nuevas que actualizar
-        
+
     try:
         #Paso 1: Asegurarnos de que las columnas nuevas existan en la tabla 'main'
         # Buscamos qué columnas ya existen en 'main' para no duplicar errores
         cursor.execute(f"PRAGMA table_info({table})")
         columnas_existentes = [row[1] for row in cursor.fetchall()]
-        
+
         for col in columnas_a_actualizar:
             if col not in columnas_existentes:
                 cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
         print("Columnas agregadas")
-        
+
         #Paso 2: Subir el DataFrame actual a una tabla temporal
         temp_table_name = "_temp_updates"
         df.to_sql(temp_table_name, conn, if_exists="replace", index=False)
-        
+
         # 4. Paso 3: Ejecutar el UPDATE masivo mediante un JOIN con la tabla temporal
         set_clause = ", ".join([f"{col} = (SELECT {col} FROM {temp_table_name} WHERE {temp_table_name}.{fk} = {table}.{pk})" for col in columnas_a_actualizar])
-        
+
         # Solo actualizamos las filas donde realmente coincidan las llaves para no borrar datos existentes con NULLs
         update_query = f"""
             UPDATE {table}
@@ -371,7 +371,7 @@ def agregar_df_por_pk(df, pk, fk): # agregar dataframe por primary key
         print("after commit")
 
         return True
-        
+
     except Exception as e:
         conn.rollback()
         st.error(f"Error al actualizar la base de datos: {e}")
@@ -384,7 +384,7 @@ def verify_directories():
     if not os.path.exists("artifacts"):
         os.makedirs("artifacts")
     else:
-        files = os.listdir("artifacts")  
+        files = os.listdir("artifacts")
         for file_name in files:
             file_path = os.path.join("artifacts", file_name)
             if os.path.isfile(file_path):
@@ -405,22 +405,22 @@ if "database_id" not in st.session_state: ##aqui tambien verifico y creo las car
 if "set_text_input_locked" not in st.session_state:
     st.session_state["set_text_input_locked"] = False
 
-if "headers" not in st.session_state: 
+if "headers" not in st.session_state:
     st.session_state["headers"] = []
 
-if "selected_headers" not in st.session_state: 
+if "selected_headers" not in st.session_state:
     st.session_state["selected_headers"] = []
 
-if "selected_proteins" not in st.session_state: 
+if "selected_proteins" not in st.session_state:
     st.session_state["selected_proteins"] = []
 
-if "current_table" not in st.session_state: 
+if "current_table" not in st.session_state:
     st.session_state["current_table"] = ""
 
-if "all_tables" not in st.session_state: 
+if "all_tables" not in st.session_state:
     st.session_state["all_tables"] =[]
 
-if "grupo_a_contar" not in st.session_state: 
+if "grupo_a_contar" not in st.session_state:
     st.session_state["grupo_a_contar"] =""
 
 if "custom_query" not in st.session_state:
@@ -453,8 +453,8 @@ else:
     sync_selected_headers()
 
 def set_curados_false():
-    st.session_state["selecting_harmonsmile"] = False 
-    st.session_state["selecting_chamanp"] = False 
+    st.session_state["selecting_harmonsmile"] = False
+    st.session_state["selecting_chamanp"] = False
 
 
 def clear_depurado_preview():
@@ -506,192 +506,200 @@ with st.sidebar:
     st.header("Acciones")
     #Construccion
     if st.session_state["current_table"] == "" or (st.session_state["database_id"] != "" and count_rows(get_connection(st.session_state["database_id"])) == 0):
-        st.subheader("Construcción")
+        with st.container(border=True):
+            st.subheader("Construcción")
+            st.caption("Crear o cargar una base molecular.")
             ### por proteina ###
-        if st.button("Buscar Proteínas") : select_proteins()
+            if st.button("Buscar Proteínas") : select_proteins()
             ### por csv ###
-        uploaded_file = st.file_uploader("Sube un CSV", type=["csv"])
-        if uploaded_file != None:
-                st.session_state["set_text_input_locked"] = True
-                db_name = uploaded_file.name.replace(".csv", "")
-                st.session_state["database_id"] = db_name
-                st.session_state["current_table"] = "main"
-                build_from_csv(uploaded_file)
-                update_headers()
-                st.rerun()
+            uploaded_file = st.file_uploader("Sube un CSV", type=["csv"])
+            if uploaded_file != None:
+                    st.session_state["set_text_input_locked"] = True
+                    db_name = uploaded_file.name.replace(".csv", "")
+                    st.session_state["database_id"] = db_name
+                    st.session_state["current_table"] = "main"
+                    build_from_csv(uploaded_file)
+                    update_headers()
+                    st.rerun()
     else:#Depurado
-        st.subheader("Depurado")
-        st.text_input(label="Nombre", key="new_table_name", value="Nueva_tabla", on_change=clear_depurado_preview)
-        st.selectbox("Filtrado Adicional", ["Ninguno", "GROUP BY", "WHERE", "ORDER BY"], key="type_of_filter", on_change=clear_depurado_preview)
-        match st.session_state["type_of_filter"]:
-            case "Ninguno":
-                pass
-            case "GROUP BY":
-                st.selectbox("Columna a agrupar", st.session_state["selected_headers"], key="group_by_column", on_change=clear_depurado_preview)
-            case "WHERE":
-                st.selectbox("Columna a condicionar", st.session_state["headers"], key="where_column", on_change=clear_depurado_preview)
-                st.text_input("Condición (ejemplo: > 100, = 'HarmonSmile', etc)", key="where_condition", on_change=clear_depurado_preview)
-            case "ORDER BY":
-                st.selectbox("Columna a ordenar", st.session_state["selected_headers"], key="order_by_column", on_change=clear_depurado_preview)
-                st.selectbox("Ascendente o Descendente", ["ASC", "DESC"], key="order_direction", on_change=clear_depurado_preview)
-        if st.button("Preview SQL"):
-            try:
-                st.session_state["custom_query"] = construir_linea_query()
-            except ValueError as e:
-                st.session_state["custom_query"] = ""
-                st.error(str(e))
-        if st.session_state.get("custom_query", "") != "":
-            compact_query = html.escape(" ".join(st.session_state["custom_query"].split()))
-            st.markdown("**SQL preview**")
-            st.markdown(
-                f'''
-                <div style="background-color:#111827; color:#f9fafb; padding:0.85rem 1rem;
-                            border-radius:0.55rem; font-family:monospace; font-size:0.9rem;
-                            line-height:1.5; overflow-x:auto; margin-bottom:0.85rem;">
-                    {compact_query}
-                </div>
-                ''',
-                unsafe_allow_html=True,
-            )
+        with st.container(border=True):
+            st.subheader("Depurado")
+            st.caption("Crear tablas derivadas desde columnas seleccionadas.")
+            st.text_input(label="Nombre", key="new_table_name", value="Nueva_tabla", on_change=clear_depurado_preview)
+            st.selectbox("Filtrado Adicional", ["Ninguno", "GROUP BY", "WHERE", "ORDER BY"], key="type_of_filter", on_change=clear_depurado_preview)
+            match st.session_state["type_of_filter"]:
+                case "Ninguno":
+                    pass
+                case "GROUP BY":
+                    st.selectbox("Columna a agrupar", st.session_state["selected_headers"], key="group_by_column", on_change=clear_depurado_preview)
+                case "WHERE":
+                    st.selectbox("Columna a condicionar", st.session_state["headers"], key="where_column", on_change=clear_depurado_preview)
+                    st.text_input("Condición (ejemplo: > 100, = 'HarmonSmile', etc)", key="where_condition", on_change=clear_depurado_preview)
+                case "ORDER BY":
+                    st.selectbox("Columna a ordenar", st.session_state["selected_headers"], key="order_by_column", on_change=clear_depurado_preview)
+                    st.selectbox("Ascendente o Descendente", ["ASC", "DESC"], key="order_direction", on_change=clear_depurado_preview)
+            if st.button("Preview SQL"):
+                try:
+                    st.session_state["custom_query"] = construir_linea_query()
+                except ValueError as e:
+                    st.session_state["custom_query"] = ""
+                    st.error(str(e))
+            if st.session_state.get("custom_query", "") != "":
+                compact_query = html.escape(" ".join(st.session_state["custom_query"].split()))
+                st.markdown("**SQL preview**")
+                st.markdown(
+                    f'''
+                    <div style="background-color:#111827; color:#f9fafb; padding:0.85rem 1rem;
+                                border-radius:0.55rem; font-family:monospace; font-size:0.9rem;
+                                line-height:1.5; overflow-x:auto; margin-bottom:0.85rem;">
+                        {compact_query}
+                    </div>
+                    ''',
+                    unsafe_allow_html=True,
+                )
 
-        if st.button("Crear Nueva Tabla con selección actual"):
-            conn = get_connection(st.session_state["database_id"])
-            cursor = conn.cursor()
-            try:
-                query_to_run = construir_linea_query()
-                new_table_name = st.session_state["new_table_name"].strip()
-                if table_exists(conn, new_table_name):
-                    raise ValueError(f"La tabla '{new_table_name}' ya existe. Usa otro nombre o elimínala primero.")
-                cursor.execute(query_to_run)
-                conn.commit()
-                st.session_state["current_table"] = new_table_name
-                st.session_state["selected_headers"] = []
-                st.session_state["custom_query"] = query_to_run
-                update_headers()
-                st.session_state["depurado_success_table"] = new_table_name
-                st.session_state["depurado_success_message"] = f"Table '{new_table_name}' was created successfully."
-                st.rerun()
-            except Exception as e:
-                conn.rollback()
-                st.error(f"No se pudo crear la tabla: {e}")
-        
-        created_table = st.session_state.get("depurado_success_table", "")
-        if created_table and created_table == st.session_state.get("current_table", ""):
-            st.success(st.session_state.get("depurado_success_message", f"Table '{created_table}' was created successfully."))
+            if st.button("Crear Nueva Tabla con selección actual"):
+                conn = get_connection(st.session_state["database_id"])
+                cursor = conn.cursor()
+                try:
+                    query_to_run = construir_linea_query()
+                    new_table_name = st.session_state["new_table_name"].strip()
+                    if table_exists(conn, new_table_name):
+                        raise ValueError(f"La tabla '{new_table_name}' ya existe. Usa otro nombre o elimínala primero.")
+                    cursor.execute(query_to_run)
+                    conn.commit()
+                    st.session_state["current_table"] = new_table_name
+                    st.session_state["selected_headers"] = []
+                    st.session_state["custom_query"] = query_to_run
+                    update_headers()
+                    st.session_state["depurado_success_table"] = new_table_name
+                    st.session_state["depurado_success_message"] = f"Table '{new_table_name}' was created successfully."
+                    st.rerun()
+                except Exception as e:
+                    conn.rollback()
+                    st.error(f"No se pudo crear la tabla: {e}")
+
+            created_table = st.session_state.get("depurado_success_table", "")
+            if created_table and created_table == st.session_state.get("current_table", ""):
+                st.success(st.session_state.get("depurado_success_message", f"Table '{created_table}' was created successfully."))
 
 #falta agregar order by
 #hacer un text box que muestre el query
-        
-    st.subheader("Curado")
-    if st.button("HARMONSMILE"): 
-        set_curados_false()
-        st.session_state["selecting_harmonsmile"] = True 
-    if st.button("CHAMANP"): 
-        set_curados_false()
-        st.session_state["selecting_chamanp"] = True 
-    
-    #procesos
-    if st.session_state["selecting_harmonsmile"]:
-        selected_headers = get_active_selected_headers()
-        if len(selected_headers) == 0:
-            st.warning("Select the CID column before running HARMONSMILE.")
-        elif len(selected_headers) > 1:
-            st.warning("HARMONSMILE requires exactly one column: CID.")
-        elif not is_cid_header(selected_headers[0]):
-            st.warning(f"Selected column is '{selected_headers[0]}'. HARMONSMILE requires a valid CID column.")
-        else:
-            if st.button("Run"):
-                try:
-                    new_table_df = use_PubchemIngest(get_selected_columns())
-                except ValueError as e:
-                    st.toast(str(e))
-                    st.error(str(e))
-                    new_table_df = None
-                #new_table_df = pd.read_csv("tempFilesHarmonsile/res_pubchem_harmonized.csv")#use_PubchemIngest(get_selected_columns())
-                #new_table_df.columns = ( #preparamos los datos para ser procesados por sql
-                #    new_table_df.columns
-                #    .str.replace(" ", "_", regex=False)
-                #    .str.replace(":", "", regex=False)
-                #)
-                
-                #NOTA: asumo que la fk de la tabla regresada siempre incluye Pubchem CID
-                if new_table_df is not None:
-                    if agregar_df_por_pk(new_table_df, selected_headers[0], "PubChem_CID"):
-                        st.toast("HarmonSmile completed successfully")
-                    else:
-                        st.toast("HarmonSmile failed")
-                    update_headers()
-                    st.rerun()
 
-    if st.session_state["selecting_chamanp"]:
-        st.text("Selecciona las columnas a procesar")
-        st.text(f"Columnas Seleccionadas : {st.session_state['selected_headers']}")
-        st.selectbox("Selecciona identifier", st.session_state['selected_headers'], key="selected_identifier")
-        st.selectbox("Selecciona canonical_smiles", st.session_state['selected_headers'], key="selected_smiles")
-        st.selectbox("Selecciona collections", st.session_state['selected_headers'], key="selected_collections")
+    with st.container(border=True):
+        st.subheader("Curado")
+        st.caption("Ejecutar procesos sobre columnas seleccionadas.")
+        if st.button("HARMONSMILE"):
+            set_curados_false()
+            st.session_state["selecting_harmonsmile"] = True
+        if st.button("CHAMANP"):
+            set_curados_false()
+            st.session_state["selecting_chamanp"] = True
 
-        if st.button("Run"):
-            use_chamanp(get_selected_columns(), st.session_state["selected_identifier"], st.session_state["selected_smiles"], st.session_state["selected_collections"])
-            st.text("Chamanp exitoso")
-            st.text("Descargando archivos")
-        folder_path = "artifacts"
-        files = os.listdir(folder_path)
-
-         #manejar la descraga de los archivos, en caso de que se corra de nuevo, en use chamanp se eliminan los archivos    
-        for file_name in files:
-            file_path = os.path.join(folder_path, file_name)
-            if(file_name != "notes.txt"):
-                with open(file_path, "rb") as f:
-                    downloaded = st.download_button(
-                        label=f"Descargar {file_name}",
-                        data=f,
-                        file_name=file_name,
-                        mime="application/octet-stream",
-                        key=file_name
-                    )
-                if downloaded:
-                    os.remove(file_path)
-                    st.success(f"{file_name} eliminado del servidor")
-                    
-    st.subheader("Export")
-    if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
-        st.info("Carga o selecciona una base de datos antes de exportar.")
-    else:
-        selected_headers = get_active_selected_headers()
-        header_options = selected_headers if len(selected_headers) > 0 else st.session_state.get("headers", [])
-
-        st.download_button(
-            label="Download CSV",
-            data=export_table(),
-            file_name=f"{st.session_state['current_table']}_export.csv",
-            mime="text/csv",
-            icon=":material/download:",
-        )
-
-        with st.expander("Optional: export a filtered subgroup", expanded=False):
-            st.caption("Use this only when you want to filter rows before exporting a subgroup.")
-            if len(header_options) > 0:
-                if st.session_state.get("selected_smiles_for_export", "") not in header_options:
-                    st.session_state["selected_smiles_for_export"] = header_options[0]
-                st.selectbox("Column to filter", header_options, key="selected_smiles_for_export")
-                st.text_input("Value to search in selected column", key="codigo_buscar")
-                if (
-                    st.session_state.get("selected_smiles_for_export", "") != ""
-                    and st.session_state.get("codigo_buscar", "").strip() != ""
-                ):
-
-                    st.download_button(
-                        label="Download subgroup CSV",
-                        data=export_table_by_sub_grupo(
-                            codigo_buscar=st.session_state["codigo_buscar"],
-                            columna_filtro=st.session_state["selected_smiles_for_export"]
-                        ),
-                        file_name=f"{st.session_state['current_table']}_subgroup.csv",
-                        mime="text/csv",
-                        icon=":material/download:",
-                    )
+        #procesos
+        if st.session_state["selecting_harmonsmile"]:
+            selected_headers = get_active_selected_headers()
+            if len(selected_headers) == 0:
+                st.warning("Select the CID column before running HARMONSMILE.")
+            elif len(selected_headers) > 1:
+                st.warning("HARMONSMILE requires exactly one column: CID.")
+            elif not is_cid_header(selected_headers[0]):
+                st.warning(f"Selected column is '{selected_headers[0]}'. HARMONSMILE requires a valid CID column.")
             else:
-                st.info("No columns are available for subgroup filtering.")
+                if st.button("Run"):
+                    try:
+                        new_table_df = use_PubchemIngest(get_selected_columns())
+                    except ValueError as e:
+                        st.toast(str(e))
+                        st.error(str(e))
+                        new_table_df = None
+                    #new_table_df = pd.read_csv("tempFilesHarmonsile/res_pubchem_harmonized.csv")#use_PubchemIngest(get_selected_columns())
+                    #new_table_df.columns = ( #preparamos los datos para ser procesados por sql
+                    #    new_table_df.columns
+                    #    .str.replace(" ", "_", regex=False)
+                    #    .str.replace(":", "", regex=False)
+                    #)
+
+                    #NOTA: asumo que la fk de la tabla regresada siempre incluye Pubchem CID
+                    if new_table_df is not None:
+                        if agregar_df_por_pk(new_table_df, selected_headers[0], "PubChem_CID"):
+                            st.toast("HarmonSmile completed successfully")
+                        else:
+                            st.toast("HarmonSmile failed")
+                        update_headers()
+                        st.rerun()
+
+        if st.session_state["selecting_chamanp"]:
+            st.text("Selecciona las columnas a procesar")
+            st.text(f"Columnas Seleccionadas : {st.session_state['selected_headers']}")
+            st.selectbox("Selecciona identifier", st.session_state['selected_headers'], key="selected_identifier")
+            st.selectbox("Selecciona canonical_smiles", st.session_state['selected_headers'], key="selected_smiles")
+            st.selectbox("Selecciona collections", st.session_state['selected_headers'], key="selected_collections")
+
+            if st.button("Run"):
+                use_chamanp(get_selected_columns(), st.session_state["selected_identifier"], st.session_state["selected_smiles"], st.session_state["selected_collections"])
+                st.text("Chamanp exitoso")
+                st.text("Descargando archivos")
+            folder_path = "artifacts"
+            files = os.listdir(folder_path)
+
+         #manejar la descraga de los archivos, en caso de que se corra de nuevo, en use chamanp se eliminan los archivos
+            for file_name in files:
+                file_path = os.path.join(folder_path, file_name)
+                if(file_name != "notes.txt"):
+                    with open(file_path, "rb") as f:
+                        downloaded = st.download_button(
+                            label=f"Descargar {file_name}",
+                            data=f,
+                            file_name=file_name,
+                            mime="application/octet-stream",
+                            key=file_name
+                        )
+                    if downloaded:
+                        os.remove(file_path)
+                        st.success(f"{file_name} eliminado del servidor")
+
+    with st.container(border=True):
+        st.subheader("Export")
+        st.caption("Descargar la tabla actual o un subconjunto filtrado.")
+        if st.session_state.get("database_id", "") == "" or st.session_state.get("current_table", "") == "":
+            st.info("Carga o selecciona una base de datos antes de exportar.")
+        else:
+            selected_headers = get_active_selected_headers()
+            header_options = selected_headers if len(selected_headers) > 0 else st.session_state.get("headers", [])
+
+            st.download_button(
+                label="Download CSV",
+                data=export_table(),
+                file_name=f"{st.session_state['current_table']}_export.csv",
+                mime="text/csv",
+                icon=":material/download:",
+            )
+
+            with st.expander("Optional: export a filtered subgroup", expanded=False):
+                st.caption("Use this only when you want to filter rows before exporting a subgroup.")
+                if len(header_options) > 0:
+                    if st.session_state.get("selected_smiles_for_export", "") not in header_options:
+                        st.session_state["selected_smiles_for_export"] = header_options[0]
+                    st.selectbox("Column to filter", header_options, key="selected_smiles_for_export")
+                    st.text_input("Value to search in selected column", key="codigo_buscar")
+                    if (
+                        st.session_state.get("selected_smiles_for_export", "") != ""
+                        and st.session_state.get("codigo_buscar", "").strip() != ""
+                    ):
+
+                        st.download_button(
+                            label="Download subgroup CSV",
+                            data=export_table_by_sub_grupo(
+                                codigo_buscar=st.session_state["codigo_buscar"],
+                                columna_filtro=st.session_state["selected_smiles_for_export"]
+                            ),
+                            file_name=f"{st.session_state['current_table']}_subgroup.csv",
+                            mime="text/csv",
+                            icon=":material/download:",
+                        )
+                else:
+                    st.info("No columns are available for subgroup filtering.")
 ### MAIN PAGE ###
 
 ## Session --- Current Progress
@@ -744,7 +752,7 @@ if st.session_state["database_id"] =="":
         on_change=set_database_id,
         disabled=st.session_state["set_text_input_locked"]
     )
-    files = os.listdir("SQL")  
+    files = os.listdir("SQL")
     dbs = []
     for file_name in files:
         dbs.append(file_name.replace(".db", ""))
@@ -776,17 +784,17 @@ with container2:
         selection_mode="multi",
         key="selected_headers",
     )
-    
+
 
     if len(st.session_state["selected_headers"]) > 0:
         st.markdown(f"Your selected headers: {st.session_state['selected_headers']}.")
          #tabla preview de headers seleccionados
         st.dataframe(build_preview_table(), hide_index=True)
-        
+
     else:
         st.markdown("No headers selected")
-    
-   
+
+
 with container3:
     if st.session_state["database_id"] != "" and len(st.session_state["headers"]) > 0:
         st.subheader("Información Adicional")
@@ -800,11 +808,11 @@ with container3:
                 columns=["Header", "Type"]
             )
             st.dataframe(headers_types_df, hide_index=True)
-            
+
             st.subheader("Cambiar tipo de columna")
             col_to_change = st.selectbox("Selecciona columna", [col[1] for col in columns_info], key="col_to_change_select")
             new_type = st.selectbox("Nuevo tipo", ["TEXT", "INTEGER", "REAL", "BLOB"], key="new_col_type_select")
-            
+
             if st.button("Aplicar cambio de tipo"):
                 try:
                     cursor.execute(f"ALTER TABLE {st.session_state['current_table']} ADD COLUMN {col_to_change}_new {new_type}")
