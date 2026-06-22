@@ -1,58 +1,96 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-# ============================================================
-# python tools\db_audit.py inspect SQL\harmonsmile_test_01.db
-# python tools\db_audit.py assert-clean SQL\harmonsmile_test_01.db --allowed main sqlite_sequence --expect-row main=102
-# ============================================================
 import argparse
-import sqlite3
+import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-def quote_identifier(name: str) -> str:
-    """Safely quote a SQLite identifier."""
-    return '"' + name.replace('"', '""') + '"'
-
-
-def list_tables(db_path: Path) -> list[str]:
-    """Return SQLite tables ordered by name."""
-    with sqlite3.connect(db_path) as con:
-        cur = con.cursor()
-        cur.execute("""
-            SELECT name
-            FROM sqlite_master
-            WHERE type = 'table'
-            ORDER BY name
-        """)
-        return [row[0] for row in cur.fetchall()]
+from services.db_audit import (
+    INTERNAL_TABLES,
+    count_rows,
+    get_database_schema,
+    get_table_row_counts,
+    list_database_files,
+    list_tables,
+)
 
 
-def count_rows(db_path: Path, table: str) -> int:
-    """Return row count for a table."""
-    with sqlite3.connect(db_path) as con:
-        cur = con.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM {quote_identifier(table)}")
-        return int(cur.fetchone()[0])
+def list_databases(directory: Path) -> int:
+    """Print SQLite database files in a directory."""
+    try:
+        db_files = list_database_files(directory)
+    except (FileNotFoundError, NotADirectoryError) as e:
+        print(f"ERROR: {e}")
+        return 1
+
+    print(f"Directory: {directory.resolve()}")
+    print()
+    print("Databases found:")
+
+    if not db_files:
+        print("- No .db files found")
+        return 0
+
+    for db_file in db_files:
+        print(f"- {db_file.name}")
+
+    return 0
 
 
 def inspect_database(db_path: Path) -> int:
     """Print all tables and row counts."""
-    if not db_path.exists():
-        print(f"ERROR: database not found: {db_path}")
+    try:
+        table_counts = get_table_row_counts(db_path)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}")
         return 1
 
     print(f"Database: {db_path.resolve()}")
     print()
     print("Tables found:")
 
-    tables = list_tables(db_path)
-
-    if not tables:
+    if not table_counts:
         print("- No tables found")
         return 0
 
-    for table in tables:
-        rows = count_rows(db_path, table)
-        print(f"- {table}: {rows} rows")
+    for table in table_counts:
+        print(f"- {table['table']}: {table['rows']} rows")
+
+    return 0
+
+
+def inspect_schema(db_path: Path) -> int:
+    """Print tables with column names and SQLite data types."""
+    try:
+        schema = get_database_schema(db_path)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}")
+        return 1
+
+    print(f"Database: {db_path.resolve()}")
+    print()
+    print("Schema:")
+
+    if not schema:
+        print("- No tables found")
+        return 0
+
+    for table in schema:
+        print(f"- {table['table']}")
+        if not table["columns"]:
+            print("  - No columns found")
+            continue
+        for column in table["columns"]:
+            parts = [column["name"], column["data_type"]]
+            if column["primary_key"]:
+                parts.append("PRIMARY KEY")
+            if column["not_null"]:
+                parts.append("NOT NULL")
+            if column["default_value"] is not None:
+                parts.append(f"DEFAULT {column['default_value']}")
+            print(f"  - {' | '.join(parts)}")
 
     return 0
 
@@ -63,15 +101,17 @@ def assert_clean_database(
     expected_rows: dict[str, int],
 ) -> int:
     """Validate that a database contains only allowed tables and expected row counts."""
-    if not db_path.exists():
-        print(f"ERROR: database not found: {db_path}")
+    try:
+        tables = set(list_tables(db_path))
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}")
         return 1
 
-    tables = set(list_tables(db_path))
-    allowed = set(allowed_tables)
+    allowed = set(allowed_tables) - INTERNAL_TABLES
+    user_tables = tables - INTERNAL_TABLES
 
-    unexpected = sorted(tables - allowed)
-    missing = sorted(allowed - tables)
+    unexpected = sorted(user_tables - allowed)
+    missing = sorted(allowed - user_tables)
 
     ok = True
 
@@ -91,7 +131,7 @@ def assert_clean_database(
             print(f"- {table}")
 
     for table, expected in expected_rows.items():
-        if table not in tables:
+        if table not in user_tables:
             ok = False
             print(f"Cannot check rows for missing table: {table}")
             continue
@@ -118,9 +158,14 @@ def assert_clean_database(
 
 def parse_expected_rows(values: list[str]) -> dict[str, int]:
     """Parse table=row_count arguments."""
+    flattened = [
+        item
+        for value in values
+        for item in (value if isinstance(value, list) else [value])
+    ]
     parsed = {}
 
-    for value in values:
+    for value in flattened:
         if "=" not in value:
             raise ValueError(f"Invalid --expect-row value: {value}. Use table=count.")
 
@@ -134,8 +179,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Audit ChemVault SQLite databases.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    list_parser = subparsers.add_parser("list", help="List .db files in a directory.")
+    list_parser.add_argument("directory", type=Path)
+
     inspect_parser = subparsers.add_parser("inspect", help="List tables and row counts.")
     inspect_parser.add_argument("db", type=Path)
+
+    schema_parser = subparsers.add_parser("schema", help="List tables, columns, and data types.")
+    schema_parser.add_argument("db", type=Path)
 
     assert_parser = subparsers.add_parser(
         "assert-clean",
@@ -143,12 +194,18 @@ def main() -> int:
     )
     assert_parser.add_argument("db", type=Path)
     assert_parser.add_argument("--allowed", nargs="+", required=True)
-    assert_parser.add_argument("--expect-row", nargs="*", default=[])
+    assert_parser.add_argument("--expect-row", action="append", nargs="+", default=[])
 
     args = parser.parse_args()
 
+    if args.command == "list":
+        return list_databases(args.directory)
+
     if args.command == "inspect":
         return inspect_database(args.db)
+
+    if args.command == "schema":
+        return inspect_schema(args.db)
 
     if args.command == "assert-clean":
         expected_rows = parse_expected_rows(args.expect_row)

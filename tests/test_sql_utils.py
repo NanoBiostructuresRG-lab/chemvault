@@ -33,6 +33,7 @@ def test_get_tables_from_connection_excludes_sqlite_internal_tables_and_orders_n
     connection = sqlite3.connect(":memory:")
     connection.execute('CREATE TABLE "z_table" (id INTEGER PRIMARY KEY AUTOINCREMENT)')
     connection.execute('CREATE TABLE "a_table" (id INTEGER)')
+    connection.execute('CREATE TABLE "_chemvault_table_metadata" (table_name TEXT)')
     connection.execute('INSERT INTO "z_table" DEFAULT VALUES')
 
     assert get_tables_from_connection(connection) == ["a_table", "z_table"]

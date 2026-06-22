@@ -12,6 +12,7 @@ from services.curation import (
     run_harmonsmile,
 )
 from services.database import count_rows, get_connection, update_headers
+from services.db_audit import register_table_metadata
 from services.export import export_table, export_table_by_sub_grupo
 from services.selection import get_active_selected_headers, get_selected_columns
 from services.sql_utils import table_exists
@@ -152,11 +153,22 @@ def render_refine_card(clear_preview_callback, build_query_callback):
             try:
                 query_to_run = build_query_callback()
                 new_table_name = st.session_state[NEW_TABLE_NAME].strip()
+                source_table = st.session_state[CURRENT_TABLE]
                 if table_exists(conn, new_table_name):
                     raise ValueError(
                         f"Table '{new_table_name}' already exists. Use another name or delete it first."
                     )
                 cursor.execute(query_to_run)
+                register_table_metadata(
+                    conn,
+                    new_table_name,
+                    role="derived",
+                    origin="refine",
+                    source_table=source_table,
+                    created_by="render_refine_card",
+                    query_used=query_to_run,
+                    commit=False,
+                )
                 conn.commit()
                 st.session_state[CURRENT_TABLE] = new_table_name
                 st.session_state[SELECTED_HEADERS] = []

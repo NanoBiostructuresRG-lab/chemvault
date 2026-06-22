@@ -47,7 +47,11 @@ def test_build_from_csv_uses_current_table_when_present(monkeypatch):
 
     cursor = connection.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    assert cursor.fetchall() == [("custom_table",), ("sqlite_sequence",)]
+    assert cursor.fetchall() == [
+        ("custom_table",),
+        ("sqlite_sequence",),
+        ("_chemvault_table_metadata",),
+    ]
 
 
 def test_build_from_proteins_sets_main_table_and_delegates_to_pubchem(monkeypatch):
@@ -62,6 +66,7 @@ def test_build_from_proteins_sets_main_table_and_delegates_to_pubchem(monkeypatc
 
     monkeypatch.setattr(builders.st, "session_state", session_state)
     monkeypatch.setattr(builders, "get_connection", lambda db_name: connection)
+    monkeypatch.setattr(builders, "register_table_metadata", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         builders,
         "obtener_CIDs_Pubchem",

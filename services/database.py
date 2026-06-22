@@ -4,6 +4,7 @@ import sqlite3
 
 import streamlit as st
 
+from services.db_audit import register_table_metadata
 from services.sql_utils import (
     ensure_main_table,
     get_tables_from_connection,
@@ -76,6 +77,14 @@ def set_database_id():
     st.session_state[SELECTED_HEADERS] = []
     conn = get_connection(st.session_state[DATABASE_ID])
     ensure_main_table(conn)
+    register_table_metadata(
+        conn,
+        "main",
+        role="base",
+        origin="created_empty_database",
+        created_by="set_database_id",
+        notes="Initial ChemVault main table.",
+    )
     update_headers()
     st.toast(f"SQL Database set to {st.session_state[DATABASE_ID]}")
 
@@ -91,6 +100,14 @@ def load_existing_database():
     tables = get_tables_from_connection(conn)
     if not tables:
         ensure_main_table(conn)
+        register_table_metadata(
+            conn,
+            "main",
+            role="base",
+            origin="created_empty_database",
+            created_by="load_existing_database",
+            notes="Initial ChemVault main table.",
+        )
         tables = get_tables_from_connection(conn)
     st.session_state[CURRENT_TABLE] = "main" if "main" in tables else tables[0]
     update_headers()

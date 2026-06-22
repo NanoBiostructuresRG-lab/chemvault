@@ -26,6 +26,7 @@ def get_tables_from_connection(connection):
         FROM sqlite_master
         WHERE type='table'
         AND name NOT LIKE 'sqlite_%'
+        AND name != '_chemvault_table_metadata'
         ORDER BY name
     """)
     return [row[0] for row in cursor.fetchall()]

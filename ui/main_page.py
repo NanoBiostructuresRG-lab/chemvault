@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import html
 import os
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from services.db_audit import delete_user_table, get_database_schema, get_user_table_profiles
 from services.database import (
     count_rows,
     count_rows_group_by,
@@ -127,6 +129,122 @@ def render_database_metrics(container, database_id, current_table, row_count, gr
     )
 
 
+def _format_audit_label(value):
+    if value in (None, ""):
+        return "-"
+    return str(value).replace("_", " ").title()
+
+
+def _format_status_labels(statuses):
+    if not statuses:
+        return "-"
+    return ", ".join(_format_audit_label(status) for status in statuses)
+
+
+def _format_created_at(value):
+    if value in (None, ""):
+        return "-"
+    return str(value).split("T", 1)[0]
+
+
+def _build_table_manager_dataframe(profiles):
+    rows = []
+    for profile in profiles:
+        rows.append(
+            {
+                "Table": profile["table"],
+                "Rows": profile["rows"],
+                "Columns": profile["columns"],
+                "Role": _format_audit_label(profile.get("role")),
+                "Origin": _format_audit_label(profile.get("origin")),
+                "Source": profile.get("source_table") or "-",
+                "Created": _format_created_at(profile.get("created_at")),
+                "Metadata": _format_audit_label(profile.get("metadata_status")),
+                "Status": _format_status_labels(profile.get("status", [])),
+                "Action": profile.get("recommended_action", "-"),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def render_table_manager_actions(database_id, current_table, profiles):
+    deletable_tables = [profile["table"] for profile in profiles if profile["table"] != "main"]
+
+    with st.expander("Manage tables", expanded=False):
+        st.caption("Delete derived, temporary, or failed test tables from the active database.")
+        if len(deletable_tables) == 0:
+            st.info("No deletable derived tables are available.")
+            return
+
+        table_to_delete = st.selectbox(
+            "Table to delete",
+            deletable_tables,
+            key="table_manager_delete_select",
+        )
+        confirmation = st.text_input(
+            "Type DELETE to confirm",
+            key="table_manager_delete_confirmation",
+        )
+        delete_ready = confirmation == "DELETE"
+
+        if st.button(
+            "Delete selected table",
+            key="table_manager_delete_button",
+            disabled=not delete_ready,
+        ):
+            conn = get_connection(database_id)
+            try:
+                delete_user_table(conn, table_to_delete)
+                if current_table == table_to_delete:
+                    st.session_state[CURRENT_TABLE] = ""
+                update_headers()
+                st.success(f"Table '{table_to_delete}' was deleted.")
+                st.rerun()
+            except ValueError as e:
+                st.error(str(e))
+
+
+def render_database_diagnostics(container, database_id, current_table):
+    db_path = Path("SQL") / f"{database_id}.db"
+
+    with container.expander("Database overview", expanded=False):
+        try:
+            profiles = get_user_table_profiles(db_path)
+            schema = get_database_schema(db_path)
+        except FileNotFoundError as e:
+            st.warning(str(e))
+            return
+
+        if len(profiles) == 0:
+            st.info("No tables were found in the active database.")
+            return
+
+        st.markdown("#### Table manager")
+        st.caption("Review table provenance, size, and inferred status before choosing what to use next.")
+        st.dataframe(
+            _build_table_manager_dataframe(profiles),
+            hide_index=True,
+            use_container_width=True,
+        )
+        render_table_manager_actions(database_id, current_table, profiles)
+
+        active_schema = next(
+            (table for table in schema if table["table"] == current_table),
+            None,
+        )
+        if active_schema is None or len(active_schema["columns"]) == 0:
+            st.info("No schema information was found for the active table.")
+            return
+
+        st.markdown("#### Active table schema")
+        st.dataframe(
+            pd.DataFrame(active_schema["columns"])[
+                ["name", "data_type", "primary_key", "not_null", "default_value"]
+            ],
+            hide_index=True,
+        )
+
+
 def render_database_card(container):
     if st.session_state[DATABASE_ID] == "":
         container.subheader("Database")
@@ -182,6 +300,11 @@ def render_database_card(container):
             st.session_state[HEADERS],
             key=GROUP_COUNT_COLUMN,
         )
+    render_database_diagnostics(
+        container,
+        st.session_state[DATABASE_ID],
+        st.session_state[CURRENT_TABLE],
+    )
 
 
 def render_columns_card(container):

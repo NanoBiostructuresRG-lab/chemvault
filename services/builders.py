@@ -6,6 +6,7 @@ import streamlit as st
 
 from modules.obtener_CIDs_Pubchem import obtener_CIDs_Pubchem
 from services.database import get_connection
+from services.db_audit import register_table_metadata
 from state_keys import CURRENT_TABLE, DATABASE_ID, SELECTED_PROTEINS, SET_TEXT_INPUT_LOCKED
 
 
@@ -48,12 +49,29 @@ def build_from_csv(uploaded_file):
     )
 
     conn.commit()
+    register_table_metadata(
+        conn,
+        table,
+        role="base",
+        origin="csv_upload",
+        created_by="build_from_csv",
+        notes=f"Source file: {getattr(uploaded_file, 'name', 'uploaded CSV')}.",
+    )
 
 
 def build_from_proteins(progreso):
     st.session_state[CURRENT_TABLE] = "main"
+    conn = get_connection(st.session_state[DATABASE_ID])
     obtener_CIDs_Pubchem(
-        get_connection(st.session_state[DATABASE_ID]),
+        conn,
         st.session_state[SELECTED_PROTEINS],
         progreso,
+    )
+    register_table_metadata(
+        conn,
+        "main",
+        role="base",
+        origin="protein_search",
+        created_by="build_from_proteins",
+        notes="Initial table created from selected proteins.",
     )
