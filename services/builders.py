@@ -6,7 +6,7 @@ import streamlit as st
 
 from modules.obtener_CIDs_Pubchem import obtener_CIDs_Pubchem
 from services.database import get_connection
-from services.db_audit import register_table_metadata
+from services.db_audit import register_operation, register_table_metadata
 from state_keys import CURRENT_TABLE, DATABASE_ID, SELECTED_PROTEINS, SET_TEXT_INPUT_LOCKED
 
 
@@ -57,6 +57,14 @@ def build_from_csv(uploaded_file):
         created_by="build_from_csv",
         notes=f"Source file: {getattr(uploaded_file, 'name', 'uploaded CSV')}.",
     )
+    register_operation(
+        conn,
+        "csv_loaded",
+        target_table=table,
+        output_columns=["primary_id", *df.columns.tolist()],
+        created_by="build_from_csv",
+        details=f"Loaded {len(df)} rows from {getattr(uploaded_file, 'name', 'uploaded CSV')}.",
+    )
 
 
 def build_from_proteins(progreso):
@@ -74,4 +82,12 @@ def build_from_proteins(progreso):
         origin="protein_search",
         created_by="build_from_proteins",
         notes="Initial table created from selected proteins.",
+    )
+    register_operation(
+        conn,
+        "protein_search_loaded",
+        target_table="main",
+        output_columns=["CID", "AIDs", "Proteins"],
+        created_by="build_from_proteins",
+        details=f"Loaded selected proteins: {', '.join(map(str, st.session_state[SELECTED_PROTEINS]))}.",
     )

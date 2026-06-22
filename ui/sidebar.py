@@ -12,7 +12,7 @@ from services.curation import (
     run_harmonsmile,
 )
 from services.database import count_rows, get_connection, update_headers
-from services.db_audit import register_table_metadata
+from services.db_audit import register_operation, register_table_metadata
 from services.export import export_table, export_table_by_sub_grupo
 from services.selection import get_active_selected_headers, get_selected_columns
 from services.sql_utils import table_exists
@@ -154,6 +154,7 @@ def render_refine_card(clear_preview_callback, build_query_callback):
                 query_to_run = build_query_callback()
                 new_table_name = st.session_state[NEW_TABLE_NAME].strip()
                 source_table = st.session_state[CURRENT_TABLE]
+                source_columns = get_active_selected_headers()
                 if table_exists(conn, new_table_name):
                     raise ValueError(
                         f"Table '{new_table_name}' already exists. Use another name or delete it first."
@@ -166,6 +167,18 @@ def render_refine_card(clear_preview_callback, build_query_callback):
                     origin="refine",
                     source_table=source_table,
                     created_by="render_refine_card",
+                    query_used=query_to_run,
+                    commit=False,
+                )
+                register_operation(
+                    conn,
+                    "refine_table_created",
+                    target_table=new_table_name,
+                    source_table=source_table,
+                    source_columns=source_columns,
+                    output_columns=source_columns,
+                    created_by="render_refine_card",
+                    details="Created a derived table from the active column selection.",
                     query_used=query_to_run,
                     commit=False,
                 )
@@ -198,6 +211,29 @@ def _set_curados_false():
     st.session_state[SELECTING_CHAMANP] = False
 
 
+def _safe_register_curate_operation(
+    operation_type,
+    target_table,
+    source_columns,
+    output_columns=None,
+    status="success",
+    details=None,
+):
+    try:
+        register_operation(
+            get_connection(st.session_state[DATABASE_ID]),
+            operation_type,
+            target_table=target_table,
+            source_columns=source_columns,
+            output_columns=output_columns,
+            created_by="render_curate_card",
+            status=status,
+            details=details,
+        )
+    except Exception:
+        pass
+
+
 def render_curate_card():
     with st.container(border=True):
         st.subheader("Curate")
@@ -221,17 +257,41 @@ def render_curate_card():
                 )
             else:
                 if st.button("Run"):
+                    target_table = st.session_state[CURRENT_TABLE]
                     try:
                         new_table_df = run_harmonsmile(get_selected_columns())
                     except ValueError as e:
                         st.toast(str(e))
                         st.error(str(e))
+                        _safe_register_curate_operation(
+                            "harmonsmile_run",
+                            target_table,
+                            selected_headers,
+                            status="failed",
+                            details=str(e),
+                        )
                         new_table_df = None
                     if new_table_df is not None:
+                        output_columns = [col for col in new_table_df.columns if col != "PubChem_CID"]
                         if agregar_df_por_pk(new_table_df, selected_headers[0], "PubChem_CID"):
                             st.toast("HarmonSmile completed successfully")
+                            _safe_register_curate_operation(
+                                "harmonsmile_run",
+                                target_table,
+                                selected_headers,
+                                output_columns=output_columns,
+                                details="Enriched the active table with HARMONSMILE columns.",
+                            )
                         else:
                             st.toast("HarmonSmile failed")
+                            _safe_register_curate_operation(
+                                "harmonsmile_run",
+                                target_table,
+                                selected_headers,
+                                output_columns=output_columns,
+                                status="failed",
+                                details="HARMONSMILE returned data, but ChemVault could not merge it into the active table.",
+                            )
                         update_headers()
                         st.rerun()
 
@@ -243,11 +303,22 @@ def render_curate_card():
             st.selectbox("Select collections", st.session_state[SELECTED_HEADERS], key=SELECTED_COLLECTIONS)
 
             if st.button("Run"):
+                source_columns = [
+                    st.session_state[SELECTED_IDENTIFIER],
+                    st.session_state[SELECTED_SMILES],
+                    st.session_state[SELECTED_COLLECTIONS],
+                ]
                 run_chamanp(
                     get_selected_columns(),
                     st.session_state[SELECTED_IDENTIFIER],
                     st.session_state[SELECTED_SMILES],
                     st.session_state[SELECTED_COLLECTIONS],
+                )
+                _safe_register_curate_operation(
+                    "chamanp_run",
+                    st.session_state[CURRENT_TABLE],
+                    source_columns,
+                    details="Ran CHAMANP and generated downloadable artifacts.",
                 )
                 st.text("Chamanp completed successfully")
                 st.text("Downloading files")

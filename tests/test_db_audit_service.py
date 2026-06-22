@@ -5,11 +5,14 @@ import pytest
 
 from services.db_audit import (
     METADATA_TABLE,
+    OPERATION_LOG_TABLE,
     count_rows,
     delete_user_table,
+    ensure_operation_log,
     ensure_table_metadata,
     get_database_schema,
     get_database_summary,
+    get_operation_log,
     get_table_metadata,
     get_table_profiles,
     get_table_row_counts,
@@ -17,6 +20,7 @@ from services.db_audit import (
     list_database_files,
     list_tables,
     recommend_table_action,
+    register_operation,
     register_table_metadata,
 )
 
@@ -234,6 +238,81 @@ def test_ensure_table_metadata_creates_internal_table(tmp_path):
         assert cur.fetchone() == (1,)
 
 
+def test_ensure_operation_log_creates_internal_table(tmp_path):
+    db_path = tmp_path / "test.db"
+    with sqlite3.connect(db_path) as con:
+        ensure_operation_log(con)
+
+    with sqlite3.connect(db_path) as con:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (OPERATION_LOG_TABLE,),
+        )
+        assert cur.fetchone() == (1,)
+
+
+def test_get_operation_log_returns_empty_list_without_operation_table(tmp_path):
+    db_path = tmp_path / "test.db"
+    create_test_db(db_path)
+
+    assert get_operation_log(db_path) == []
+
+
+def test_register_operation_persists_operation_log_entry(tmp_path):
+    db_path = tmp_path / "test.db"
+    with sqlite3.connect(db_path) as con:
+        operation_id = register_operation(
+            con,
+            operation_type="refine_table_created",
+            target_table="derived_result",
+            source_table="main",
+            source_columns=["CID", "SMILES"],
+            output_columns=("CID",),
+            created_by="test",
+            details="Created from selected columns.",
+            query_used='CREATE TABLE "derived_result" AS SELECT "CID" FROM "main"',
+        )
+
+    operations = get_operation_log(db_path)
+
+    assert operation_id == 1
+    assert list_tables(db_path) == [OPERATION_LOG_TABLE, "sqlite_sequence"]
+    assert operations[0]["operation_id"] == 1
+    assert operations[0]["operation_type"] == "refine_table_created"
+    assert operations[0]["target_table"] == "derived_result"
+    assert operations[0]["source_table"] == "main"
+    assert operations[0]["source_columns"] == '["CID", "SMILES"]'
+    assert operations[0]["output_columns"] == '["CID"]'
+    assert operations[0]["created_by"] == "test"
+    assert operations[0]["status"] == "success"
+    assert operations[0]["details"] == "Created from selected columns."
+    assert operations[0]["query_used"] == 'CREATE TABLE "derived_result" AS SELECT "CID" FROM "main"'
+
+
+def test_operation_log_returns_newest_entries_first(tmp_path):
+    db_path = tmp_path / "test.db"
+    with sqlite3.connect(db_path) as con:
+        register_operation(con, "database_created", target_table="main")
+        register_operation(con, "refine_table_created", target_table="derived_result")
+
+    operations = get_operation_log(db_path)
+
+    assert [operation["operation_type"] for operation in operations] == [
+        "refine_table_created",
+        "database_created",
+    ]
+
+
+def test_register_operation_rejects_required_blank_values():
+    connection = sqlite3.connect(":memory:")
+
+    with pytest.raises(ValueError, match="operation_type is required"):
+        register_operation(connection, "")
+    with pytest.raises(ValueError, match="status is required"):
+        register_operation(connection, "database_created", status="")
+
+
 def test_table_profiles_prefer_registered_metadata_over_inference(tmp_path):
     db_path = tmp_path / "test.db"
     with sqlite3.connect(db_path) as con:
@@ -287,8 +366,12 @@ def test_delete_user_table_removes_table_and_metadata(tmp_path):
         )
         delete_user_table(con, "derived_result")
 
-    assert list_tables(db_path) == [METADATA_TABLE, "main"]
+    assert list_tables(db_path) == [OPERATION_LOG_TABLE, METADATA_TABLE, "main", "sqlite_sequence"]
     assert get_table_metadata(db_path) == {}
+    operations = get_operation_log(db_path)
+    assert operations[0]["operation_type"] == "table_deleted"
+    assert operations[0]["target_table"] == "derived_result"
+    assert operations[0]["created_by"] == "delete_user_table"
 
 
 def test_delete_user_table_rejects_main_and_internal_tables(tmp_path):

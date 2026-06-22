@@ -2,6 +2,7 @@
 import sqlite3
 
 from services import database
+from services.db_audit import get_operation_log
 
 
 def test_count_rows_returns_zero_without_active_table(monkeypatch):
@@ -59,3 +60,31 @@ def test_update_headers_syncs_tables_headers_and_selected_headers(monkeypatch):
     assert session_state["all_tables"] == ["main"]
     assert session_state["headers"] == ["CID", "SMILES"]
     assert session_state["selected_headers"] == ["CID"]
+
+
+def test_set_database_id_registers_database_created_for_new_database(monkeypatch, tmp_path):
+    db_path = tmp_path / "test.db"
+    connection = sqlite3.connect(db_path)
+    session_state = {
+        "input_database_id": "test_db",
+        "database_id": "",
+        "set_text_input_locked": False,
+        "current_table": "",
+        "selected_headers": ["stale_column"],
+        "headers": [],
+        "all_tables": [],
+    }
+
+    monkeypatch.setattr(database.st, "session_state", session_state)
+    monkeypatch.setattr(database.st, "toast", lambda message: None)
+    monkeypatch.setattr(database, "get_connection", lambda db_name: connection)
+    monkeypatch.setattr(database.os.path, "isfile", lambda path: False)
+
+    database.set_database_id()
+
+    operations = get_operation_log(db_path)
+
+    assert session_state["database_id"] == "test_db"
+    assert session_state["current_table"] == "main"
+    assert operations[0]["operation_type"] == "database_created"
+    assert operations[0]["target_table"] == "main"

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -6,7 +7,8 @@ from pathlib import Path
 from services.sql_utils import quote_identifier, table_exists
 
 METADATA_TABLE = "_chemvault_table_metadata"
-INTERNAL_TABLES = {METADATA_TABLE, "sqlite_sequence"}
+OPERATION_LOG_TABLE = "_chemvault_operation_log"
+INTERNAL_TABLES = {METADATA_TABLE, OPERATION_LOG_TABLE, "sqlite_sequence"}
 
 
 def list_database_files(directory: Path) -> list[Path]:
@@ -52,6 +54,23 @@ def _metadata_table_exists(connection) -> bool:
     return cursor.fetchone() is not None
 
 
+def _table_exists(connection, table_name: str) -> bool:
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    )
+    return cursor.fetchone() is not None
+
+
+def _encode_optional_columns(value):
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        return json.dumps(list(value))
+    return str(value)
+
+
 def ensure_table_metadata(connection, commit: bool = True) -> None:
     """Create ChemVault table metadata storage when needed."""
     cursor = connection.cursor()
@@ -69,6 +88,115 @@ def ensure_table_metadata(connection, commit: bool = True) -> None:
     """)
     if commit:
         connection.commit()
+
+
+def ensure_operation_log(connection, commit: bool = True) -> None:
+    """Create ChemVault operation log storage when needed."""
+    cursor = connection.cursor()
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS {quote_identifier(OPERATION_LOG_TABLE)} (
+            operation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_type TEXT NOT NULL,
+            target_table TEXT,
+            source_table TEXT,
+            source_columns TEXT,
+            output_columns TEXT,
+            created_at TEXT NOT NULL,
+            created_by TEXT,
+            status TEXT NOT NULL,
+            details TEXT,
+            query_used TEXT
+        )
+    """)
+    if commit:
+        connection.commit()
+
+
+def register_operation(
+    connection,
+    operation_type: str,
+    target_table: str | None = None,
+    source_table: str | None = None,
+    source_columns=None,
+    output_columns=None,
+    created_by: str | None = None,
+    status: str = "success",
+    details: str | None = None,
+    query_used: str | None = None,
+    commit: bool = True,
+) -> int:
+    """Register a ChemVault database operation and return its log id."""
+    if operation_type.strip() == "":
+        raise ValueError("operation_type is required.")
+    if status.strip() == "":
+        raise ValueError("status is required.")
+
+    ensure_operation_log(connection, commit=False)
+    created_at = datetime.now(timezone.utc).isoformat()
+    cursor = connection.cursor()
+    cursor.execute(
+        f"""
+        INSERT INTO {quote_identifier(OPERATION_LOG_TABLE)}
+            (
+                operation_type,
+                target_table,
+                source_table,
+                source_columns,
+                output_columns,
+                created_at,
+                created_by,
+                status,
+                details,
+                query_used
+            )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            operation_type,
+            target_table,
+            source_table,
+            _encode_optional_columns(source_columns),
+            _encode_optional_columns(output_columns),
+            created_at,
+            created_by,
+            status,
+            details,
+            query_used,
+        ),
+    )
+    operation_id = int(cursor.lastrowid)
+    if commit:
+        connection.commit()
+    return operation_id
+
+
+def get_operation_log(db_path: Path) -> list[dict[str, object]]:
+    """Return registered ChemVault operations, newest first."""
+    if not db_path.exists():
+        raise FileNotFoundError(f"Database not found: {db_path}")
+
+    with sqlite3.connect(db_path) as con:
+        if not _table_exists(con, OPERATION_LOG_TABLE):
+            return []
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        cur.execute(f"""
+            SELECT
+                operation_id,
+                operation_type,
+                target_table,
+                source_table,
+                source_columns,
+                output_columns,
+                created_at,
+                created_by,
+                status,
+                details,
+                query_used
+            FROM {quote_identifier(OPERATION_LOG_TABLE)}
+            ORDER BY operation_id DESC
+        """)
+        return [dict(row) for row in cur.fetchall()]
 
 
 def register_table_metadata(
@@ -148,6 +276,14 @@ def delete_user_table(connection, table_name: str, commit: bool = True) -> None:
             f"DELETE FROM {quote_identifier(METADATA_TABLE)} WHERE table_name = ?",
             (table_name,),
         )
+    register_operation(
+        connection,
+        "table_deleted",
+        target_table=table_name,
+        created_by="delete_user_table",
+        details="Deleted a user-facing table and its ChemVault metadata.",
+        commit=False,
+    )
     if commit:
         connection.commit()
 

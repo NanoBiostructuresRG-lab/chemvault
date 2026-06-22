@@ -1,11 +1,17 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import html
+import json
 import os
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from services.db_audit import delete_user_table, get_database_schema, get_user_table_profiles
+from services.db_audit import (
+    delete_user_table,
+    get_database_schema,
+    get_operation_log,
+    get_user_table_profiles,
+)
 from services.database import (
     count_rows,
     count_rows_group_by,
@@ -147,6 +153,18 @@ def _format_created_at(value):
     return str(value).split("T", 1)[0]
 
 
+def _format_operation_columns(value):
+    if value in (None, ""):
+        return "-"
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return str(value)
+    if isinstance(decoded, list):
+        return ", ".join(str(item) for item in decoded)
+    return str(decoded)
+
+
 def _build_table_manager_dataframe(profiles):
     rows = []
     for profile in profiles:
@@ -165,6 +183,32 @@ def _build_table_manager_dataframe(profiles):
             }
         )
     return pd.DataFrame(rows)
+
+
+def _build_operation_history_dataframe(operations):
+    rows = []
+    for operation in operations:
+        rows.append(
+            {
+                "Created": _format_created_at(operation.get("created_at")),
+                "Operation": _format_audit_label(operation.get("operation_type")),
+                "Target": operation.get("target_table") or "-",
+                "Source": operation.get("source_table") or "-",
+                "Columns": _format_operation_columns(operation.get("source_columns")),
+                "Status": _format_audit_label(operation.get("status")),
+                "Details": operation.get("details") or "-",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def render_database_model_help():
+    st.info(
+        "A ChemVault SQL Database is a local .db file stored in SQL/. "
+        "The main table is the base dataset. Refine creates derived tables, "
+        "Curate may enrich the active table, and Export downloads the active "
+        "table or an optional filtered subgroup."
+    )
 
 
 def render_table_manager_actions(database_id, current_table, profiles):
@@ -204,6 +248,22 @@ def render_table_manager_actions(database_id, current_table, profiles):
                 st.error(str(e))
 
 
+def render_operation_history(db_path):
+    operations = get_operation_log(db_path)
+
+    st.markdown("#### Operation history")
+    st.caption("Review recorded database events such as builds, derived tables, and table cleanup.")
+    if len(operations) == 0:
+        st.info("No operations have been recorded for this database yet.")
+        return
+
+    st.dataframe(
+        _build_operation_history_dataframe(operations),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+
 def render_database_diagnostics(container, database_id, current_table):
     db_path = Path("SQL") / f"{database_id}.db"
 
@@ -219,6 +279,7 @@ def render_database_diagnostics(container, database_id, current_table):
             st.info("No tables were found in the active database.")
             return
 
+        render_database_model_help()
         st.markdown("#### Table manager")
         st.caption("Review table provenance, size, and inferred status before choosing what to use next.")
         st.dataframe(
@@ -227,6 +288,7 @@ def render_database_diagnostics(container, database_id, current_table):
             use_container_width=True,
         )
         render_table_manager_actions(database_id, current_table, profiles)
+        render_operation_history(db_path)
 
         active_schema = next(
             (table for table in schema if table["table"] == current_table),

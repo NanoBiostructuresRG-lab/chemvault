@@ -4,7 +4,7 @@ import sqlite3
 
 import streamlit as st
 
-from services.db_audit import register_table_metadata
+from services.db_audit import register_operation, register_table_metadata
 from services.sql_utils import (
     ensure_main_table,
     get_tables_from_connection,
@@ -71,6 +71,7 @@ def set_database_id():
     if db_name == "":
         st.toast("Enter a name for your SQL database")
         return
+    db_exists = os.path.isfile(f"SQL/{db_name}.db")
     st.session_state[DATABASE_ID] = db_name
     st.session_state[SET_TEXT_INPUT_LOCKED] = True
     st.session_state[CURRENT_TABLE] = "main"
@@ -85,6 +86,14 @@ def set_database_id():
         created_by="set_database_id",
         notes="Initial ChemVault main table.",
     )
+    if not db_exists:
+        register_operation(
+            conn,
+            "database_created",
+            target_table="main",
+            created_by="set_database_id",
+            details="Created a new ChemVault SQLite database.",
+        )
     update_headers()
     st.toast(f"SQL Database set to {st.session_state[DATABASE_ID]}")
 
