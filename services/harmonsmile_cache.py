@@ -375,18 +375,84 @@ def mark_harmonsmile_cache_failed(connection, cids, error_message):
     return len(rows)
 
 
+def _build_harmonsmile_progress(
+    status,
+    total_cids,
+    total_chunks,
+    current_chunk,
+    processed_cids,
+    successful_cids,
+    failed_cids,
+    missing_cids=None,
+    stopped_by_exception=False,
+    error_message=None,
+):
+    return {
+        "status": status,
+        "total_cids": total_cids,
+        "total_chunks": total_chunks,
+        "current_chunk": current_chunk,
+        "processed_cids": len(processed_cids),
+        "successful_cids": len(successful_cids),
+        "failed_cids": len(failed_cids),
+        "missing_cids": len(missing_cids or []),
+        "processed_cid_values": list(processed_cids),
+        "successful_cid_values": list(successful_cids),
+        "failed_cid_values": list(failed_cids),
+        "missing_cid_values": list(missing_cids or []),
+        "stopped_by_exception": stopped_by_exception,
+        "error_message": error_message,
+    }
+
+
+def _emit_progress(progress_callback, snapshot):
+    if progress_callback is not None:
+        progress_callback(snapshot)
+
+
 def run_harmonsmile_chunks(
     connection,
     pending_cids,
     harmonsmile_runner,
     chunk_size=DEFAULT_CHUNK_SIZE,
+    progress_callback=None,
 ):
     """Run HARMONSMILE for pending CIDs and persist each chunk into cache."""
     normalized_cids, invalid_cids = normalize_cids(pending_cids)
     chunks = list(chunk_cids(normalized_cids, chunk_size))
     processed_cids = []
+    successful_cids = []
+    failed_cids = []
+    missing_result_cids = []
+    total_cids = len(normalized_cids)
+    total_chunks = len(chunks)
+
+    _emit_progress(
+        progress_callback,
+        _build_harmonsmile_progress(
+            "started",
+            total_cids,
+            total_chunks,
+            0,
+            processed_cids,
+            successful_cids,
+            failed_cids,
+        ),
+    )
 
     for chunk_index, chunk in enumerate(chunks, start=1):
+        _emit_progress(
+            progress_callback,
+            _build_harmonsmile_progress(
+                "running",
+                total_cids,
+                total_chunks,
+                chunk_index,
+                processed_cids,
+                successful_cids,
+                failed_cids,
+            ),
+        )
         chunk_df = pd.DataFrame({"CID": chunk})
         try:
             result_df = harmonsmile_runner(chunk_df)
@@ -402,24 +468,68 @@ def run_harmonsmile_chunks(
                     "Missing HARMONSMILE result for CID in processed chunk",
                 )
             processed_cids.extend(returned_cids)
+            successful_cids.extend(returned_cids)
+            failed_cids.extend(missing_cids)
+            missing_result_cids.extend(missing_cids)
+            _emit_progress(
+                progress_callback,
+                _build_harmonsmile_progress(
+                    "chunk_completed",
+                    total_cids,
+                    total_chunks,
+                    chunk_index,
+                    processed_cids,
+                    successful_cids,
+                    failed_cids,
+                    missing_cids=missing_cids,
+                ),
+            )
         except Exception as exc:
             mark_harmonsmile_cache_failed(connection, chunk, str(exc))
+            failed_cids.extend(chunk)
+            _emit_progress(
+                progress_callback,
+                _build_harmonsmile_progress(
+                    "failed",
+                    total_cids,
+                    total_chunks,
+                    chunk_index,
+                    processed_cids,
+                    successful_cids,
+                    failed_cids,
+                    stopped_by_exception=True,
+                    error_message=str(exc),
+                ),
+            )
             return {
                 "status": "failed",
                 "chunk_index": chunk_index,
                 "total_chunks": len(chunks),
                 "processed_cids": processed_cids,
                 "failed_cids": chunk,
+                "missing_cids": missing_result_cids,
                 "invalid_cids": invalid_cids,
                 "error_message": str(exc),
             }
 
-    return {
+    result = {
         "status": "success",
         "chunk_index": len(chunks),
         "total_chunks": len(chunks),
         "processed_cids": processed_cids,
-        "failed_cids": [],
+        "failed_cids": failed_cids,
+        "missing_cids": missing_result_cids,
         "invalid_cids": invalid_cids,
         "error_message": None,
     }
+    result["progress"] = _build_harmonsmile_progress(
+        "success",
+        total_cids,
+        total_chunks,
+        len(chunks),
+        processed_cids,
+        successful_cids,
+        failed_cids,
+    )
+    _emit_progress(progress_callback, result["progress"])
+    return result

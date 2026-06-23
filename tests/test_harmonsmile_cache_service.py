@@ -247,11 +247,13 @@ def test_run_harmonsmile_chunks_processes_pending_cids_and_caches_each_chunk():
             }
         )
 
+    snapshots = []
     result = run_harmonsmile_chunks(
         connection,
         ["1", "2", "3", "bad"],
         fake_harmonsmile_runner,
         chunk_size=2,
+        progress_callback=snapshots.append,
     )
 
     cursor = connection.cursor()
@@ -267,7 +269,7 @@ def test_run_harmonsmile_chunks_processes_pending_cids_and_caches_each_chunk():
         {"CID": ["1", "2"]},
         {"CID": ["3"]},
     ]
-    assert result == {
+    expected_result = {
         "status": "success",
         "chunk_index": 2,
         "total_chunks": 2,
@@ -276,6 +278,21 @@ def test_run_harmonsmile_chunks_processes_pending_cids_and_caches_each_chunk():
         "invalid_cids": ["bad"],
         "error_message": None,
     }
+    for key, value in expected_result.items():
+        assert result[key] == value
+    assert result["progress"]["status"] == "success"
+    assert result["progress"]["total_cids"] == 3
+    assert result["progress"]["successful_cids"] == 3
+    assert [snapshot["status"] for snapshot in snapshots] == [
+        "started",
+        "running",
+        "chunk_completed",
+        "running",
+        "chunk_completed",
+        "success",
+    ]
+    assert snapshots[-1]["processed_cids"] == 3
+    assert snapshots[-1]["failed_cids"] == 0
     assert cursor.fetchall() == [
         ("1", "success", "SMILES-1"),
         ("2", "success", "SMILES-2"),
@@ -298,11 +315,13 @@ def test_run_harmonsmile_chunks_records_failed_chunk_and_stops():
             }
         )
 
+    snapshots = []
     result = run_harmonsmile_chunks(
         connection,
         ["1", "2", "3", "4", "5"],
         fake_harmonsmile_runner,
         chunk_size=2,
+        progress_callback=snapshots.append,
     )
 
     cursor = connection.cursor()
@@ -324,9 +343,20 @@ def test_run_harmonsmile_chunks_records_failed_chunk_and_stops():
         "total_chunks": 3,
         "processed_cids": ["1", "2"],
         "failed_cids": ["3", "4"],
+        "missing_cids": [],
         "invalid_cids": [],
         "error_message": "PubChem unavailable",
     }
+    assert [snapshot["status"] for snapshot in snapshots] == [
+        "started",
+        "running",
+        "chunk_completed",
+        "running",
+        "failed",
+    ]
+    assert snapshots[-1]["stopped_by_exception"] is True
+    assert snapshots[-1]["failed_cids"] == 2
+    assert snapshots[-1]["failed_cid_values"] == ["3", "4"]
     assert cursor.fetchall() == [
         ("1", "success", None, "SMILES-1"),
         ("2", "success", None, "SMILES-2"),
@@ -346,11 +376,13 @@ def test_run_harmonsmile_chunks_marks_missing_chunk_results_as_failed():
             }
         )
 
+    snapshots = []
     result = run_harmonsmile_chunks(
         connection,
         ["1", "2", "3"],
         partial_harmonsmile_runner,
         chunk_size=3,
+        progress_callback=snapshots.append,
     )
 
     cursor = connection.cursor()
@@ -362,15 +394,22 @@ def test_run_harmonsmile_chunks_marks_missing_chunk_results_as_failed():
         '''
     )
 
-    assert result == {
+    expected_result = {
         "status": "success",
         "chunk_index": 1,
         "total_chunks": 1,
         "processed_cids": ["1", "3"],
-        "failed_cids": [],
+        "failed_cids": ["2"],
+        "missing_cids": ["2"],
         "invalid_cids": [],
         "error_message": None,
     }
+    for key, value in expected_result.items():
+        assert result[key] == value
+    assert snapshots[2]["status"] == "chunk_completed"
+    assert snapshots[2]["missing_cids"] == 1
+    assert snapshots[2]["missing_cid_values"] == ["2"]
+    assert snapshots[-1]["failed_cids"] == 1
     assert cursor.fetchall() == [
         ("1", "success", None, "SMILES-1"),
         (
