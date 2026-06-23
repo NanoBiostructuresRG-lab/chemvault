@@ -58,6 +58,15 @@ def normalize_cids(values):
     return normalized, invalid
 
 
+def chunk_cids(cids, chunk_size=DEFAULT_CHUNK_SIZE):
+    """Yield CID chunks using the accepted future runner chunk size."""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than zero.")
+
+    for index in range(0, len(cids), chunk_size):
+        yield cids[index:index + chunk_size]
+
+
 def normalize_harmonsmile_column_name(column):
     return (
         str(column)
@@ -241,3 +250,82 @@ def upsert_harmonsmile_cache(connection, result_df, status="success", error_mess
     )
     connection.commit()
     return len(rows)
+
+
+def mark_harmonsmile_cache_failed(connection, cids, error_message):
+    normalized_cids, _ = normalize_cids(cids)
+    if not normalized_cids:
+        return 0
+
+    ensure_harmonsmile_cache(connection)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    rows = [
+        (cid, "failed", fetched_at, str(error_message))
+        for cid in normalized_cids
+    ]
+
+    cursor = connection.cursor()
+    cursor.executemany(
+        f"""
+        INSERT INTO {quote_identifier(CACHE_TABLE)}
+        (PubChem_CID, status, fetched_at, error_message)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(PubChem_CID) DO UPDATE SET
+            status = excluded.status,
+            fetched_at = excluded.fetched_at,
+            error_message = excluded.error_message
+        """,
+        rows,
+    )
+    connection.commit()
+    return len(rows)
+
+
+def run_harmonsmile_chunks(
+    connection,
+    pending_cids,
+    harmonsmile_runner,
+    chunk_size=DEFAULT_CHUNK_SIZE,
+):
+    """Run HARMONSMILE for pending CIDs and persist each chunk into cache."""
+    normalized_cids, invalid_cids = normalize_cids(pending_cids)
+    chunks = list(chunk_cids(normalized_cids, chunk_size))
+    processed_cids = []
+
+    for chunk_index, chunk in enumerate(chunks, start=1):
+        chunk_df = pd.DataFrame({"CID": chunk})
+        try:
+            result_df = harmonsmile_runner(chunk_df)
+            normalized_result = normalize_harmonsmile_result(result_df)
+            upsert_harmonsmile_cache(connection, normalized_result)
+            returned_cids = normalized_result["PubChem_CID"].tolist()
+            returned_set = set(returned_cids)
+            missing_cids = [cid for cid in chunk if cid not in returned_set]
+            if missing_cids:
+                mark_harmonsmile_cache_failed(
+                    connection,
+                    missing_cids,
+                    "Missing HARMONSMILE result for CID in processed chunk",
+                )
+            processed_cids.extend(returned_cids)
+        except Exception as exc:
+            mark_harmonsmile_cache_failed(connection, chunk, str(exc))
+            return {
+                "status": "failed",
+                "chunk_index": chunk_index,
+                "total_chunks": len(chunks),
+                "processed_cids": processed_cids,
+                "failed_cids": chunk,
+                "invalid_cids": invalid_cids,
+                "error_message": str(exc),
+            }
+
+    return {
+        "status": "success",
+        "chunk_index": len(chunks),
+        "total_chunks": len(chunks),
+        "processed_cids": processed_cids,
+        "failed_cids": [],
+        "invalid_cids": invalid_cids,
+        "error_message": None,
+    }

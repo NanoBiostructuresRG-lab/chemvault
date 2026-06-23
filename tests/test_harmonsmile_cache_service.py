@@ -6,14 +6,17 @@ import pandas as pd
 from services.harmonsmile_cache import (
     CACHE_TABLE,
     DEFAULT_CHUNK_SIZE,
+    chunk_cids,
     ensure_harmonsmile_cache,
     get_cached_harmonsmile_cids,
     get_harmonsmile_output_columns,
+    mark_harmonsmile_cache_failed,
     normalize_cid,
     normalize_cids,
     normalize_harmonsmile_result,
     prepare_harmonsmile_job,
     read_cids_from_table,
+    run_harmonsmile_chunks,
     upsert_harmonsmile_cache,
 )
 from services.sql_utils import get_tables_from_connection
@@ -61,6 +64,14 @@ def test_normalize_harmonsmile_result_standardizes_columns_and_cids():
 
 def test_default_chunk_size_documents_future_harmonsmile_runner_design():
     assert DEFAULT_CHUNK_SIZE == 500
+
+
+def test_chunk_cids_uses_requested_chunk_size():
+    assert list(chunk_cids(["1", "2", "3", "4", "5"], chunk_size=2)) == [
+        ["1", "2"],
+        ["3", "4"],
+        ["5"],
+    ]
 
 
 def test_ensure_harmonsmile_cache_creates_internal_table():
@@ -132,6 +143,27 @@ def test_upsert_harmonsmile_cache_updates_existing_rows():
     assert cursor.fetchone() == ("1", "new", "46.07")
 
 
+def test_mark_harmonsmile_cache_failed_records_error_status():
+    connection = sqlite3.connect(":memory:")
+
+    count = mark_harmonsmile_cache_failed(connection, ["1", "2"], "network error")
+
+    cursor = connection.cursor()
+    cursor.execute(
+        f'''
+        SELECT PubChem_CID, status, error_message
+        FROM "{CACHE_TABLE}"
+        ORDER BY PubChem_CID
+        '''
+    )
+
+    assert count == 2
+    assert cursor.fetchall() == [
+        ("1", "failed", "network error"),
+        ("2", "failed", "network error"),
+    ]
+
+
 def test_read_cids_from_table_reads_selected_column_values():
     connection = sqlite3.connect(":memory:")
     connection.execute('CREATE TABLE "active table" ("CID value" TEXT, other TEXT)')
@@ -199,3 +231,152 @@ def test_prepare_harmonsmile_job_ignores_failed_cache_rows():
 
     assert job["cached_cids"] == []
     assert job["pending_cids"] == ["1", "2"]
+
+
+def test_run_harmonsmile_chunks_processes_pending_cids_and_caches_each_chunk():
+    connection = sqlite3.connect(":memory:")
+    calls = []
+
+    def fake_harmonsmile_runner(chunk_df):
+        calls.append(chunk_df.copy())
+        return pd.DataFrame(
+            {
+                "PubChem CID": chunk_df["CID"],
+                "SMILES": [f"SMILES-{cid}" for cid in chunk_df["CID"]],
+            }
+        )
+
+    result = run_harmonsmile_chunks(
+        connection,
+        ["1", "2", "3", "bad"],
+        fake_harmonsmile_runner,
+        chunk_size=2,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        f'''
+        SELECT PubChem_CID, status, SMILES
+        FROM "{CACHE_TABLE}"
+        ORDER BY PubChem_CID
+        '''
+    )
+
+    assert [call.to_dict("list") for call in calls] == [
+        {"CID": ["1", "2"]},
+        {"CID": ["3"]},
+    ]
+    assert result == {
+        "status": "success",
+        "chunk_index": 2,
+        "total_chunks": 2,
+        "processed_cids": ["1", "2", "3"],
+        "failed_cids": [],
+        "invalid_cids": ["bad"],
+        "error_message": None,
+    }
+    assert cursor.fetchall() == [
+        ("1", "success", "SMILES-1"),
+        ("2", "success", "SMILES-2"),
+        ("3", "success", "SMILES-3"),
+    ]
+
+
+def test_run_harmonsmile_chunks_records_failed_chunk_and_stops():
+    connection = sqlite3.connect(":memory:")
+    calls = []
+
+    def fake_harmonsmile_runner(chunk_df):
+        calls.append(chunk_df.copy())
+        if chunk_df["CID"].tolist() == ["3", "4"]:
+            raise RuntimeError("PubChem unavailable")
+        return pd.DataFrame(
+            {
+                "PubChem_CID": chunk_df["CID"],
+                "SMILES": [f"SMILES-{cid}" for cid in chunk_df["CID"]],
+            }
+        )
+
+    result = run_harmonsmile_chunks(
+        connection,
+        ["1", "2", "3", "4", "5"],
+        fake_harmonsmile_runner,
+        chunk_size=2,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        f'''
+        SELECT PubChem_CID, status, error_message, SMILES
+        FROM "{CACHE_TABLE}"
+        ORDER BY PubChem_CID
+        '''
+    )
+
+    assert [call.to_dict("list") for call in calls] == [
+        {"CID": ["1", "2"]},
+        {"CID": ["3", "4"]},
+    ]
+    assert result == {
+        "status": "failed",
+        "chunk_index": 2,
+        "total_chunks": 3,
+        "processed_cids": ["1", "2"],
+        "failed_cids": ["3", "4"],
+        "invalid_cids": [],
+        "error_message": "PubChem unavailable",
+    }
+    assert cursor.fetchall() == [
+        ("1", "success", None, "SMILES-1"),
+        ("2", "success", None, "SMILES-2"),
+        ("3", "failed", "PubChem unavailable", None),
+        ("4", "failed", "PubChem unavailable", None),
+    ]
+
+
+def test_run_harmonsmile_chunks_marks_missing_chunk_results_as_failed():
+    connection = sqlite3.connect(":memory:")
+
+    def partial_harmonsmile_runner(chunk_df):
+        return pd.DataFrame(
+            {
+                "PubChem_CID": ["1", "3"],
+                "SMILES": ["SMILES-1", "SMILES-3"],
+            }
+        )
+
+    result = run_harmonsmile_chunks(
+        connection,
+        ["1", "2", "3"],
+        partial_harmonsmile_runner,
+        chunk_size=3,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        f'''
+        SELECT PubChem_CID, status, error_message, SMILES
+        FROM "{CACHE_TABLE}"
+        ORDER BY PubChem_CID
+        '''
+    )
+
+    assert result == {
+        "status": "success",
+        "chunk_index": 1,
+        "total_chunks": 1,
+        "processed_cids": ["1", "3"],
+        "failed_cids": [],
+        "invalid_cids": [],
+        "error_message": None,
+    }
+    assert cursor.fetchall() == [
+        ("1", "success", None, "SMILES-1"),
+        (
+            "2",
+            "failed",
+            "Missing HARMONSMILE result for CID in processed chunk",
+            None,
+        ),
+        ("3", "success", None, "SMILES-3"),
+    ]
