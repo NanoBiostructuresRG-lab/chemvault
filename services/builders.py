@@ -87,7 +87,14 @@ def build_from_proteins(progreso):
         conn,
         "protein_search_loaded",
         target_table="main",
-        output_columns=["CID", "AIDs", "Proteins"],
+        output_columns=[
+            "CID",
+            "AIDs",
+            "Proteins",
+            "Compound_Name",
+            "Activity_Type",
+            "Activity_Value",
+        ],
         created_by="build_from_proteins",
         details=f"Loaded selected proteins: {', '.join(map(str, st.session_state[SELECTED_PROTEINS]))}.",
     )

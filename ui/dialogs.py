@@ -21,6 +21,7 @@ def select_proteins():
             st.toast("First, enter a name for your SQL database")
             print("First, enter a name for your SQL database")
         else:
+            st.info("Building the protein database. This can take a few minutes for targets with many BioAssays.")
             progreso = st.progress(0)
             st.toast(f"Building database with proteins: {st.session_state[SELECTED_PROTEINS]}")
             build_from_proteins(progreso)
