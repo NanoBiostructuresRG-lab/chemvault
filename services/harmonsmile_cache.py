@@ -15,6 +15,14 @@ BASE_COLUMNS = {
     "fetched_at",
     "error_message",
 }
+MERGE_EXCLUDED_COLUMNS = {
+    "PubChem_CID",
+    "status",
+    "fetched_at",
+    "error_message",
+    "created_at",
+    "updated_at",
+}
 
 
 def normalize_cid(value):
@@ -121,6 +129,12 @@ def _cache_columns(connection):
     return [row[1] for row in cursor.fetchall()]
 
 
+def _table_columns(connection, table):
+    cursor = connection.cursor()
+    cursor.execute(f"PRAGMA table_info({quote_identifier(table)})")
+    return [row[1] for row in cursor.fetchall()]
+
+
 def _ensure_cache_result_columns(connection, columns):
     ensure_harmonsmile_cache(connection)
     existing_columns = set(_cache_columns(connection))
@@ -130,6 +144,28 @@ def _ensure_cache_result_columns(connection, columns):
             continue
         cursor.execute(
             f"ALTER TABLE {quote_identifier(CACHE_TABLE)} "
+            f"ADD COLUMN {quote_identifier(column)} TEXT"
+        )
+    connection.commit()
+
+
+def _harmonsmile_merge_columns(connection):
+    ensure_harmonsmile_cache(connection)
+    return [
+        column
+        for column in _cache_columns(connection)
+        if column not in MERGE_EXCLUDED_COLUMNS
+    ]
+
+
+def _ensure_table_columns(connection, table, columns):
+    existing_columns = set(_table_columns(connection, table))
+    cursor = connection.cursor()
+    for column in columns:
+        if column in existing_columns:
+            continue
+        cursor.execute(
+            f"ALTER TABLE {quote_identifier(table)} "
             f"ADD COLUMN {quote_identifier(column)} TEXT"
         )
     connection.commit()
@@ -165,6 +201,64 @@ def get_cached_harmonsmile_cids(connection, cids, status="success"):
         cached.update(row[0] for row in cursor.fetchall())
 
     return cached
+
+
+def _read_success_cache_rows(connection, cids=None):
+    merge_columns = _harmonsmile_merge_columns(connection)
+    if not merge_columns:
+        return merge_columns, []
+
+    selected_columns = ["PubChem_CID", *merge_columns]
+    query = f"""
+        SELECT {", ".join(quote_identifier(column) for column in selected_columns)}
+        FROM {quote_identifier(CACHE_TABLE)}
+        WHERE status = ?
+    """
+    params = ["success"]
+
+    if cids is not None:
+        normalized_cids, _ = normalize_cids(cids)
+        if not normalized_cids:
+            return merge_columns, []
+        placeholders = ", ".join("?" for _ in normalized_cids)
+        query += f" AND PubChem_CID IN ({placeholders})"
+        params.extend(normalized_cids)
+
+    cursor = connection.cursor()
+    cursor.execute(query, params)
+    return merge_columns, cursor.fetchall()
+
+
+def merge_harmonsmile_cache_to_table(connection, table, cid_column, cids=None):
+    """Merge successful cached HARMONSMILE values into an active data table."""
+    merge_columns, rows = _read_success_cache_rows(connection, cids)
+    if not merge_columns or not rows:
+        connection.commit()
+        return 0
+
+    _ensure_table_columns(connection, table, merge_columns)
+    set_clause = ", ".join(
+        f"{quote_identifier(column)} = ?"
+        for column in merge_columns
+    )
+    cursor = connection.cursor()
+    updated_rows = 0
+
+    for row in rows:
+        pubchem_cid = row[0]
+        values = list(row[1:])
+        cursor.execute(
+            f"""
+            UPDATE {quote_identifier(table)}
+            SET {set_clause}
+            WHERE {quote_identifier(cid_column)} = ?
+            """,
+            [*values, pubchem_cid],
+        )
+        updated_rows += cursor.rowcount
+
+    connection.commit()
+    return updated_rows
 
 
 def read_cids_from_table(connection, table, cid_column):

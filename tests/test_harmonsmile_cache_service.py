@@ -11,6 +11,7 @@ from services.harmonsmile_cache import (
     get_cached_harmonsmile_cids,
     get_harmonsmile_output_columns,
     mark_harmonsmile_cache_failed,
+    merge_harmonsmile_cache_to_table,
     normalize_cid,
     normalize_cids,
     normalize_harmonsmile_result,
@@ -380,3 +381,108 @@ def test_run_harmonsmile_chunks_marks_missing_chunk_results_as_failed():
         ),
         ("3", "success", None, "SMILES-3"),
     ]
+
+
+def test_merge_harmonsmile_cache_to_table_adds_columns_and_updates_successful_rows():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "main" (CID TEXT, existing_col TEXT)')
+    connection.executemany(
+        'INSERT INTO "main" (CID, existing_col) VALUES (?, ?)',
+        [
+            ("1", "keep-a"),
+            ("2", "keep-b"),
+            ("3", "keep-c"),
+        ],
+    )
+    upsert_harmonsmile_cache(
+        connection,
+        pd.DataFrame(
+            [
+                {"PubChem_CID": "1", "SMILES": "CCO", "MW": "46.07"},
+                {"PubChem_CID": "3", "SMILES": "CCC", "MW": "44.10"},
+            ]
+        ),
+    )
+    mark_harmonsmile_cache_failed(connection, ["2"], "missing")
+
+    updated_rows = merge_harmonsmile_cache_to_table(connection, "main", "CID")
+
+    cursor = connection.cursor()
+    cursor.execute('PRAGMA table_info("main")')
+    columns = [row[1] for row in cursor.fetchall()]
+    cursor.execute('SELECT CID, existing_col, SMILES, MW FROM "main" ORDER BY CID')
+
+    assert updated_rows == 2
+    assert columns == ["CID", "existing_col", "SMILES", "MW"]
+    assert cursor.fetchall() == [
+        ("1", "keep-a", "CCO", "46.07"),
+        ("2", "keep-b", None, None),
+        ("3", "keep-c", "CCC", "44.10"),
+    ]
+
+
+def test_merge_harmonsmile_cache_to_table_limits_merge_to_requested_cids():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "main" (CID TEXT)')
+    connection.executemany(
+        'INSERT INTO "main" (CID) VALUES (?)',
+        [("1",), ("2",)],
+    )
+    upsert_harmonsmile_cache(
+        connection,
+        pd.DataFrame(
+            [
+                {"PubChem_CID": "1", "SMILES": "CCO"},
+                {"PubChem_CID": "2", "SMILES": "CCC"},
+            ]
+        ),
+    )
+
+    updated_rows = merge_harmonsmile_cache_to_table(
+        connection,
+        "main",
+        "CID",
+        cids=["2"],
+    )
+
+    cursor = connection.cursor()
+    cursor.execute('SELECT CID, SMILES FROM "main" ORDER BY CID')
+
+    assert updated_rows == 1
+    assert cursor.fetchall() == [
+        ("1", None),
+        ("2", "CCC"),
+    ]
+
+
+def test_merge_harmonsmile_cache_to_table_does_not_write_internal_cache_columns():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "main" (CID TEXT)')
+    connection.execute('INSERT INTO "main" (CID) VALUES ("1")')
+    upsert_harmonsmile_cache(
+        connection,
+        pd.DataFrame([{"PubChem_CID": "1", "SMILES": "CCO"}]),
+    )
+
+    merge_harmonsmile_cache_to_table(connection, "main", "CID")
+
+    cursor = connection.cursor()
+    cursor.execute('PRAGMA table_info("main")')
+    columns = [row[1] for row in cursor.fetchall()]
+
+    assert columns == ["CID", "SMILES"]
+
+
+def test_merge_harmonsmile_cache_to_table_returns_zero_without_successful_rows():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "main" (CID TEXT)')
+    connection.execute('INSERT INTO "main" (CID) VALUES ("1")')
+    mark_harmonsmile_cache_failed(connection, ["1"], "failed")
+
+    updated_rows = merge_harmonsmile_cache_to_table(connection, "main", "CID")
+
+    cursor = connection.cursor()
+    cursor.execute('PRAGMA table_info("main")')
+
+    assert updated_rows == 0
+    assert [row[1] for row in cursor.fetchall()] == ["CID"]
