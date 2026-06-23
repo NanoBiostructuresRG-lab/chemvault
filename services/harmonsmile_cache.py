@@ -158,6 +158,37 @@ def get_cached_harmonsmile_cids(connection, cids, status="success"):
     return cached
 
 
+def read_cids_from_table(connection, table, cid_column):
+    """Read raw CID values from a SQLite table column."""
+    cursor = connection.cursor()
+    cursor.execute(
+        f"""
+        SELECT {quote_identifier(cid_column)}
+        FROM {quote_identifier(table)}
+        """
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+def prepare_harmonsmile_job(connection, table, cid_column):
+    """Split selected table CIDs into cached, pending, and invalid groups."""
+    raw_cids = read_cids_from_table(connection, table, cid_column)
+    valid_cids, invalid_cids = normalize_cids(raw_cids)
+    cached_set = get_cached_harmonsmile_cids(connection, valid_cids)
+    cached_cids = [cid for cid in valid_cids if cid in cached_set]
+    pending_cids = [cid for cid in valid_cids if cid not in cached_set]
+
+    return {
+        "source_table": table,
+        "cid_column": cid_column,
+        "total_cids": len(valid_cids),
+        "valid_cids": valid_cids,
+        "cached_cids": cached_cids,
+        "pending_cids": pending_cids,
+        "invalid_cids": invalid_cids,
+    }
+
+
 def upsert_harmonsmile_cache(connection, result_df, status="success", error_message=None):
     normalized_df = normalize_harmonsmile_result(result_df)
     result_columns = get_harmonsmile_output_columns(normalized_df)

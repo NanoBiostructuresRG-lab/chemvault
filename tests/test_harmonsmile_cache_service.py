@@ -12,6 +12,8 @@ from services.harmonsmile_cache import (
     normalize_cid,
     normalize_cids,
     normalize_harmonsmile_result,
+    prepare_harmonsmile_job,
+    read_cids_from_table,
     upsert_harmonsmile_cache,
 )
 from services.sql_utils import get_tables_from_connection
@@ -128,3 +130,72 @@ def test_upsert_harmonsmile_cache_updates_existing_rows():
     cursor.execute(f'SELECT PubChem_CID, SMILES, MW FROM "{CACHE_TABLE}"')
 
     assert cursor.fetchone() == ("1", "new", "46.07")
+
+
+def test_read_cids_from_table_reads_selected_column_values():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "active table" ("CID value" TEXT, other TEXT)')
+    connection.executemany(
+        'INSERT INTO "active table" ("CID value", other) VALUES (?, ?)',
+        [("1", "a"), ("2", "b")],
+    )
+
+    assert read_cids_from_table(connection, "active table", "CID value") == ["1", "2"]
+
+
+def test_prepare_harmonsmile_job_splits_cached_pending_and_invalid_cids():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "main" (CID TEXT)')
+    connection.executemany(
+        'INSERT INTO "main" (CID) VALUES (?)',
+        [
+            ("1",),
+            ("1.0",),
+            ("2",),
+            ("bad",),
+            ("3",),
+            ("",),
+            (None,),
+        ],
+    )
+    upsert_harmonsmile_cache(
+        connection,
+        pd.DataFrame(
+            [
+                {"PubChem_CID": "1", "SMILES": "CCO"},
+                {"PubChem_CID": "3", "SMILES": "CCC"},
+            ]
+        ),
+    )
+
+    job = prepare_harmonsmile_job(connection, "main", "CID")
+
+    assert job == {
+        "source_table": "main",
+        "cid_column": "CID",
+        "total_cids": 3,
+        "valid_cids": ["1", "2", "3"],
+        "cached_cids": ["1", "3"],
+        "pending_cids": ["2"],
+        "invalid_cids": ["bad", "", None],
+    }
+
+
+def test_prepare_harmonsmile_job_ignores_failed_cache_rows():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "main" (CID TEXT)')
+    connection.executemany(
+        'INSERT INTO "main" (CID) VALUES (?)',
+        [("1",), ("2",)],
+    )
+    upsert_harmonsmile_cache(
+        connection,
+        pd.DataFrame([{"PubChem_CID": "1", "SMILES": "CCO"}]),
+        status="failed",
+        error_message="temporary failure",
+    )
+
+    job = prepare_harmonsmile_job(connection, "main", "CID")
+
+    assert job["cached_cids"] == []
+    assert job["pending_cids"] == ["1", "2"]
