@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import html
 import json
+import math
 import os
 from pathlib import Path
 
@@ -67,7 +68,16 @@ def create_main_layout():
         ">
         """)
     container3 = st.container(horizontal=False, horizontal_alignment="left", border=True)
-    return container0, container1, container2, container3
+    st.html("""
+        <hr style="
+            border: none;
+            height: 2px;
+            background-color: var(--cv-border);
+            margin: 32px 0 24px 0;
+        ">
+        """)
+    container4 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+    return container0, container1, container2, container3, container4
 
 
 def render_app_identity(container):
@@ -211,8 +221,12 @@ def render_database_model_help():
     )
 
 
-def render_table_manager_actions(database_id, current_table, profiles):
+def render_table_manager_actions(database_id, profiles):
     deletable_tables = [profile["table"] for profile in profiles if profile["table"] != "main"]
+    confirmation_key = (
+        "table_manager_delete_confirmation_"
+        f"{st.session_state.get('table_manager_delete_nonce', 0)}"
+    )
 
     with st.expander("Manage tables", expanded=False):
         st.caption("Delete derived, temporary, or failed test tables from the active database.")
@@ -227,7 +241,7 @@ def render_table_manager_actions(database_id, current_table, profiles):
         )
         confirmation = st.text_input(
             "Type DELETE to confirm",
-            key="table_manager_delete_confirmation",
+            key=confirmation_key,
         )
         delete_ready = confirmation == "DELETE"
 
@@ -239,10 +253,9 @@ def render_table_manager_actions(database_id, current_table, profiles):
             conn = get_connection(database_id)
             try:
                 delete_user_table(conn, table_to_delete)
-                if current_table == table_to_delete:
-                    st.session_state[CURRENT_TABLE] = ""
-                update_headers()
-                st.success(f"Table '{table_to_delete}' was deleted.")
+                st.session_state["table_manager_delete_nonce"] = (
+                    st.session_state.get("table_manager_delete_nonce", 0) + 1
+                )
                 st.rerun()
             except ValueError as e:
                 st.error(str(e))
@@ -264,10 +277,18 @@ def render_operation_history(db_path):
     )
 
 
-def render_database_diagnostics(container, database_id, current_table):
-    db_path = Path("SQL") / f"{database_id}.db"
+def render_table_manager_card(container):
+    with container:
+        st.subheader("Table Manager")
+        st.caption("Review tables, provenance, operation history, and cleanup options.")
+        if st.session_state[DATABASE_ID] == "":
+            st.info("Select or create a database to review its tables.")
+            return
 
-    with container.expander("Database overview", expanded=False):
+        database_id = st.session_state[DATABASE_ID]
+        current_table = st.session_state.get(CURRENT_TABLE, "")
+        db_path = Path("SQL") / f"{database_id}.db"
+
         try:
             profiles = get_user_table_profiles(db_path)
             schema = get_database_schema(db_path)
@@ -280,14 +301,14 @@ def render_database_diagnostics(container, database_id, current_table):
             return
 
         render_database_model_help()
-        st.markdown("#### Table manager")
+        st.markdown("#### Tables")
         st.caption("Review table provenance, size, and inferred status before choosing what to use next.")
         st.dataframe(
             _build_table_manager_dataframe(profiles),
             hide_index=True,
             use_container_width=True,
         )
-        render_table_manager_actions(database_id, current_table, profiles)
+        render_table_manager_actions(database_id, profiles)
         render_operation_history(db_path)
 
         active_schema = next(
@@ -362,11 +383,6 @@ def render_database_card(container):
             st.session_state[HEADERS],
             key=GROUP_COUNT_COLUMN,
         )
-    render_database_diagnostics(
-        container,
-        st.session_state[DATABASE_ID],
-        st.session_state[CURRENT_TABLE],
-    )
 
 
 def render_columns_card(container):
@@ -400,10 +416,72 @@ def render_columns_card(container):
         st.dataframe(build_preview_table(), hide_index=True)
 
 
-def render_table_information_card(container):
+def _can_cast_value(value, target_type):
+    if value is None or str(value).strip() == "":
+        return True
+
+    text = str(value).strip()
+    try:
+        match target_type:
+            case "INTEGER":
+                int(text)
+            case "REAL":
+                return math.isfinite(float(text))
+            case _:
+                return True
+    except ValueError:
+        return False
+    return True
+
+
+def _find_incompatible_type_values(connection, table, column, target_type, limit=5):
+    if target_type not in {"INTEGER", "REAL"}:
+        return []
+
+    cursor = connection.cursor()
+    cursor.execute(f"""
+        SELECT DISTINCT {quote_identifier(column)}
+        FROM {quote_identifier(table)}
+        WHERE {quote_identifier(column)} IS NOT NULL
+    """)
+
+    incompatible = []
+    for row in cursor.fetchall():
+        value = row[0]
+        if not _can_cast_value(value, target_type):
+            incompatible.append(value)
+            if len(incompatible) >= limit:
+                break
+    return incompatible
+
+
+def _is_identifier_like_column(column):
+    normalized = str(column).strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+    identifier_tokens = {
+        "id",
+        "ids",
+        "identifier",
+        "identifiers",
+        "cid",
+        "cids",
+        "pubchemcid",
+        "pubchemcids",
+        "compoundcid",
+        "compoundcids",
+        "chembl",
+        "chemblid",
+        "chemblids",
+        "coconut",
+        "coconutid",
+        "coconutids",
+    }
+    return normalized in identifier_tokens or normalized.endswith("id") or normalized.endswith("ids")
+
+
+def render_table_maintenance_card(container):
     with container:
-        st.subheader("Table information")
-        st.caption("Column types and maintenance tools for the active table.")
+        st.subheader("Table Maintenance")
+        st.caption("Inspect schema and apply advanced type changes for the active table.")
         if st.session_state[DATABASE_ID] == "" or len(st.session_state[HEADERS]) == 0:
             st.info("Select a database with columns to view additional information.")
             return
@@ -435,27 +513,51 @@ def render_table_information_card(container):
             )
             new_type = st.selectbox(
                 "New type",
-                ["TEXT", "INTEGER", "REAL", "BLOB"],
+                ["TEXT", "INTEGER", "REAL"],
                 key="new_col_type_select",
             )
 
             if st.button("Apply column type change"):
                 try:
+                    table_name = st.session_state[CURRENT_TABLE]
+                    if _is_identifier_like_column(col_to_change) and new_type != "TEXT":
+                        st.error(
+                            f"Column '{col_to_change}' looks like an identifier. "
+                            "Keep identifier-like columns as TEXT to preserve exact values."
+                        )
+                        return
+
+                    incompatible_values = _find_incompatible_type_values(
+                        conn,
+                        table_name,
+                        col_to_change,
+                        new_type,
+                    )
+                    if incompatible_values:
+                        examples = ", ".join(str(value) for value in incompatible_values)
+                        st.error(
+                            f"Column '{col_to_change}' cannot be safely converted to {new_type}. "
+                            f"Non-numeric examples: {examples}"
+                        )
+                        return
+
+                    temp_col = f"{col_to_change}_new"
                     cursor.execute(
-                        f"ALTER TABLE {st.session_state[CURRENT_TABLE]} "
-                        f"ADD COLUMN {col_to_change}_new {new_type}"
+                        f"ALTER TABLE {quote_identifier(table_name)} "
+                        f"ADD COLUMN {quote_identifier(temp_col)} {new_type}"
                     )
                     cursor.execute(
-                        f"UPDATE {st.session_state[CURRENT_TABLE]} "
-                        f"SET {col_to_change}_new = CAST({col_to_change} AS {new_type})"
+                        f"UPDATE {quote_identifier(table_name)} "
+                        f"SET {quote_identifier(temp_col)} = "
+                        f"CAST({quote_identifier(col_to_change)} AS {new_type})"
                     )
                     cursor.execute(
-                        f"ALTER TABLE {st.session_state[CURRENT_TABLE]} "
-                        f"DROP COLUMN {col_to_change}"
+                        f"ALTER TABLE {quote_identifier(table_name)} "
+                        f"DROP COLUMN {quote_identifier(col_to_change)}"
                     )
                     cursor.execute(
-                        f"ALTER TABLE {st.session_state[CURRENT_TABLE]} "
-                        f"RENAME COLUMN {col_to_change}_new TO {col_to_change}"
+                        f"ALTER TABLE {quote_identifier(table_name)} "
+                        f"RENAME COLUMN {quote_identifier(temp_col)} TO {quote_identifier(col_to_change)}"
                     )
                     conn.commit()
                     st.success(f"Column '{col_to_change}' changed to {new_type}")

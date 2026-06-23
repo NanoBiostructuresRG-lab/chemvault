@@ -74,15 +74,25 @@ def render_sidebar(select_proteins_callback, clear_preview_callback, build_query
         render_export_card()
 
 
+def _clear_refine_feedback(clear_preview_callback):
+    clear_preview_callback()
+    st.session_state[DEPURADO_SUCCESS_TABLE] = ""
+    st.session_state[DEPURADO_SUCCESS_MESSAGE] = ""
+
+
 def render_refine_card(clear_preview_callback, build_query_callback):
     with st.container(border=True):
         st.subheader("Refine")
         st.caption("Create derived tables from the active column selection.")
+        if st.session_state.pop("refine_reset_table_name", False):
+            st.session_state[NEW_TABLE_NAME] = ""
         st.text_input(
             label="New table name",
             key=NEW_TABLE_NAME,
             value="New_table",
-            on_change=clear_preview_callback,
+            placeholder="Enter a new table name",
+            on_change=_clear_refine_feedback,
+            args=(clear_preview_callback,),
         )
         if st.session_state.get(TYPE_OF_FILTER) == "Ninguno":
             st.session_state[TYPE_OF_FILTER] = "None"
@@ -90,7 +100,8 @@ def render_refine_card(clear_preview_callback, build_query_callback):
             "Additional filter",
             ["None", "GROUP BY", "WHERE", "ORDER BY"],
             key=TYPE_OF_FILTER,
-            on_change=clear_preview_callback,
+            on_change=_clear_refine_feedback,
+            args=(clear_preview_callback,),
         )
         match st.session_state[TYPE_OF_FILTER]:
             case "None":
@@ -100,34 +111,41 @@ def render_refine_card(clear_preview_callback, build_query_callback):
                     "Column to group",
                     st.session_state[SELECTED_HEADERS],
                     key=GROUP_BY_COLUMN,
-                    on_change=clear_preview_callback,
+                    on_change=_clear_refine_feedback,
+                    args=(clear_preview_callback,),
                 )
             case "WHERE":
                 st.selectbox(
                     "Column to filter",
                     st.session_state[HEADERS],
                     key=WHERE_COLUMN,
-                    on_change=clear_preview_callback,
+                    on_change=_clear_refine_feedback,
+                    args=(clear_preview_callback,),
                 )
                 st.text_input(
                     "Condition (example: > 100, = 'HarmonSmile', etc)",
                     key=WHERE_CONDITION,
-                    on_change=clear_preview_callback,
+                    on_change=_clear_refine_feedback,
+                    args=(clear_preview_callback,),
                 )
             case "ORDER BY":
                 st.selectbox(
                     "Column to sort",
                     st.session_state[SELECTED_HEADERS],
                     key=ORDER_BY_COLUMN,
-                    on_change=clear_preview_callback,
+                    on_change=_clear_refine_feedback,
+                    args=(clear_preview_callback,),
                 )
                 st.selectbox(
                     "Sort direction",
                     ["ASC", "DESC"],
                     key=ORDER_DIRECTION,
-                    on_change=clear_preview_callback,
+                    on_change=_clear_refine_feedback,
+                    args=(clear_preview_callback,),
                 )
         if st.button("Preview SQL"):
+            st.session_state[DEPURADO_SUCCESS_TABLE] = ""
+            st.session_state[DEPURADO_SUCCESS_MESSAGE] = ""
             try:
                 st.session_state[CUSTOM_QUERY] = build_query_callback()
             except ValueError as e:
@@ -189,11 +207,14 @@ def render_refine_card(clear_preview_callback, build_query_callback):
                 update_headers()
                 st.session_state[DEPURADO_SUCCESS_TABLE] = new_table_name
                 st.session_state[DEPURADO_SUCCESS_MESSAGE] = (
-                    f"Table '{new_table_name}' was created successfully."
+                    f"Table '{new_table_name}' was created and is now the active table."
                 )
+                st.session_state["refine_reset_table_name"] = True
                 st.rerun()
             except Exception as e:
                 conn.rollback()
+                st.session_state[DEPURADO_SUCCESS_TABLE] = ""
+                st.session_state[DEPURADO_SUCCESS_MESSAGE] = ""
                 st.error(f"Could not create the table: {e}")
 
         created_table = st.session_state.get(DEPURADO_SUCCESS_TABLE, "")

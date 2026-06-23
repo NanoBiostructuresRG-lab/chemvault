@@ -34,7 +34,8 @@ from ui.main_page import (
     render_columns_card,
     render_database_card,
     render_footer,
-    render_table_information_card,
+    render_table_maintenance_card,
+    render_table_manager_card,
 )
 from ui.sidebar import render_sidebar
 from ui.session_state import initialize_session_state
@@ -131,9 +132,10 @@ def construir_linea_query():
 
 render_sidebar(select_proteins, clear_depurado_preview, construir_linea_query)
 
-container0, container1, container2, container3 = create_main_layout()
+container0, container1, container2, container3, container4 = create_main_layout()
 render_app_identity(container0)
 render_database_card(container1)
-render_columns_card(container2)
-render_table_information_card(container3)
+render_table_manager_card(container2)
+render_columns_card(container3)
+render_table_maintenance_card(container4)
 render_footer()
