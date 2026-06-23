@@ -8,7 +8,13 @@ from services.sql_utils import quote_identifier, table_exists
 
 METADATA_TABLE = "_chemvault_table_metadata"
 OPERATION_LOG_TABLE = "_chemvault_operation_log"
-INTERNAL_TABLES = {METADATA_TABLE, OPERATION_LOG_TABLE, "sqlite_sequence"}
+HARMONSMILE_CACHE_TABLE = "_chemvault_harmonsmile_cache"
+INTERNAL_TABLES = {
+    METADATA_TABLE,
+    OPERATION_LOG_TABLE,
+    HARMONSMILE_CACHE_TABLE,
+    "sqlite_sequence",
+}
 
 
 def list_database_files(directory: Path) -> list[Path]:

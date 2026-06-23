@@ -28,6 +28,7 @@ def get_tables_from_connection(connection):
         AND name NOT LIKE 'sqlite_%'
         AND name != '_chemvault_table_metadata'
         AND name != '_chemvault_operation_log'
+        AND name != '_chemvault_harmonsmile_cache'
         ORDER BY name
     """)
     return [row[0] for row in cursor.fetchall()]
