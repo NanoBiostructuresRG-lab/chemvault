@@ -494,6 +494,31 @@ def test_merge_harmonsmile_cache_to_table_limits_merge_to_requested_cids():
     ]
 
 
+def test_merge_harmonsmile_cache_to_table_updates_duplicate_cid_rows():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "main" (CID TEXT, sample TEXT)')
+    connection.executemany(
+        'INSERT INTO "main" (CID, sample) VALUES (?, ?)',
+        [("1", "a"), ("1", "b"), ("2", "c")],
+    )
+    upsert_harmonsmile_cache(
+        connection,
+        pd.DataFrame([{"PubChem_CID": "1", "SMILES": "CCO"}]),
+    )
+
+    updated_rows = merge_harmonsmile_cache_to_table(connection, "main", "CID")
+
+    cursor = connection.cursor()
+    cursor.execute('SELECT CID, sample, SMILES FROM "main" ORDER BY sample')
+
+    assert updated_rows == 2
+    assert cursor.fetchall() == [
+        ("1", "a", "CCO"),
+        ("1", "b", "CCO"),
+        ("2", "c", None),
+    ]
+
+
 def test_merge_harmonsmile_cache_to_table_does_not_write_internal_cache_columns():
     connection = sqlite3.connect(":memory:")
     connection.execute('CREATE TABLE "main" (CID TEXT)')

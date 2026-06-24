@@ -242,21 +242,20 @@ def merge_harmonsmile_cache_to_table(connection, table, cid_column, cids=None):
         for column in merge_columns
     )
     cursor = connection.cursor()
-    updated_rows = 0
+    update_sql = f"""
+        UPDATE {quote_identifier(table)}
+        SET {set_clause}
+        WHERE {quote_identifier(cid_column)} = ?
+    """
+    update_params = []
 
     for row in rows:
         pubchem_cid = row[0]
         values = list(row[1:])
-        cursor.execute(
-            f"""
-            UPDATE {quote_identifier(table)}
-            SET {set_clause}
-            WHERE {quote_identifier(cid_column)} = ?
-            """,
-            [*values, pubchem_cid],
-        )
-        updated_rows += cursor.rowcount
+        update_params.append([*values, pubchem_cid])
 
+    cursor.executemany(update_sql, update_params)
+    updated_rows = cursor.rowcount
     connection.commit()
     return updated_rows
 
