@@ -19,6 +19,10 @@ ACTIVITY_KEYWORDS = (
     "Kd",
     "Potency",
 )
+STANDARD_ACTIVITY_COLUMNS = ("PubChem Standard Value", "Standard Value")
+STANDARD_TYPE_COLUMNS = ("PubChem Standard Type", "Standard Type")
+STANDARD_UNIT_COLUMNS = ("PubChem Standard Unit", "Standard Unit")
+STANDARD_RELATION_COLUMNS = ("PubChem Standard Relation", "Standard Relation")
 
 
 def _ensure_column(cursor, table, column, column_type="TEXT"):
@@ -143,6 +147,22 @@ def _activity_columns(fieldnames):
     )
 
 
+def _first_row_value(row, columns):
+    for column in columns:
+        value = row.get(column, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _standard_activity_column(row):
+    for column in STANDARD_ACTIVITY_COLUMNS:
+        value = row.get(column, "").strip()
+        if value:
+            return column
+    return ""
+
+
 def _activity_unit_map(rows, columns):
     for row in rows:
         if row.get("PUBCHEM_RESULT_TAG") == "RESULT_UNIT":
@@ -171,6 +191,54 @@ def _activity_qualifier(row, column):
     return ""
 
 
+def _standard_activity_relation(row, column):
+    relation = _first_row_value(row, STANDARD_RELATION_COLUMNS)
+    if relation:
+        return relation
+    return _activity_qualifier(row, column)
+
+
+def _format_standard_activity_value(aid, column, value, standard_type, relation, unit, outcome):
+    label = column
+    if standard_type:
+        label = f"{label} ({standard_type})"
+    return _format_activity_value(aid, label, value, relation, unit, outcome)
+
+
+def _has_unsupported_activity_value(row):
+    metadata_columns = {
+        *STANDARD_ACTIVITY_COLUMNS,
+        *STANDARD_TYPE_COLUMNS,
+        *STANDARD_UNIT_COLUMNS,
+        *STANDARD_RELATION_COLUMNS,
+    }
+    for column, value in row.items():
+        normalized = column.strip().lower().replace("_", " ")
+        if (
+            not value.strip()
+            or column.startswith("PUBCHEM_")
+            or column in metadata_columns
+            or normalized.endswith(" qualifier")
+        ):
+            continue
+        return True
+    return False
+
+
+def _classify_activity_failure(row, activity_columns):
+    outcome = row.get("PUBCHEM_ACTIVITY_OUTCOME", "").strip()
+    has_supported_header = bool(activity_columns) or any(
+        column in row for column in STANDARD_ACTIVITY_COLUMNS
+    )
+    if _has_unsupported_activity_value(row):
+        return "unsupported_activity_column"
+    if has_supported_header:
+        return "no_numeric_value_for_cid" if not outcome else "outcome_only"
+    if outcome:
+        return "outcome_only"
+    return "assay_has_no_quantitative_activity"
+
+
 def _fetch_assay_activity(aid):
     url = f"{BASE_URL}/assay/aid/{aid}/CSV"
     activity_by_cid = {}
@@ -189,6 +257,7 @@ def _fetch_assay_activity(aid):
                 continue
 
             outcome = row.get("PUBCHEM_ACTIVITY_OUTCOME", "").strip()
+            found_activity = False
             for column in columns:
                 value = row.get(column, "").strip()
                 if value == "":
@@ -206,7 +275,31 @@ def _fetch_assay_activity(aid):
                         outcome,
                     )
                 )
+                found_activity = True
                 break
+
+            if found_activity:
+                continue
+
+            standard_column = _standard_activity_column(row)
+            if not standard_column:
+                continue
+            standard_type = _first_row_value(row, STANDARD_TYPE_COLUMNS)
+            relation = _standard_activity_relation(row, standard_column)
+            unit = _first_row_value(row, STANDARD_UNIT_COLUMNS)
+            activity = activity_by_cid.setdefault(cid, {"types": set(), "values": set()})
+            activity["types"].add(standard_column)
+            activity["values"].add(
+                _format_standard_activity_value(
+                    aid,
+                    standard_column,
+                    row.get(standard_column, "").strip(),
+                    standard_type,
+                    relation,
+                    unit,
+                    outcome,
+                )
+            )
     except Exception as e:
         print(f"Error fetching activity for AID {aid}: {e}")
     return activity_by_cid

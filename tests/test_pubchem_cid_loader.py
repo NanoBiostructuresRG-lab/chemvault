@@ -265,3 +265,116 @@ def test_activity_parser_uses_qualifier_as_complement_to_real_value(monkeypatch)
     assert activity["3779"]["values"] == {
         "AID 1804316: Ki > 1.891e+07 NANOMOLAR (Active)"
     }
+
+
+def test_activity_parser_enriches_pubchem_standard_value_with_metadata(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,PubChem Standard Type,PubChem Standard Relation,PubChem Standard Value,PubChem Standard Unit",
+            "RESULT_TYPE,,,STRING,STRING,FLOAT,STRING",
+            "1,3779,Active,IC50,>,12.3,MICROMOLAR",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(41441)
+
+    assert activity["3779"]["types"] == {"PubChem Standard Value"}
+    assert activity["3779"]["values"] == {
+        "AID 41441: PubChem Standard Value (IC50) > 12.3 MICROMOLAR (Active)"
+    }
+
+
+def test_activity_parser_enriches_standard_value_fallback(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Standard Type,Standard Value,Standard Unit",
+            "RESULT_TYPE,,,STRING,FLOAT,STRING",
+            "1,3779,Active,Potency,4.5,NANOMOLAR",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(41443)
+
+    assert activity["3779"]["types"] == {"Standard Value"}
+    assert activity["3779"]["values"] == {
+        "AID 41443: Standard Value (Potency) 4.5 NANOMOLAR (Active)"
+    }
+
+
+def test_activity_parser_keeps_specific_column_priority_over_standard_value(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki,PubChem Standard Type,PubChem Standard Value,PubChem Standard Unit",
+            "RESULT_TYPE,,,FLOAT,STRING,FLOAT,STRING",
+            "RESULT_UNIT,,,NANOMOLAR,,,",
+            "1,3779,Active,1.891e+07,Ki,18.91,MICROMOLAR",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(1804316)
+
+    assert activity["3779"]["types"] == {"Ki"}
+    assert activity["3779"]["values"] == {
+        "AID 1804316: Ki 1.891e+07 NANOMOLAR (Active)"
+    }
+
+
+def test_activity_parser_leaves_empty_standard_value_as_no_activity(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Standard Value",
+            "RESULT_TYPE,,,FLOAT",
+            "1,3779,Inactive,",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    assert pubchem_loader._fetch_assay_activity(41441) == {}
+    assert (
+        pubchem_loader._classify_activity_failure(
+            {
+                "PUBCHEM_CID": "3779",
+                "PUBCHEM_ACTIVITY_OUTCOME": "Inactive",
+                "Standard Value": "",
+            },
+            [],
+        )
+        == "outcome_only"
+    )
+
+
+def test_activity_failure_classifier_detects_unsupported_activity_column():
+    assert (
+        pubchem_loader._classify_activity_failure(
+            {
+                "PUBCHEM_CID": "3779",
+                "PUBCHEM_ACTIVITY_OUTCOME": "Active",
+                "Inhibition": "73",
+            },
+            [],
+        )
+        == "unsupported_activity_column"
+    )
