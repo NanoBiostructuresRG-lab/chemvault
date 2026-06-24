@@ -464,6 +464,30 @@ def test_activity_parser_enriches_pubchem_standard_value_with_metadata(monkeypat
     ]
 
 
+def test_activity_parser_uses_result_unit_for_pubchem_standard_value(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Standard Type,Standard Relation,PubChem Standard Value",
+            "RESULT_TYPE,,,STRING,STRING,FLOAT",
+            "RESULT_UNIT,,,,,MICROMOLAR",
+            "1,3779,Active,EC50,=,0.049",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(41441)
+
+    assert activity["3779"]["values"] == {
+        "AID 41441: PubChem Standard Value (EC50) = 0.049 MICROMOLAR (Active)"
+    }
+    assert activity["3779"]["records"][0]["Unit"] == "MICROMOLAR"
+
+
 def test_activity_parser_enriches_standard_value_fallback(monkeypatch):
     assay_csv = "\n".join(
         [
@@ -487,6 +511,98 @@ def test_activity_parser_enriches_standard_value_fallback(monkeypatch):
     }
     assert activity["3779"]["records"][0]["Activity_Type"] == "Potency"
     assert activity["3779"]["records"][0]["Source_Column"] == "Standard Value"
+
+
+def test_activity_parser_uses_plural_standard_units_for_standard_value(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Standard Type,Standard Relation,Standard Value,Standard Units",
+            "RESULT_TYPE,,,STRING,STRING,FLOAT,STRING",
+            "1,3779,Unspecified,Inhibition,=,4,%",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(41908)
+
+    assert activity["3779"]["values"] == {
+        "AID 41908: Standard Value (Inhibition) = 4 % (Unspecified)"
+    }
+    assert activity["3779"]["records"][0]["Unit"] == "%"
+
+
+def test_activity_parser_marks_relative_potency_without_declared_unit_as_dimensionless(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Standard Type,Standard Relation,Standard Value",
+            "RESULT_TYPE,,,STRING,STRING,FLOAT",
+            "1,3779,Unspecified,Relative potency,=,3.6e-06",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(201139)
+
+    assert activity["3779"]["values"] == {
+        "AID 201139: Standard Value (Relative potency) = 3.6e-06 dimensionless (Unspecified)"
+    }
+    assert activity["3779"]["records"][0]["Unit"] == "dimensionless"
+
+
+def test_activity_parser_keeps_declared_unit_for_relative_potency(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Standard Type,Standard Relation,Standard Value,Standard Units",
+            "RESULT_TYPE,,,STRING,STRING,FLOAT,STRING",
+            "1,3779,Unspecified,Relative potency,=,3.6e-06,fold",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(201139)
+
+    assert activity["3779"]["values"] == {
+        "AID 201139: Standard Value (Relative potency) = 3.6e-06 fold (Unspecified)"
+    }
+    assert activity["3779"]["records"][0]["Unit"] == "fold"
+
+
+def test_activity_parser_leaves_kd_unit_empty_when_pubchem_has_none(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Standard Type,Standard Relation,Standard Value",
+            "RESULT_TYPE,,,STRING,STRING,FLOAT",
+            "1,3779,Unspecified,Kd,=,3.2e-07",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(41443)
+
+    assert activity["3779"]["values"] == {
+        "AID 41443: Standard Value (Kd) = 3.2e-07 (Unspecified)"
+    }
+    assert activity["3779"]["records"][0]["Unit"] == ""
 
 
 def test_activity_parser_keeps_specific_column_priority_over_standard_value(monkeypatch):

@@ -22,7 +22,8 @@ ACTIVITY_KEYWORDS = (
 )
 STANDARD_ACTIVITY_COLUMNS = ("PubChem Standard Value", "Standard Value")
 STANDARD_TYPE_COLUMNS = ("PubChem Standard Type", "Standard Type")
-STANDARD_UNIT_COLUMNS = ("PubChem Standard Unit", "Standard Unit")
+PUBCHEM_STANDARD_UNIT_COLUMNS = ("PubChem Standard Unit", "PubChem Standard Units")
+STANDARD_UNIT_COLUMNS = ("Standard Unit", "Standard Units")
 STANDARD_RELATION_COLUMNS = ("PubChem Standard Relation", "Standard Relation")
 
 
@@ -205,6 +206,32 @@ def _activity_unit_map(rows, columns):
     return {}
 
 
+def _standard_activity_unit(row, units, source_column, activity_type=""):
+    if source_column == "PubChem Standard Value":
+        unit = units.get(source_column, "")
+        if unit:
+            return unit
+        unit = _first_row_value(
+            row,
+            (*PUBCHEM_STANDARD_UNIT_COLUMNS, *STANDARD_UNIT_COLUMNS),
+        )
+        if unit:
+            return unit
+    if source_column == "Standard Value":
+        unit = _first_row_value(
+            row,
+            (*STANDARD_UNIT_COLUMNS, *PUBCHEM_STANDARD_UNIT_COLUMNS),
+        )
+        if unit:
+            return unit
+        unit = units.get(source_column, "")
+        if unit:
+            return unit
+    if activity_type == "Relative potency":
+        return "dimensionless"
+    return units.get(source_column, "")
+
+
 def _format_activity_value(aid, column, value, qualifier, unit, outcome):
     parts = [f"AID {aid}: {column}"]
     if qualifier:
@@ -284,6 +311,7 @@ def _has_unsupported_activity_value(row):
     metadata_columns = {
         *STANDARD_ACTIVITY_COLUMNS,
         *STANDARD_TYPE_COLUMNS,
+        *PUBCHEM_STANDARD_UNIT_COLUMNS,
         *STANDARD_UNIT_COLUMNS,
         *STANDARD_RELATION_COLUMNS,
     }
@@ -323,7 +351,7 @@ def _fetch_assay_activity(aid):
         reader = csv.DictReader(io.StringIO(response.text))
         rows = list(reader)
         columns = _activity_columns(reader.fieldnames or [])
-        units = _activity_unit_map(rows, columns)
+        units = _activity_unit_map(rows, [*columns, *STANDARD_ACTIVITY_COLUMNS])
 
         for row in rows:
             result_tag = row.get("PUBCHEM_RESULT_TAG", "")
@@ -377,7 +405,12 @@ def _fetch_assay_activity(aid):
                 continue
             standard_type = _first_row_value(row, STANDARD_TYPE_COLUMNS)
             relation = _standard_activity_relation(row, standard_column)
-            unit = _first_row_value(row, STANDARD_UNIT_COLUMNS)
+            unit = _standard_activity_unit(
+                row,
+                units,
+                standard_column,
+                activity_type=standard_type,
+            )
             activity = activity_by_cid.setdefault(
                 cid,
                 {"types": set(), "values": set(), "records": []},
