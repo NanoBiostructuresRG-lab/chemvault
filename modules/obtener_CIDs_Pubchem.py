@@ -5,6 +5,7 @@ import requests
 
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 COMPOUND_ASSAYS_TABLE = "compound_assays"
+COMPOUND_ACTIVITIES_TABLE = "compound_activities"
 REQUEST_TIMEOUT = (5, 60)
 COMPOUND_NAME_BATCH_SIZE = 100
 AID_CID_BATCH_SIZE = 50
@@ -38,6 +39,40 @@ def _ensure_compound_assays_table(cursor):
             AID TEXT NOT NULL,
             Protein TEXT NOT NULL,
             UNIQUE(CID, AID, Protein)
+        )
+    """)
+
+
+def _ensure_compound_activities_table(cursor):
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS {COMPOUND_ACTIVITIES_TABLE} (
+            CID TEXT NOT NULL,
+            AID TEXT NOT NULL,
+            Protein TEXT NOT NULL,
+            Activity_Type TEXT,
+            Relation TEXT,
+            Activity_Value REAL,
+            Activity_Value_Raw TEXT,
+            Unit TEXT,
+            Outcome TEXT,
+            Source_Column TEXT,
+            Activity_Status TEXT,
+            Result_Tag TEXT
+        )
+    """)
+    cursor.execute(f"""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_compound_activities_unique_result
+        ON {COMPOUND_ACTIVITIES_TABLE} (
+            CID,
+            AID,
+            Protein,
+            Result_Tag,
+            Activity_Type,
+            Source_Column,
+            Activity_Value_Raw,
+            Unit,
+            Relation,
+            Outcome
         )
     """)
 
@@ -183,6 +218,46 @@ def _format_activity_value(aid, column, value, qualifier, unit, outcome):
     return formatted
 
 
+def _numeric_activity_value(value):
+    clean_value = str(value).strip().replace(",", "")
+    if not clean_value:
+        return None
+    try:
+        return float(clean_value)
+    except ValueError:
+        return None
+
+
+def _activity_record(
+    *,
+    cid,
+    aid,
+    result_tag,
+    activity_type,
+    relation,
+    raw_value,
+    unit,
+    outcome,
+    source_column,
+):
+    numeric_value = _numeric_activity_value(raw_value)
+    if numeric_value is None:
+        return None
+    return {
+        "CID": str(cid),
+        "AID": str(aid),
+        "Activity_Type": activity_type,
+        "Relation": relation,
+        "Activity_Value": numeric_value,
+        "Activity_Value_Raw": str(raw_value).strip(),
+        "Unit": unit,
+        "Outcome": outcome,
+        "Source_Column": source_column,
+        "Activity_Status": "enriched",
+        "Result_Tag": str(result_tag),
+    }
+
+
 def _activity_qualifier(row, column):
     for qualifier_column in (f"{column}_Qualifier", f"{column} Qualifier"):
         qualifier = row.get(qualifier_column, "").strip()
@@ -263,7 +338,10 @@ def _fetch_assay_activity(aid):
                 if value == "":
                     continue
                 qualifier = _activity_qualifier(row, column)
-                activity = activity_by_cid.setdefault(cid, {"types": set(), "values": set()})
+                activity = activity_by_cid.setdefault(
+                    cid,
+                    {"types": set(), "values": set(), "records": []},
+                )
                 activity["types"].add(column)
                 activity["values"].add(
                     _format_activity_value(
@@ -275,6 +353,19 @@ def _fetch_assay_activity(aid):
                         outcome,
                     )
                 )
+                record = _activity_record(
+                    cid=cid,
+                    aid=aid,
+                    result_tag=result_tag,
+                    activity_type=column,
+                    relation=qualifier,
+                    raw_value=value,
+                    unit=units.get(column, ""),
+                    outcome=outcome,
+                    source_column=column,
+                )
+                if record is not None:
+                    activity["records"].append(record)
                 found_activity = True
                 break
 
@@ -287,7 +378,10 @@ def _fetch_assay_activity(aid):
             standard_type = _first_row_value(row, STANDARD_TYPE_COLUMNS)
             relation = _standard_activity_relation(row, standard_column)
             unit = _first_row_value(row, STANDARD_UNIT_COLUMNS)
-            activity = activity_by_cid.setdefault(cid, {"types": set(), "values": set()})
+            activity = activity_by_cid.setdefault(
+                cid,
+                {"types": set(), "values": set(), "records": []},
+            )
             activity["types"].add(standard_column)
             activity["values"].add(
                 _format_standard_activity_value(
@@ -300,6 +394,19 @@ def _fetch_assay_activity(aid):
                     outcome,
                 )
             )
+            record = _activity_record(
+                cid=cid,
+                aid=aid,
+                result_tag=result_tag,
+                activity_type=standard_type or standard_column,
+                relation=relation,
+                raw_value=row.get(standard_column, "").strip(),
+                unit=unit,
+                outcome=outcome,
+                source_column=standard_column,
+            )
+            if record is not None:
+                activity["records"].append(record)
     except Exception as e:
         print(f"Error fetching activity for AID {aid}: {e}")
     return activity_by_cid
@@ -345,6 +452,7 @@ def _collect_pubchem_records(proteins, progreso):
                     "proteins": set(),
                     "activity_types": set(),
                     "activity_values": set(),
+                    "activity_records": [],
                     "assays": set(),
                 },
             )
@@ -368,6 +476,10 @@ def _collect_pubchem_records(proteins, progreso):
                 if cid in records:
                     records[cid]["activity_types"].update(activity["types"])
                     records[cid]["activity_values"].update(activity["values"])
+                    for activity_record in activity.get("records", []):
+                        records[cid]["activity_records"].append(
+                            {**activity_record, "Protein": protein}
+                        )
             fraction = step / total_steps
             _update_progress(progreso, 0.85 + (0.10 * fraction))
 
@@ -391,6 +503,7 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     _ensure_column(cursor, table, "Activity_Value")
     _ensure_column(cursor, table, "Activity_Enrichment_Status")
     _ensure_compound_assays_table(cursor)
+    _ensure_compound_activities_table(cursor)
     cursor.execute(f"""
     CREATE UNIQUE INDEX IF NOT EXISTS idx_cid_unique
     ON {table}(CID)
@@ -427,6 +540,43 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
             VALUES (?, ?, ?)
             """,
             sorted(record["assays"]),
+        )
+        cursor.executemany(
+            f"""
+            INSERT OR IGNORE INTO {COMPOUND_ACTIVITIES_TABLE}
+            (
+                CID,
+                AID,
+                Protein,
+                Activity_Type,
+                Relation,
+                Activity_Value,
+                Activity_Value_Raw,
+                Unit,
+                Outcome,
+                Source_Column,
+                Activity_Status,
+                Result_Tag
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    activity_record["CID"],
+                    activity_record["AID"],
+                    activity_record["Protein"],
+                    activity_record["Activity_Type"],
+                    activity_record["Relation"],
+                    activity_record["Activity_Value"],
+                    activity_record["Activity_Value_Raw"],
+                    activity_record["Unit"],
+                    activity_record["Outcome"],
+                    activity_record["Source_Column"],
+                    activity_record["Activity_Status"],
+                    activity_record["Result_Tag"],
+                )
+                for activity_record in record["activity_records"]
+            ],
         )
         if total_records:
             fraction = index / total_records

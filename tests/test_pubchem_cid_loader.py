@@ -91,6 +91,40 @@ def test_obtener_cids_pubchem_enriches_main_table(monkeypatch):
     )
     cursor.execute("SELECT CID, AID, Protein FROM compound_assays")
     assert cursor.fetchall() == [("3779", "2339", "P21554")]
+    cursor.execute(
+        """
+        SELECT
+            CID,
+            AID,
+            Protein,
+            Activity_Type,
+            Relation,
+            Activity_Value,
+            Activity_Value_Raw,
+            Unit,
+            Outcome,
+            Source_Column,
+            Activity_Status,
+            Result_Tag
+        FROM compound_activities
+        """
+    )
+    assert cursor.fetchall() == [
+        (
+            "3779",
+            "2339",
+            "P21554",
+            "IC50_Mean",
+            "=",
+            0.42,
+            "0.42",
+            "MICROMOLAR",
+            "Active",
+            "IC50_Mean",
+            "enriched",
+            "1",
+        )
+    ]
     assert progress.values[-1] == 1.0
     assert len(progress.values) > 1
 
@@ -149,6 +183,8 @@ def test_obtener_cids_pubchem_skips_activity_for_large_aid_sets(monkeypatch):
     assert cursor.fetchone() == (len(aids),)
     cursor.execute("SELECT COUNT(DISTINCT AID), COUNT(*) FROM compound_assays")
     assert cursor.fetchone() == (len(aids), len(aids))
+    cursor.execute("SELECT COUNT(*) FROM compound_activities")
+    assert cursor.fetchone() == (0,)
 
 
 def test_obtener_cids_pubchem_preserves_cid_deduplication_and_assay_traceability(monkeypatch):
@@ -200,6 +236,113 @@ def test_obtener_cids_pubchem_preserves_cid_deduplication_and_assay_traceability
     assert cursor.fetchone() == (2,)
 
 
+def test_compound_activities_stores_one_row_per_cid_aid_activity(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT)"
+    )
+
+    def fake_get(url, timeout):
+        if "/assay/target/accession/P21554/aids/JSON" in url:
+            return FakeResponse({"IdentifierList": {"AID": [11, 22]}})
+        if "/assay/aid/11,22/cids/JSON" in url:
+            return FakeResponse(
+                {
+                    "InformationList": {
+                        "Information": [
+                            {"AID": 11, "CID": [3779]},
+                            {"AID": 22, "CID": [3779]},
+                        ]
+                    }
+                }
+            )
+        if "/assay/aid/11/CSV" in url:
+            return FakeResponse(
+                text="PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki\n"
+                "RESULT_TYPE,,,FLOAT\n"
+                "RESULT_UNIT,,,NANOMOLAR\n"
+                "1,3779,Active,10"
+            )
+        if "/assay/aid/22/CSV" in url:
+            return FakeResponse(
+                text="PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki\n"
+                "RESULT_TYPE,,,FLOAT\n"
+                "RESULT_UNIT,,,NANOMOLAR\n"
+                "1,3779,Active,20"
+            )
+        if "/compound/cid/3779/property/Title/JSON" in url:
+            return FakeResponse(
+                {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+
+    pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
+
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM main WHERE CID = '3779'")
+    assert cursor.fetchone() == (1,)
+    cursor.execute("SELECT COUNT(*) FROM compound_assays")
+    assert cursor.fetchone() == (2,)
+    cursor.execute(
+        """
+        SELECT AID, Activity_Type, Activity_Value, Activity_Value_Raw, Source_Column
+        FROM compound_activities
+        ORDER BY AID
+        """
+    )
+    assert cursor.fetchall() == [
+        ("11", "Ki", 10.0, "10", "Ki"),
+        ("22", "Ki", 20.0, "20", "Ki"),
+    ]
+
+
+def test_compound_activities_allows_multiple_results_for_same_cid_aid(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT)"
+    )
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki",
+            "RESULT_TYPE,,,FLOAT",
+            "RESULT_UNIT,,,NANOMOLAR",
+            "1,3779,Active,10",
+            "2,3779,Active,20",
+        ]
+    )
+
+    def fake_get(url, timeout):
+        if "/assay/target/accession/P21554/aids/JSON" in url:
+            return FakeResponse({"IdentifierList": {"AID": [11]}})
+        if "/assay/aid/11/cids/JSON" in url:
+            return FakeResponse(
+                {"InformationList": {"Information": [{"AID": 11, "CID": [3779]}]}}
+            )
+        if "/assay/aid/11/CSV" in url:
+            return FakeResponse(text=assay_csv)
+        if "/compound/cid/3779/property/Title/JSON" in url:
+            return FakeResponse(
+                {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+
+    pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
+
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT Result_Tag, Activity_Value, Activity_Value_Raw
+        FROM compound_activities
+        ORDER BY Result_Tag
+        """
+    )
+    assert cursor.fetchall() == [("1", 10.0, "10"), ("2", 20.0, "20")]
+
+
 def test_activity_parser_enriches_real_ki_value(monkeypatch):
     assay_csv = "\n".join(
         [
@@ -222,6 +365,21 @@ def test_activity_parser_enriches_real_ki_value(monkeypatch):
     assert activity["3779"]["values"] == {
         "AID 1804316: Ki 1.891e+07 NANOMOLAR (Active)"
     }
+    assert activity["3779"]["records"] == [
+        {
+            "CID": "3779",
+            "AID": "1804316",
+            "Activity_Type": "Ki",
+            "Relation": "",
+            "Activity_Value": 1.891e+07,
+            "Activity_Value_Raw": "1.891e+07",
+            "Unit": "NANOMOLAR",
+            "Outcome": "Active",
+            "Source_Column": "Ki",
+            "Activity_Status": "enriched",
+            "Result_Tag": "1",
+        }
+    ]
 
 
 def test_activity_parser_ignores_qualifier_only_columns(monkeypatch):
@@ -265,6 +423,7 @@ def test_activity_parser_uses_qualifier_as_complement_to_real_value(monkeypatch)
     assert activity["3779"]["values"] == {
         "AID 1804316: Ki > 1.891e+07 NANOMOLAR (Active)"
     }
+    assert activity["3779"]["records"][0]["Relation"] == ">"
 
 
 def test_activity_parser_enriches_pubchem_standard_value_with_metadata(monkeypatch):
@@ -288,6 +447,21 @@ def test_activity_parser_enriches_pubchem_standard_value_with_metadata(monkeypat
     assert activity["3779"]["values"] == {
         "AID 41441: PubChem Standard Value (IC50) > 12.3 MICROMOLAR (Active)"
     }
+    assert activity["3779"]["records"] == [
+        {
+            "CID": "3779",
+            "AID": "41441",
+            "Activity_Type": "IC50",
+            "Relation": ">",
+            "Activity_Value": 12.3,
+            "Activity_Value_Raw": "12.3",
+            "Unit": "MICROMOLAR",
+            "Outcome": "Active",
+            "Source_Column": "PubChem Standard Value",
+            "Activity_Status": "enriched",
+            "Result_Tag": "1",
+        }
+    ]
 
 
 def test_activity_parser_enriches_standard_value_fallback(monkeypatch):
@@ -311,6 +485,8 @@ def test_activity_parser_enriches_standard_value_fallback(monkeypatch):
     assert activity["3779"]["values"] == {
         "AID 41443: Standard Value (Potency) 4.5 NANOMOLAR (Active)"
     }
+    assert activity["3779"]["records"][0]["Activity_Type"] == "Potency"
+    assert activity["3779"]["records"][0]["Source_Column"] == "Standard Value"
 
 
 def test_activity_parser_keeps_specific_column_priority_over_standard_value(monkeypatch):
@@ -335,6 +511,7 @@ def test_activity_parser_keeps_specific_column_priority_over_standard_value(monk
     assert activity["3779"]["values"] == {
         "AID 1804316: Ki 1.891e+07 NANOMOLAR (Active)"
     }
+    assert activity["3779"]["records"][0]["Source_Column"] == "Ki"
 
 
 def test_activity_parser_leaves_empty_standard_value_as_no_activity(monkeypatch):

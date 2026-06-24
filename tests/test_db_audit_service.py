@@ -344,6 +344,7 @@ def test_user_table_profiles_exclude_internal_tables(tmp_path):
         cur = con.cursor()
         cur.execute("CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT, CID TEXT)")
         cur.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+        cur.execute("CREATE TABLE compound_activities (CID TEXT, AID TEXT)")
         cur.execute("INSERT INTO main (CID) VALUES ('1')")
         ensure_table_metadata(con)
 
@@ -387,6 +388,8 @@ def test_delete_user_table_rejects_main_and_internal_tables(tmp_path):
             delete_user_table(con, "main")
         with pytest.raises(ValueError, match="Internal SQLite or ChemVault"):
             delete_user_table(con, METADATA_TABLE)
+        with pytest.raises(ValueError, match="Internal SQLite or ChemVault"):
+            delete_user_table(con, "compound_activities")
         with pytest.raises(ValueError, match="Internal SQLite or ChemVault"):
             delete_user_table(con, "sqlite_sequence")
 
