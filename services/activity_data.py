@@ -72,17 +72,13 @@ def _add_in_filter(clauses, params, column, values):
     params.extend(clean_values)
 
 
-def get_activity_rows(
-    connection,
+def _activity_filter_sql(
     activity_types=None,
     outcomes=None,
     units=None,
     aids=None,
     value_range=None,
 ):
-    if not compound_activities_exists(connection):
-        return []
-
     clauses = []
     params = []
     _add_in_filter(clauses, params, "Activity_Type", activity_types or [])
@@ -100,6 +96,100 @@ def get_activity_rows(
             params.append(max_value)
 
     where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return where_sql, params
+
+
+def get_activity_row_count(
+    connection,
+    activity_types=None,
+    outcomes=None,
+    units=None,
+    aids=None,
+    value_range=None,
+):
+    if not compound_activities_exists(connection):
+        return 0
+
+    where_sql, params = _activity_filter_sql(
+        activity_types=activity_types,
+        outcomes=outcomes,
+        units=units,
+        aids=aids,
+        value_range=value_range,
+    )
+    cursor = connection.cursor()
+    cursor.execute(f"""
+        SELECT COUNT(*)
+        FROM {quote_identifier(COMPOUND_ACTIVITIES_TABLE)}
+        {where_sql}
+    """, params)
+    return int(cursor.fetchone()[0])
+
+
+def get_activity_value_stats(
+    connection,
+    activity_types=None,
+    outcomes=None,
+    units=None,
+    aids=None,
+):
+    if not compound_activities_exists(connection):
+        return None
+
+    where_sql, params = _activity_filter_sql(
+        activity_types=activity_types,
+        outcomes=outcomes,
+        units=units,
+        aids=aids,
+    )
+    cursor = connection.cursor()
+    cursor.execute(f"""
+        SELECT
+            COUNT(*),
+            MIN(Activity_Value),
+            MAX(Activity_Value),
+            SUM(
+                CASE
+                    WHEN TRIM(COALESCE(Relation, '')) IN ('>', '<', '>=', '<=')
+                    THEN 1
+                    ELSE 0
+                END
+            )
+        FROM {quote_identifier(COMPOUND_ACTIVITIES_TABLE)}
+        {where_sql}
+    """, params)
+    total_rows, min_value, max_value, qualified_rows = cursor.fetchone()
+    return {
+        "total_rows": int(total_rows),
+        "min_value": min_value,
+        "max_value": max_value,
+        "qualified_rows": int(qualified_rows or 0),
+    }
+
+
+def get_activity_rows(
+    connection,
+    activity_types=None,
+    outcomes=None,
+    units=None,
+    aids=None,
+    value_range=None,
+    limit=None,
+):
+    if not compound_activities_exists(connection):
+        return []
+
+    where_sql, params = _activity_filter_sql(
+        activity_types=activity_types,
+        outcomes=outcomes,
+        units=units,
+        aids=aids,
+        value_range=value_range,
+    )
+    limit_sql = ""
+    if limit is not None:
+        limit_sql = "LIMIT ?"
+        params = [*params, int(limit)]
     columns_sql = ", ".join(quote_identifier(column) for column in ACTIVITY_EXPORT_COLUMNS)
     cursor = connection.cursor()
     cursor.execute(f"""
@@ -107,6 +197,7 @@ def get_activity_rows(
         FROM {quote_identifier(COMPOUND_ACTIVITIES_TABLE)}
         {where_sql}
         ORDER BY CAST(AID AS INTEGER), CID, Result_Tag
+        {limit_sql}
     """, params)
     rows = cursor.fetchall()
     return [dict(zip(ACTIVITY_EXPORT_COLUMNS, row, strict=True)) for row in rows]

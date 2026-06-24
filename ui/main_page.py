@@ -8,7 +8,13 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from services.activity_data import get_activity_rows, get_activity_summary
+from services.activity_data import (
+    ACTIVITY_EXPORT_COLUMNS,
+    get_activity_row_count,
+    get_activity_rows,
+    get_activity_summary,
+    get_activity_value_stats,
+)
 from services.db_audit import (
     delete_user_table,
     get_database_schema,
@@ -464,38 +470,78 @@ def render_structured_activity_section(connection):
             )
 
         value_range = None
-        min_value = summary["min_value"]
-        max_value = summary["max_value"]
-        if min_value is not None and max_value is not None:
-            if min_value < max_value:
-                value_range = st.slider(
-                    "Activity value range",
-                    min_value=float(min_value),
-                    max_value=float(max_value),
-                    value=(float(min_value), float(max_value)),
-                    key="activity_filter_value_range",
-                )
-            else:
-                st.caption(f"Activity value: {min_value}")
-                value_range = (min_value, max_value)
+        if len(selected_types) == 1 and len(selected_units) == 1:
+            value_stats = get_activity_value_stats(
+                connection,
+                activity_types=selected_types,
+                outcomes=selected_outcomes,
+                units=selected_units,
+                aids=selected_aids,
+            )
+            if value_stats is None or value_stats["total_rows"] == 0:
+                st.caption("No activity values match the selected categorical filters.")
+            elif value_stats["min_value"] is not None and value_stats["max_value"] is not None:
+                st.caption(f"Activity value range for {selected_types[0]} ({selected_units[0]})")
+                if value_stats["qualified_rows"] > 0:
+                    st.warning(
+                        "Some values are qualified by > or <; numeric filtering uses "
+                        "the recorded numeric threshold."
+                    )
+                col_min, col_max = st.columns(2)
+                with col_min:
+                    min_filter = st.number_input(
+                        "Min activity value",
+                        min_value=float(value_stats["min_value"]),
+                        max_value=float(value_stats["max_value"]),
+                        value=float(value_stats["min_value"]),
+                        format="%.6g",
+                        key="activity_filter_min_value",
+                    )
+                with col_max:
+                    max_filter = st.number_input(
+                        "Max activity value",
+                        min_value=float(value_stats["min_value"]),
+                        max_value=float(value_stats["max_value"]),
+                        value=float(value_stats["max_value"]),
+                        format="%.6g",
+                        key="activity_filter_max_value",
+                    )
+                value_range = (min(min_filter, max_filter), max(min_filter, max_filter))
+        else:
+            st.caption(
+                "Select exactly one activity type and one unit to enable numeric range filtering."
+            )
 
-    rows = get_activity_rows(
+    filter_kwargs = {
+        "activity_types": selected_types,
+        "outcomes": selected_outcomes,
+        "units": selected_units,
+        "aids": selected_aids,
+        "value_range": value_range,
+    }
+    filtered_count = get_activity_row_count(connection, **filter_kwargs)
+    preview_rows = get_activity_rows(
         connection,
-        activity_types=selected_types,
-        outcomes=selected_outcomes,
-        units=selected_units,
-        aids=selected_aids,
-        value_range=value_range,
+        **filter_kwargs,
+        limit=100,
     )
-    activity_df = pd.DataFrame(rows)
-    st.caption(f"{len(activity_df)} structured activity row{'s' if len(activity_df) != 1 else ''} shown.")
-    st.dataframe(activity_df, hide_index=True, use_container_width=True)
+    export_rows = get_activity_rows(connection, **filter_kwargs)
+    preview_df = pd.DataFrame(preview_rows, columns=ACTIVITY_EXPORT_COLUMNS)
+    export_df = pd.DataFrame(export_rows, columns=ACTIVITY_EXPORT_COLUMNS)
+    if filtered_count > 100:
+        st.caption(
+            f"Showing first 100 of {filtered_count} filtered activity rows. "
+            "Download CSV to get the full filtered table."
+        )
+    else:
+        st.caption(f"Showing {filtered_count} filtered activity row{'s' if filtered_count != 1 else ''}.")
+    st.dataframe(preview_df, hide_index=True, use_container_width=True)
     st.download_button(
         "Download structured activity CSV",
-        data=activity_df.to_csv(index=False).encode("utf-8"),
+        data=export_df.to_csv(index=False).encode("utf-8"),
         file_name="chemvault_structured_activity.csv",
         mime="text/csv",
-        disabled=activity_df.empty,
+        disabled=export_df.empty,
         key="download_structured_activity_csv",
     )
 

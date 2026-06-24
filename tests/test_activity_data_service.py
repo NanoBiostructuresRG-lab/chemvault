@@ -4,8 +4,10 @@ import sqlite3
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
     compound_activities_exists,
+    get_activity_row_count,
     get_activity_rows,
     get_activity_summary,
+    get_activity_value_stats,
 )
 
 
@@ -100,6 +102,8 @@ def test_compound_activities_missing_table_is_safe():
 
     assert compound_activities_exists(connection) is False
     assert get_activity_summary(connection) is None
+    assert get_activity_row_count(connection) == 0
+    assert get_activity_value_stats(connection) is None
     assert get_activity_rows(connection) == []
 
 
@@ -135,6 +139,61 @@ def test_get_activity_rows_filters_by_type_outcome_unit_and_value_range():
     assert rows[0]["CID"] == "102"
     assert rows[0]["Activity_Value"] == 40.0
     assert rows[0]["Source_Column"] == "PubChem Standard Value"
+
+
+def test_get_activity_row_count_uses_full_filtered_result():
+    connection = create_activity_connection()
+
+    count = get_activity_row_count(
+        connection,
+        activity_types=["IC50"],
+        units=["MICROMOLAR"],
+    )
+
+    assert count == 2
+
+
+def test_get_activity_value_stats_uses_categorical_filters_without_value_range():
+    connection = create_activity_connection()
+
+    stats = get_activity_value_stats(
+        connection,
+        activity_types=["IC50"],
+        outcomes=["Active"],
+        units=["MICROMOLAR"],
+    )
+
+    assert stats == {
+        "total_rows": 1,
+        "min_value": 40.0,
+        "max_value": 40.0,
+        "qualified_rows": 0,
+    }
+
+
+def test_get_activity_value_stats_counts_qualified_relations():
+    connection = create_activity_connection()
+
+    stats = get_activity_value_stats(
+        connection,
+        activity_types=["Ki"],
+        units=["NANOMOLAR"],
+    )
+
+    assert stats["total_rows"] == 1
+    assert stats["min_value"] == 10.0
+    assert stats["max_value"] == 10.0
+    assert stats["qualified_rows"] == 1
+
+
+def test_get_activity_rows_can_limit_preview_without_changing_count():
+    connection = create_activity_connection()
+
+    preview_rows = get_activity_rows(connection, limit=2)
+    full_count = get_activity_row_count(connection)
+
+    assert len(preview_rows) == 2
+    assert full_count == 3
 
 
 def test_get_activity_rows_filters_by_aid():
