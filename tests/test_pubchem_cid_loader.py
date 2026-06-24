@@ -198,3 +198,70 @@ def test_obtener_cids_pubchem_preserves_cid_deduplication_and_assay_traceability
     ]
     cursor.execute("SELECT COUNT(*) FROM compound_assays")
     assert cursor.fetchone() == (2,)
+
+
+def test_activity_parser_enriches_real_ki_value(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki",
+            "RESULT_TYPE,,,FLOAT",
+            "RESULT_UNIT,,,NANOMOLAR",
+            "1,3779,Active,1.891e+07",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(1804316)
+
+    assert activity["3779"]["types"] == {"Ki"}
+    assert activity["3779"]["values"] == {
+        "AID 1804316: Ki 1.891e+07 NANOMOLAR (Active)"
+    }
+
+
+def test_activity_parser_ignores_qualifier_only_columns(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki Qualifier",
+            "RESULT_TYPE,,,STRING",
+            "RESULT_UNIT,,,NONE",
+            "1,3779,Inactive,>",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    assert pubchem_loader._fetch_assay_activity(1804316) == {}
+
+
+def test_activity_parser_uses_qualifier_as_complement_to_real_value(monkeypatch):
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki Qualifier,Ki",
+            "RESULT_TYPE,,,STRING,FLOAT",
+            "RESULT_UNIT,,,NONE,NANOMOLAR",
+            "1,3779,Active,>,1.891e+07",
+        ]
+    )
+
+    monkeypatch.setattr(
+        pubchem_loader.requests,
+        "get",
+        lambda url, timeout: FakeResponse(text=assay_csv),
+    )
+
+    activity = pubchem_loader._fetch_assay_activity(1804316)
+
+    assert activity["3779"]["types"] == {"Ki"}
+    assert activity["3779"]["values"] == {
+        "AID 1804316: Ki > 1.891e+07 NANOMOLAR (Active)"
+    }

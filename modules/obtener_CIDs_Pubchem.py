@@ -125,7 +125,8 @@ def _fetch_cids_for_aids(aids, progreso=None, start=0.0, end=1.0):
 def _is_activity_column(column):
     if column.startswith("PUBCHEM_"):
         return False
-    if column.endswith("_Qualifier"):
+    normalized = column.strip().lower().replace("_", " ")
+    if normalized.endswith(" qualifier"):
         return False
     return any(keyword.lower() in column.lower() for keyword in ACTIVITY_KEYWORDS)
 
@@ -162,6 +163,14 @@ def _format_activity_value(aid, column, value, qualifier, unit, outcome):
     return formatted
 
 
+def _activity_qualifier(row, column):
+    for qualifier_column in (f"{column}_Qualifier", f"{column} Qualifier"):
+        qualifier = row.get(qualifier_column, "").strip()
+        if qualifier:
+            return qualifier
+    return ""
+
+
 def _fetch_assay_activity(aid):
     url = f"{BASE_URL}/assay/aid/{aid}/CSV"
     activity_by_cid = {}
@@ -184,7 +193,7 @@ def _fetch_assay_activity(aid):
                 value = row.get(column, "").strip()
                 if value == "":
                     continue
-                qualifier = row.get(f"{column}_Qualifier", "").strip()
+                qualifier = _activity_qualifier(row, column)
                 activity = activity_by_cid.setdefault(cid, {"types": set(), "values": set()})
                 activity["types"].add(column)
                 activity["values"].add(

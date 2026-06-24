@@ -192,16 +192,43 @@ def render_protein_traceability_summary(container, connection):
         return
 
     protein_text = ", ".join(summary["proteins"]) if summary["proteins"] else "None"
-    container.caption(
-        "Unique CIDs: {unique_cids} | Seed proteins: {proteins} | "
-        "Individual AIDs: {individual_aids} | CID-AID links: {cid_aid_links} | "
-        "Activity enrichment: {activity_status}".format(
-            unique_cids=summary["unique_cids"],
-            proteins=protein_text,
-            individual_aids=summary["individual_aids"],
-            cid_aid_links=summary["cid_aid_links"],
-            activity_status=summary["activity_status"],
-        )
+    container.markdown(
+        f"""
+        <div style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+            gap: 0.35rem 1rem;
+            margin: -0.3rem 0 1rem 0;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--cv-border);
+        ">
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Unique CIDs</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_cids"]}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Seed proteins</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
+                    {html.escape(protein_text)}
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Individual AIDs</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["individual_aids"]}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">CID-AID links</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["cid_aid_links"]}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Activity enrichment</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
+                    {html.escape(summary["activity_status"])}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
