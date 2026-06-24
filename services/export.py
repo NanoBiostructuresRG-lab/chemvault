@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-import pandas as pd
+import csv
+import io
 import streamlit as st
 
 from services.database import get_connection
@@ -13,8 +14,27 @@ def _get_active_selected_headers():
     return [col for col in selected if col in headers]
 
 
+EXPORT_FETCH_SIZE = 5000
+
+
 def _empty_csv_bytes():
-    return pd.DataFrame().to_csv(index=False).encode("utf-8")
+    return b"\n"
+
+
+def _query_to_csv_bytes(connection, query, params=None, fetch_size=EXPORT_FETCH_SIZE):
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer)
+    cursor = connection.cursor()
+    cursor.execute(query, params or [])
+    writer.writerow([description[0] for description in cursor.description])
+
+    while True:
+        rows = cursor.fetchmany(fetch_size)
+        if not rows:
+            break
+        writer.writerows(rows)
+
+    return buffer.getvalue().encode("utf-8")
 
 
 def export_table():
@@ -31,8 +51,7 @@ def export_table():
         cols = ", ".join(quote_identifier(col) for col in selected_headers)
         query = f"SELECT {cols} FROM {quote_identifier(table)}"
 
-    df = pd.read_sql_query(query, conn)
-    return df.to_csv(index=False).encode("utf-8")
+    return _query_to_csv_bytes(conn, query)
 
 
 def export_table_by_sub_grupo(codigo_buscar: str, columna_filtro: str):
@@ -56,5 +75,4 @@ def export_table_by_sub_grupo(codigo_buscar: str, columna_filtro: str):
         WHERE {quote_identifier(columna_filtro)} LIKE ?
     """
 
-    df = pd.read_sql_query(query, conn, params=[f"%{codigo_buscar}%"])
-    return df.to_csv(index=False).encode("utf-8")
+    return _query_to_csv_bytes(conn, query, params=[f"%{codigo_buscar}%"])

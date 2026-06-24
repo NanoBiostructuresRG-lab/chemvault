@@ -94,3 +94,15 @@ def test_export_table_by_sub_grupo_returns_empty_csv_for_invalid_filter_column(m
     )
 
     assert csv_text(export.export_table_by_sub_grupo(codigo_buscar="A", columna_filtro="missing")) == "\n"
+
+
+def test_query_to_csv_bytes_fetches_rows_in_chunks():
+    connection = create_export_db()
+
+    result = export._query_to_csv_bytes(
+        connection,
+        'SELECT CID, SMILES FROM "main" ORDER BY CID',
+        fetch_size=2,
+    )
+
+    assert csv_text(result) == "CID,SMILES\n1,CCO\n2,CCC\n3,CCN\n"
