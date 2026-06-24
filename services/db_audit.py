@@ -9,10 +9,12 @@ from services.sql_utils import quote_identifier, table_exists
 METADATA_TABLE = "_chemvault_table_metadata"
 OPERATION_LOG_TABLE = "_chemvault_operation_log"
 HARMONSMILE_CACHE_TABLE = "_chemvault_harmonsmile_cache"
+COMPOUND_ASSAYS_TABLE = "compound_assays"
 INTERNAL_TABLES = {
     METADATA_TABLE,
     OPERATION_LOG_TABLE,
     HARMONSMILE_CACHE_TABLE,
+    COMPOUND_ASSAYS_TABLE,
     "sqlite_sequence",
 }
 

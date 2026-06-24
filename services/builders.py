@@ -94,6 +94,7 @@ def build_from_proteins(progreso):
             "Compound_Name",
             "Activity_Type",
             "Activity_Value",
+            "Activity_Enrichment_Status",
         ],
         created_by="build_from_proteins",
         details=f"Loaded selected proteins: {', '.join(map(str, st.session_state[SELECTED_PROTEINS]))}.",

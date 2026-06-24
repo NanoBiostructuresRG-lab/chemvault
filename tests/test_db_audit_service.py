@@ -343,6 +343,7 @@ def test_user_table_profiles_exclude_internal_tables(tmp_path):
     with sqlite3.connect(db_path) as con:
         cur = con.cursor()
         cur.execute("CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT, CID TEXT)")
+        cur.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
         cur.execute("INSERT INTO main (CID) VALUES ('1')")
         ensure_table_metadata(con)
 

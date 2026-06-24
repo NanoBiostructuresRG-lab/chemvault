@@ -145,6 +145,66 @@ def render_database_metrics(container, database_id, current_table, row_count, gr
     )
 
 
+def _get_protein_traceability_summary(connection):
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='compound_assays'"
+    )
+    if cursor.fetchone() is None:
+        return None
+
+    cursor.execute('SELECT COUNT(DISTINCT CID), COUNT(DISTINCT AID), COUNT(*) FROM "compound_assays"')
+    unique_cids, individual_aids, cid_aid_links = cursor.fetchone()
+    cursor.execute('SELECT DISTINCT Protein FROM "compound_assays" ORDER BY Protein')
+    proteins = [row[0] for row in cursor.fetchall()]
+
+    activity_status = "not_attempted"
+    cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='main'")
+    if cursor.fetchone() is not None:
+        cursor.execute('PRAGMA table_info("main")')
+        main_columns = [row[1] for row in cursor.fetchall()]
+        if "Activity_Enrichment_Status" in main_columns:
+            cursor.execute(
+                '''
+                SELECT Activity_Enrichment_Status, COUNT(*)
+                FROM "main"
+                WHERE COALESCE(Activity_Enrichment_Status, '') != ''
+                GROUP BY Activity_Enrichment_Status
+                ORDER BY COUNT(*) DESC, Activity_Enrichment_Status
+                '''
+            )
+            rows = cursor.fetchall()
+            if rows:
+                activity_status = ", ".join(f"{status}: {count}" for status, count in rows)
+
+    return {
+        "unique_cids": unique_cids,
+        "proteins": proteins,
+        "individual_aids": individual_aids,
+        "cid_aid_links": cid_aid_links,
+        "activity_status": activity_status,
+    }
+
+
+def render_protein_traceability_summary(container, connection):
+    summary = _get_protein_traceability_summary(connection)
+    if summary is None:
+        return
+
+    protein_text = ", ".join(summary["proteins"]) if summary["proteins"] else "None"
+    container.caption(
+        "Unique CIDs: {unique_cids} | Seed proteins: {proteins} | "
+        "Individual AIDs: {individual_aids} | CID-AID links: {cid_aid_links} | "
+        "Activity enrichment: {activity_status}".format(
+            unique_cids=summary["unique_cids"],
+            proteins=protein_text,
+            individual_aids=summary["individual_aids"],
+            cid_aid_links=summary["cid_aid_links"],
+            activity_status=summary["activity_status"],
+        )
+    )
+
+
 def _format_audit_label(value):
     if value in (None, ""):
         return "-"
@@ -358,11 +418,12 @@ def render_database_card(container):
 
     if st.session_state.get(CURRENT_TABLE, "") not in table_options:
         st.session_state[CURRENT_TABLE] = table_options[0]
-    row_count = count_rows(get_connection(st.session_state[DATABASE_ID]))
+    conn = get_connection(st.session_state[DATABASE_ID])
+    row_count = count_rows(conn)
     if len(st.session_state.get(HEADERS, [])) > 0:
         if st.session_state.get(GROUP_COUNT_COLUMN, "") not in st.session_state[HEADERS]:
             st.session_state[GROUP_COUNT_COLUMN] = st.session_state[HEADERS][0]
-    group_count = count_rows_group_by(get_connection(st.session_state[DATABASE_ID]))
+    group_count = count_rows_group_by(conn)
     render_database_metrics(
         container,
         st.session_state[DATABASE_ID],
@@ -370,6 +431,7 @@ def render_database_card(container):
         row_count,
         group_count,
     )
+    render_protein_traceability_summary(container, conn)
     container.markdown("#### Table controls")
     container.selectbox(
         "Select table",

@@ -4,6 +4,7 @@ import io
 import requests
 
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
+COMPOUND_ASSAYS_TABLE = "compound_assays"
 REQUEST_TIMEOUT = (5, 60)
 COMPOUND_NAME_BATCH_SIZE = 100
 AID_CID_BATCH_SIZE = 50
@@ -24,6 +25,17 @@ def _ensure_column(cursor, table, column, column_type="TEXT"):
     columns = [row[1] for row in cursor.execute(f"PRAGMA table_info({table})").fetchall()]
     if column not in columns:
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
+def _ensure_compound_assays_table(cursor):
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS {COMPOUND_ASSAYS_TABLE} (
+            CID TEXT NOT NULL,
+            AID TEXT NOT NULL,
+            Protein TEXT NOT NULL,
+            UNIQUE(CID, AID, Protein)
+        )
+    """)
 
 
 def _join_values(values):
@@ -191,6 +203,14 @@ def _fetch_assay_activity(aid):
     return activity_by_cid
 
 
+def _activity_status_for_record(record, activity_was_skipped):
+    if activity_was_skipped:
+        return "skipped_aid_limit"
+    if record["activity_values"]:
+        return "enriched"
+    return "partial_or_failed"
+
+
 def _collect_pubchem_records(proteins, progreso):
     protein_aids = {}
     for index, protein in enumerate(proteins, start=1):
@@ -223,14 +243,17 @@ def _collect_pubchem_records(proteins, progreso):
                     "proteins": set(),
                     "activity_types": set(),
                     "activity_values": set(),
+                    "assays": set(),
                 },
             )
             record["aids"].add(str(aid))
             record["proteins"].add(protein)
+            record["assays"].add((cid, str(aid), protein))
     _update_progress(progreso, 0.60)
 
     compound_names = _fetch_compound_names(records.keys(), progreso, start=0.60, end=0.85)
 
+    activity_was_skipped = total_steps > MAX_ACTIVITY_AIDS
     if total_steps > MAX_ACTIVITY_AIDS:
         print(
             "Skipping activity CSV enrichment for this protein search because "
@@ -248,6 +271,7 @@ def _collect_pubchem_records(proteins, progreso):
 
     for cid, record in records.items():
         record["compound_name"] = compound_names.get(cid, "")
+        record["activity_status"] = _activity_status_for_record(record, activity_was_skipped)
     _update_progress(progreso, 0.95)
 
     return records
@@ -263,6 +287,8 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     _ensure_column(cursor, table, "Compound_Name")
     _ensure_column(cursor, table, "Activity_Type")
     _ensure_column(cursor, table, "Activity_Value")
+    _ensure_column(cursor, table, "Activity_Enrichment_Status")
+    _ensure_compound_assays_table(cursor)
     cursor.execute(f"""
     CREATE UNIQUE INDEX IF NOT EXISTS idx_cid_unique
     ON {table}(CID)
@@ -274,14 +300,15 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     for index, (cid, record) in enumerate(records.items(), start=1):
         cursor.execute(f"""
         INSERT INTO {table}
-        (CID, AIDs, Proteins, Compound_Name, Activity_Type, Activity_Value)
-        VALUES (?, ?, ?, ?, ?, ?)
+        (CID, AIDs, Proteins, Compound_Name, Activity_Type, Activity_Value, Activity_Enrichment_Status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(CID) DO UPDATE SET
             AIDs = excluded.AIDs,
             Proteins = excluded.Proteins,
             Compound_Name = COALESCE(NULLIF({table}.Compound_Name, ''), excluded.Compound_Name),
             Activity_Type = excluded.Activity_Type,
-            Activity_Value = excluded.Activity_Value
+            Activity_Value = excluded.Activity_Value,
+            Activity_Enrichment_Status = excluded.Activity_Enrichment_Status
         """, (
             cid,
             _join_values(record["aids"]),
@@ -289,7 +316,16 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
             record["compound_name"],
             _join_values(record["activity_types"]),
             _join_values(record["activity_values"]),
+            record["activity_status"],
         ))
+        cursor.executemany(
+            f"""
+            INSERT OR IGNORE INTO {COMPOUND_ASSAYS_TABLE}
+            (CID, AID, Protein)
+            VALUES (?, ?, ?)
+            """,
+            sorted(record["assays"]),
+        )
         if total_records:
             fraction = index / total_records
             _update_progress(progreso, 0.95 + (0.05 * fraction))
