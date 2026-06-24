@@ -4,11 +4,16 @@ import sqlite3
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
     compound_activities_exists,
+    get_activity_csv_bytes,
     get_activity_row_count,
     get_activity_rows,
     get_activity_summary,
     get_activity_value_stats,
 )
+
+
+def csv_text(data):
+    return data.decode("utf-8").replace("\r\n", "\n")
 
 
 def create_activity_connection():
@@ -210,3 +215,28 @@ def test_get_activity_rows_uses_expected_export_columns():
     rows = get_activity_rows(connection)
 
     assert list(rows[0].keys()) == ACTIVITY_EXPORT_COLUMNS
+
+
+def test_get_activity_csv_bytes_exports_filtered_rows_with_expected_columns():
+    connection = create_activity_connection()
+
+    result = get_activity_csv_bytes(
+        connection,
+        activity_types=["IC50"],
+        units=["MICROMOLAR"],
+    )
+
+    assert csv_text(result) == (
+        "CID,AID,Protein,Activity_Type,Relation,Activity_Value,Activity_Value_Raw,"
+        "Unit,Outcome,Source_Column,Result_Tag\n"
+        "101,12,P34971,IC50,,25.0,25,MICROMOLAR,Inactive,PubChem Standard Value,1\n"
+        "102,12,P34971,IC50,,40.0,40,MICROMOLAR,Active,PubChem Standard Value,2\n"
+    )
+
+
+def test_get_activity_csv_bytes_fetches_rows_in_chunks():
+    connection = create_activity_connection()
+
+    result = get_activity_csv_bytes(connection, fetch_size=2)
+
+    assert csv_text(result).count("\n") == 4

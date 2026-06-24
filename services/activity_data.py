@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import csv
+import io
 import sqlite3
 
 from services.sql_utils import quote_identifier, table_exists
 
 COMPOUND_ACTIVITIES_TABLE = "compound_activities"
+ACTIVITY_EXPORT_FETCH_SIZE = 5000
 ACTIVITY_EXPORT_COLUMNS = [
     "CID",
     "AID",
@@ -167,6 +170,18 @@ def get_activity_value_stats(
     }
 
 
+def _activity_rows_query(where_sql, limit=None):
+    columns_sql = ", ".join(quote_identifier(column) for column in ACTIVITY_EXPORT_COLUMNS)
+    limit_sql = "LIMIT ?" if limit is not None else ""
+    return f"""
+        SELECT {columns_sql}
+        FROM {quote_identifier(COMPOUND_ACTIVITIES_TABLE)}
+        {where_sql}
+        ORDER BY CAST(AID AS INTEGER), CID, Result_Tag
+        {limit_sql}
+    """
+
+
 def get_activity_rows(
     connection,
     activity_types=None,
@@ -186,18 +201,43 @@ def get_activity_rows(
         aids=aids,
         value_range=value_range,
     )
-    limit_sql = ""
     if limit is not None:
-        limit_sql = "LIMIT ?"
         params = [*params, int(limit)]
-    columns_sql = ", ".join(quote_identifier(column) for column in ACTIVITY_EXPORT_COLUMNS)
     cursor = connection.cursor()
-    cursor.execute(f"""
-        SELECT {columns_sql}
-        FROM {quote_identifier(COMPOUND_ACTIVITIES_TABLE)}
-        {where_sql}
-        ORDER BY CAST(AID AS INTEGER), CID, Result_Tag
-        {limit_sql}
-    """, params)
+    cursor.execute(_activity_rows_query(where_sql, limit), params)
     rows = cursor.fetchall()
     return [dict(zip(ACTIVITY_EXPORT_COLUMNS, row, strict=True)) for row in rows]
+
+
+def get_activity_csv_bytes(
+    connection,
+    activity_types=None,
+    outcomes=None,
+    units=None,
+    aids=None,
+    value_range=None,
+    fetch_size=ACTIVITY_EXPORT_FETCH_SIZE,
+):
+    if not compound_activities_exists(connection):
+        return b"\n"
+
+    where_sql, params = _activity_filter_sql(
+        activity_types=activity_types,
+        outcomes=outcomes,
+        units=units,
+        aids=aids,
+        value_range=value_range,
+    )
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer)
+    writer.writerow(ACTIVITY_EXPORT_COLUMNS)
+
+    cursor = connection.cursor()
+    cursor.execute(_activity_rows_query(where_sql), params)
+    while True:
+        rows = cursor.fetchmany(fetch_size)
+        if not rows:
+            break
+        writer.writerows(rows)
+
+    return buffer.getvalue().encode("utf-8")

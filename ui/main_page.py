@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
+    get_activity_csv_bytes,
     get_activity_row_count,
     get_activity_rows,
     get_activity_summary,
@@ -525,9 +526,8 @@ def render_structured_activity_section(connection):
         **filter_kwargs,
         limit=100,
     )
-    export_rows = get_activity_rows(connection, **filter_kwargs)
     preview_df = pd.DataFrame(preview_rows, columns=ACTIVITY_EXPORT_COLUMNS)
-    export_df = pd.DataFrame(export_rows, columns=ACTIVITY_EXPORT_COLUMNS)
+    export_csv = get_activity_csv_bytes(connection, **filter_kwargs)
     if filtered_count > 100:
         st.caption(
             f"Showing first 100 of {filtered_count} filtered activity rows. "
@@ -538,10 +538,10 @@ def render_structured_activity_section(connection):
     st.dataframe(preview_df, hide_index=True, use_container_width=True)
     st.download_button(
         "Download structured activity CSV",
-        data=export_df.to_csv(index=False).encode("utf-8"),
+        data=export_csv,
         file_name="chemvault_structured_activity.csv",
         mime="text/csv",
-        disabled=export_df.empty,
+        disabled=filtered_count == 0,
         key="download_structured_activity_csv",
     )
 
