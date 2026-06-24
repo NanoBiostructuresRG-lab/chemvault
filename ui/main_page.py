@@ -3,10 +3,12 @@ import html
 import json
 import math
 import os
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from services.activity_data import get_activity_rows, get_activity_summary
 from services.db_audit import (
     delete_user_table,
     get_database_schema,
@@ -364,6 +366,140 @@ def render_operation_history(db_path):
     )
 
 
+def _format_activity_option_list(values):
+    if not values:
+        return "-"
+    preview = ", ".join(str(value) for value in values[:8])
+    if len(values) > 8:
+        preview = f"{preview}, +{len(values) - 8} more"
+    return preview
+
+
+def render_structured_activity_section(connection):
+    summary = get_activity_summary(connection)
+    if summary is None:
+        return
+
+    st.markdown("#### Structured activity")
+    st.caption("Inspect and export quantitative PubChem activity without changing molecular tables.")
+    if summary["total_rows"] == 0:
+        st.info("No structured activity rows are available yet.")
+        return
+
+    st.markdown(
+        f"""
+        <div style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+            gap: 0.35rem 1rem;
+            margin: 0.2rem 0 0.9rem 0;
+            padding: 0.75rem 0;
+            border-top: 1px solid var(--cv-border);
+            border-bottom: 1px solid var(--cv-border);
+        ">
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Activity rows</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["total_rows"]}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">CIDs with activity</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_cids"]}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">AIDs with activity</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_aids"]}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Activity types</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
+                    {html.escape(_format_activity_option_list(summary["activity_types"]))}
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Outcomes</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
+                    {html.escape(_format_activity_option_list(summary["outcomes"]))}
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Units</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
+                    {html.escape(_format_activity_option_list(summary["units"]))}
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Source columns</div>
+                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
+                    {html.escape(_format_activity_option_list(summary["source_columns"]))}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander("Filter structured activity", expanded=False):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            selected_types = st.multiselect(
+                "Activity type",
+                summary["activity_types"],
+                key="activity_filter_type",
+            )
+            selected_units = st.multiselect(
+                "Unit",
+                summary["units"],
+                key="activity_filter_unit",
+            )
+        with col_b:
+            selected_outcomes = st.multiselect(
+                "Outcome",
+                summary["outcomes"],
+                key="activity_filter_outcome",
+            )
+            selected_aids = st.multiselect(
+                "AID",
+                summary["aids"],
+                key="activity_filter_aid",
+            )
+
+        value_range = None
+        min_value = summary["min_value"]
+        max_value = summary["max_value"]
+        if min_value is not None and max_value is not None:
+            if min_value < max_value:
+                value_range = st.slider(
+                    "Activity value range",
+                    min_value=float(min_value),
+                    max_value=float(max_value),
+                    value=(float(min_value), float(max_value)),
+                    key="activity_filter_value_range",
+                )
+            else:
+                st.caption(f"Activity value: {min_value}")
+                value_range = (min_value, max_value)
+
+    rows = get_activity_rows(
+        connection,
+        activity_types=selected_types,
+        outcomes=selected_outcomes,
+        units=selected_units,
+        aids=selected_aids,
+        value_range=value_range,
+    )
+    activity_df = pd.DataFrame(rows)
+    st.caption(f"{len(activity_df)} structured activity row{'s' if len(activity_df) != 1 else ''} shown.")
+    st.dataframe(activity_df, hide_index=True, use_container_width=True)
+    st.download_button(
+        "Download structured activity CSV",
+        data=activity_df.to_csv(index=False).encode("utf-8"),
+        file_name="chemvault_structured_activity.csv",
+        mime="text/csv",
+        disabled=activity_df.empty,
+        key="download_structured_activity_csv",
+    )
+
+
 def render_table_manager_card(container):
     with container:
         st.subheader("Table Manager")
@@ -397,6 +533,8 @@ def render_table_manager_card(container):
         )
         render_table_manager_actions(database_id, profiles)
         render_operation_history(db_path)
+        with sqlite3.connect(db_path) as activity_conn:
+            render_structured_activity_section(activity_conn)
 
         active_schema = next(
             (table for table in schema if table["table"] == current_table),
