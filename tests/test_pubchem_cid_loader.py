@@ -125,7 +125,7 @@ def test_obtener_cids_pubchem_enriches_main_table(monkeypatch):
     assert len(progress.values) > 1
 
 
-def test_obtener_cids_pubchem_skips_activity_for_large_aid_sets(monkeypatch):
+def test_obtener_cids_pubchem_enriches_activity_for_large_aid_sets(monkeypatch):
     connection = sqlite3.connect(":memory:")
     connection.execute(
         "CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT)"
@@ -149,6 +149,18 @@ def test_obtener_cids_pubchem_skips_activity_for_large_aid_sets(monkeypatch):
                     }
                 }
             )
+        if "/assay/aid/" in url and url.endswith("/CSV"):
+            aid = int(url.split("/assay/aid/")[1].split("/CSV")[0])
+            cid = 1000 + aid
+            assay_csv = "\n".join(
+                [
+                    "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki",
+                    "RESULT_TYPE,,,FLOAT",
+                    "RESULT_UNIT,,,NANOMOLAR",
+                    f"1,{cid},Active,{aid}",
+                ]
+            )
+            return FakeResponse(text=assay_csv)
         if "/compound/cid/" in url:
             cid_block = url.split("/compound/cid/")[1].split("/property/Title/JSON")[0]
             return FakeResponse(
@@ -167,18 +179,22 @@ def test_obtener_cids_pubchem_skips_activity_for_large_aid_sets(monkeypatch):
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
 
-    assert not any(url.endswith("/CSV") for url in requested_urls)
+    assert len([url for url in requested_urls if url.endswith("/CSV")]) == len(aids)
     cursor = connection.cursor()
     cursor.execute("SELECT COUNT(*), COUNT(Compound_Name) FROM main")
     assert cursor.fetchone() == (len(aids), len(aids))
     cursor.execute(
-        "SELECT COUNT(*) FROM main WHERE Activity_Enrichment_Status = 'skipped_aid_limit'"
+        "SELECT COUNT(*) FROM main WHERE Activity_Enrichment_Status = 'enriched'"
     )
     assert cursor.fetchone() == (len(aids),)
+    cursor.execute(
+        "SELECT COUNT(*) FROM main WHERE Activity_Enrichment_Status = 'skipped_aid_limit'"
+    )
+    assert cursor.fetchone() == (0,)
     cursor.execute("SELECT COUNT(DISTINCT AID), COUNT(*) FROM compound_assays")
     assert cursor.fetchone() == (len(aids), len(aids))
     cursor.execute("SELECT COUNT(*) FROM compound_activities")
-    assert cursor.fetchone() == (0,)
+    assert cursor.fetchone() == (len(aids),)
 
 
 def test_obtener_cids_pubchem_preserves_cid_deduplication_and_assay_traceability(monkeypatch):

@@ -425,9 +425,7 @@ def fetch_pubchem_assay_activity(aid):
     return _fetch_assay_activity(aid, raise_on_error=True)
 
 
-def _activity_status_for_record(cid, enriched_cids, activity_was_skipped):
-    if activity_was_skipped:
-        return "skipped_aid_limit"
+def _activity_status_for_record(cid, enriched_cids):
     if cid in enriched_cids:
         return "enriched"
     return "partial_or_failed"
@@ -473,48 +471,36 @@ def _collect_pubchem_records(connection, proteins, progreso):
 
     compound_names = _fetch_compound_names(records.keys(), progreso, start=0.60, end=0.85)
 
-    activity_was_skipped = total_steps > MAX_ACTIVITY_AIDS
-    enriched_cids = set()
-    if total_steps > MAX_ACTIVITY_AIDS:
-        print(
-            "Skipping activity CSV enrichment for this protein search because "
-            f"{total_steps} AIDs exceeds the limit of {MAX_ACTIVITY_AIDS}."
-        )
-    else:
-        aid_jobs = [
-            {
-                "protein": protein,
-                "aid": str(aid),
-                "cids": cids_by_aid.get(str(aid), []),
-            }
-            for protein, aid in trabajos
-        ]
+    aid_jobs = [
+        {
+            "protein": protein,
+            "aid": str(aid),
+            "cids": cids_by_aid.get(str(aid), []),
+        }
+        for protein, aid in trabajos
+    ]
 
-        def activity_progress_callback(snapshot):
-            total_aids = snapshot.get("total_aids", 0)
-            processed_aids = snapshot.get("processed_aids", 0)
-            fraction = 1.0 if total_aids == 0 else processed_aids / total_aids
-            _update_progress(progreso, 0.85 + (0.10 * fraction))
+    def activity_progress_callback(snapshot):
+        total_aids = snapshot.get("total_aids", 0)
+        processed_aids = snapshot.get("processed_aids", 0)
+        fraction = 1.0 if total_aids == 0 else processed_aids / total_aids
+        _update_progress(progreso, 0.85 + (0.10 * fraction))
 
-        def activity_fetcher(aid):
-            return _fetch_assay_activity(aid, raise_on_error=True)
+    def activity_fetcher(aid):
+        return _fetch_assay_activity(aid, raise_on_error=True)
 
-        activity_result = run_pubchem_activity_enrichment(
-            connection,
-            aid_jobs,
-            activity_fetcher,
-            progress_callback=activity_progress_callback,
-            continue_on_error=True,
-        )
-        enriched_cids = set(activity_result.get("successful_cid_values", []))
+    activity_result = run_pubchem_activity_enrichment(
+        connection,
+        aid_jobs,
+        activity_fetcher,
+        progress_callback=activity_progress_callback,
+        continue_on_error=True,
+    )
+    enriched_cids = set(activity_result.get("successful_cid_values", []))
 
     for cid, record in records.items():
         record["compound_name"] = compound_names.get(cid, "")
-        record["activity_status"] = _activity_status_for_record(
-            cid,
-            enriched_cids,
-            activity_was_skipped,
-        )
+        record["activity_status"] = _activity_status_for_record(cid, enriched_cids)
     _update_progress(progreso, 0.95)
 
     return records
