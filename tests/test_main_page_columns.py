@@ -4,6 +4,7 @@ import sqlite3
 from ui.main_page import (
     ACTIVITY_SUMMARY_COLUMNS,
     _filter_visible_column_options,
+    _get_activity_enrichment_job_summary,
     _get_protein_traceability_summary,
 )
 
@@ -40,6 +41,42 @@ def test_activity_summary_columns_are_exact_legacy_main_columns():
         "Activity_Type",
         "Activity_Value",
         "Activity_Enrichment_Status",
+    }
+
+
+def test_activity_enrichment_job_summary_handles_missing_compound_assays():
+    connection = sqlite3.connect(":memory:")
+
+    assert _get_activity_enrichment_job_summary(connection) is None
+
+
+def test_activity_enrichment_job_summary_handles_empty_compound_assays():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+
+    assert _get_activity_enrichment_job_summary(connection) is None
+
+
+def test_activity_enrichment_job_summary_counts_distinct_protein_aid_pairs():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [
+            ("101", "11", "P1"),
+            ("101", "11", "P1"),
+            ("102", "11", "P1"),
+            ("103", "11", "P2"),
+            ("104", "12", "P1"),
+        ],
+    )
+
+    summary = _get_activity_enrichment_job_summary(connection)
+
+    assert summary == {
+        "total_aids": 3,
+        "cid_aid_links": 5,
+        "proteins": ["P1", "P2"],
     }
 
 

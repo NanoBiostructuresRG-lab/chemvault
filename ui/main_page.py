@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from modules.obtener_CIDs_Pubchem import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
     get_activity_csv_bytes,
@@ -15,6 +16,9 @@ from services.activity_data import (
     get_activity_rows,
     get_activity_summary,
     get_activity_value_stats,
+)
+from services.activity_enrichment import (
+    run_activity_enrichment_from_compound_assays,
 )
 from services.db_audit import (
     delete_user_table,
@@ -269,6 +273,116 @@ def render_protein_traceability_summary(container, connection):
             "BioAssays exceeded the configured safety limit. CIDs and assay links were "
             "loaded, but detailed activity values were not requested from PubChem."
         )
+
+
+def _get_activity_enrichment_job_summary(connection):
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='compound_assays'"
+    )
+    if cursor.fetchone() is None:
+        return None
+
+    cursor.execute('SELECT COUNT(*) FROM "compound_assays"')
+    cid_aid_links = int(cursor.fetchone()[0])
+    if cid_aid_links == 0:
+        return None
+
+    cursor.execute(
+        '''
+        SELECT COUNT(*)
+        FROM (
+            SELECT DISTINCT Protein, AID
+            FROM "compound_assays"
+        )
+        '''
+    )
+    total_aids = int(cursor.fetchone()[0])
+    cursor.execute(
+        '''
+        SELECT DISTINCT Protein
+        FROM "compound_assays"
+        WHERE COALESCE(Protein, '') != ''
+        ORDER BY Protein
+        '''
+    )
+    proteins = [str(row[0]) for row in cursor.fetchall()]
+    return {
+        "total_aids": total_aids,
+        "cid_aid_links": cid_aid_links,
+        "proteins": proteins,
+    }
+
+
+def _render_activity_enrichment_progress(snapshot, progress_bar, status_placeholder, stats_placeholder):
+    total_chunks = snapshot.get("total_chunks", 0)
+    current_chunk = snapshot.get("current_chunk", 0)
+    progress = 1.0 if total_chunks == 0 else current_chunk / total_chunks
+    progress_bar.progress(min(max(progress, 0.0), 1.0))
+    status_placeholder.caption(
+        f"PubChem activity {snapshot.get('status', 'running')}: "
+        f"chunk {current_chunk}/{total_chunks}"
+    )
+    stats_placeholder.caption(
+        "Processed AIDs: {processed} | Success: {success} | Failed: {failed} | Inserted rows: {inserted}".format(
+            processed=snapshot.get("processed_aids", 0),
+            success=snapshot.get("successful_aids", 0),
+            failed=snapshot.get("failed_aids", 0),
+            inserted=snapshot.get("inserted_rows", 0),
+        )
+    )
+
+
+def render_activity_enrichment_action(connection):
+    summary = _get_activity_enrichment_job_summary(connection)
+    if summary is None:
+        return
+
+    protein_text = ", ".join(summary["proteins"]) if summary["proteins"] else "None"
+    st.markdown("#### Activity enrichment")
+    st.caption("Complete structured PubChem activity from existing assay links.")
+    st.caption(
+        "Reconstructible AIDs: {aids}; CID-AID links: {links}; Proteins: {proteins}".format(
+            aids=summary["total_aids"],
+            links=summary["cid_aid_links"],
+            proteins=protein_text,
+        )
+    )
+
+    if st.button(
+        "Enrich structured activity from assay links",
+        key="enrich_structured_activity_from_assay_links",
+    ):
+        progress_bar = st.progress(0)
+        status_placeholder = st.empty()
+        stats_placeholder = st.empty()
+
+        def progress_callback(snapshot):
+            _render_activity_enrichment_progress(
+                snapshot,
+                progress_bar,
+                status_placeholder,
+                stats_placeholder,
+            )
+
+        result = run_activity_enrichment_from_compound_assays(
+            connection,
+            fetch_pubchem_assay_activity,
+            progress_callback=progress_callback,
+            continue_on_error=True,
+        )
+        message = (
+            "PubChem activity enrichment completed. "
+            f"Total AIDs: {result['total_aids']}; "
+            f"Processed: {result['processed_aids']}; "
+            f"Successful: {result['successful_aids']}; "
+            f"Failed: {result['failed_aids']}; "
+            f"Inserted rows: {result['inserted_rows']}."
+        )
+        if result["failed_aids"] > 0:
+            st.warning(message)
+        else:
+            st.success(message)
 
 
 def _format_audit_label(value):
@@ -610,6 +724,7 @@ def render_table_manager_card(container):
         render_table_manager_actions(database_id, profiles)
         render_operation_history(db_path)
         with sqlite3.connect(db_path) as activity_conn:
+            render_activity_enrichment_action(activity_conn)
             render_structured_activity_section(activity_conn)
 
         active_schema = next(
