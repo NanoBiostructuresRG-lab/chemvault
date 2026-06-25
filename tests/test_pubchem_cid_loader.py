@@ -665,3 +665,26 @@ def test_activity_failure_classifier_detects_unsupported_activity_column():
         )
         == "unsupported_activity_column"
     )
+
+
+def test_fetch_assay_activity_keeps_legacy_empty_result_on_request_error(monkeypatch):
+    def failing_get(url, timeout):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(pubchem_loader.requests, "get", failing_get)
+
+    assert pubchem_loader._fetch_assay_activity(41441) == {}
+
+
+def test_fetch_assay_activity_reraises_when_requested(monkeypatch):
+    def failing_get(url, timeout):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(pubchem_loader.requests, "get", failing_get)
+
+    try:
+        pubchem_loader._fetch_assay_activity(41441, raise_on_error=True)
+    except RuntimeError as exc:
+        assert str(exc) == "network down"
+    else:
+        raise AssertionError("Expected RuntimeError")

@@ -3,9 +3,13 @@ import csv
 import io
 import requests
 
+from services.activity_enrichment import (
+    ensure_compound_activities_table,
+    run_pubchem_activity_enrichment,
+)
+
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 COMPOUND_ASSAYS_TABLE = "compound_assays"
-COMPOUND_ACTIVITIES_TABLE = "compound_activities"
 REQUEST_TIMEOUT = (5, 60)
 COMPOUND_NAME_BATCH_SIZE = 100
 AID_CID_BATCH_SIZE = 50
@@ -45,37 +49,7 @@ def _ensure_compound_assays_table(cursor):
 
 
 def _ensure_compound_activities_table(cursor):
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {COMPOUND_ACTIVITIES_TABLE} (
-            CID TEXT NOT NULL,
-            AID TEXT NOT NULL,
-            Protein TEXT NOT NULL,
-            Activity_Type TEXT,
-            Relation TEXT,
-            Activity_Value REAL,
-            Activity_Value_Raw TEXT,
-            Unit TEXT,
-            Outcome TEXT,
-            Source_Column TEXT,
-            Activity_Status TEXT,
-            Result_Tag TEXT
-        )
-    """)
-    cursor.execute(f"""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_compound_activities_unique_result
-        ON {COMPOUND_ACTIVITIES_TABLE} (
-            CID,
-            AID,
-            Protein,
-            Result_Tag,
-            Activity_Type,
-            Source_Column,
-            Activity_Value_Raw,
-            Unit,
-            Relation,
-            Outcome
-        )
-    """)
+    ensure_compound_activities_table(cursor.connection)
 
 
 def _join_values(values):
@@ -342,7 +316,7 @@ def _classify_activity_failure(row, activity_columns):
     return "assay_has_no_quantitative_activity"
 
 
-def _fetch_assay_activity(aid):
+def _fetch_assay_activity(aid, raise_on_error=False):
     url = f"{BASE_URL}/assay/aid/{aid}/CSV"
     activity_by_cid = {}
     try:
@@ -442,18 +416,20 @@ def _fetch_assay_activity(aid):
                 activity["records"].append(record)
     except Exception as e:
         print(f"Error fetching activity for AID {aid}: {e}")
+        if raise_on_error:
+            raise
     return activity_by_cid
 
 
-def _activity_status_for_record(record, activity_was_skipped):
+def _activity_status_for_record(cid, enriched_cids, activity_was_skipped):
     if activity_was_skipped:
         return "skipped_aid_limit"
-    if record["activity_values"]:
+    if cid in enriched_cids:
         return "enriched"
     return "partial_or_failed"
 
 
-def _collect_pubchem_records(proteins, progreso):
+def _collect_pubchem_records(connection, proteins, progreso):
     protein_aids = {}
     for index, protein in enumerate(proteins, start=1):
         try:
@@ -483,9 +459,6 @@ def _collect_pubchem_records(proteins, progreso):
                 {
                     "aids": set(),
                     "proteins": set(),
-                    "activity_types": set(),
-                    "activity_values": set(),
-                    "activity_records": [],
                     "assays": set(),
                 },
             )
@@ -497,28 +470,47 @@ def _collect_pubchem_records(proteins, progreso):
     compound_names = _fetch_compound_names(records.keys(), progreso, start=0.60, end=0.85)
 
     activity_was_skipped = total_steps > MAX_ACTIVITY_AIDS
+    enriched_cids = set()
     if total_steps > MAX_ACTIVITY_AIDS:
         print(
             "Skipping activity CSV enrichment for this protein search because "
             f"{total_steps} AIDs exceeds the limit of {MAX_ACTIVITY_AIDS}."
         )
     else:
-        for step, (protein, aid) in enumerate(trabajos, start=1):
-            activity_by_cid = _fetch_assay_activity(aid)
-            for cid, activity in activity_by_cid.items():
-                if cid in records:
-                    records[cid]["activity_types"].update(activity["types"])
-                    records[cid]["activity_values"].update(activity["values"])
-                    for activity_record in activity.get("records", []):
-                        records[cid]["activity_records"].append(
-                            {**activity_record, "Protein": protein}
-                        )
-            fraction = step / total_steps
+        aid_jobs = [
+            {
+                "protein": protein,
+                "aid": str(aid),
+                "cids": cids_by_aid.get(str(aid), []),
+            }
+            for protein, aid in trabajos
+        ]
+
+        def activity_progress_callback(snapshot):
+            total_aids = snapshot.get("total_aids", 0)
+            processed_aids = snapshot.get("processed_aids", 0)
+            fraction = 1.0 if total_aids == 0 else processed_aids / total_aids
             _update_progress(progreso, 0.85 + (0.10 * fraction))
+
+        def activity_fetcher(aid):
+            return _fetch_assay_activity(aid, raise_on_error=True)
+
+        activity_result = run_pubchem_activity_enrichment(
+            connection,
+            aid_jobs,
+            activity_fetcher,
+            progress_callback=activity_progress_callback,
+            continue_on_error=True,
+        )
+        enriched_cids = set(activity_result.get("successful_cid_values", []))
 
     for cid, record in records.items():
         record["compound_name"] = compound_names.get(cid, "")
-        record["activity_status"] = _activity_status_for_record(record, activity_was_skipped)
+        record["activity_status"] = _activity_status_for_record(
+            cid,
+            enriched_cids,
+            activity_was_skipped,
+        )
     _update_progress(progreso, 0.95)
 
     return records
@@ -541,7 +533,7 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     """)
     connection.commit()
 
-    records = _collect_pubchem_records(proteins, progreso)
+    records = _collect_pubchem_records(connection, proteins, progreso)
     total_records = len(records)
     for index, (cid, record) in enumerate(records.items(), start=1):
         cursor.execute(f"""
@@ -567,43 +559,6 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
             VALUES (?, ?, ?)
             """,
             sorted(record["assays"]),
-        )
-        cursor.executemany(
-            f"""
-            INSERT OR IGNORE INTO {COMPOUND_ACTIVITIES_TABLE}
-            (
-                CID,
-                AID,
-                Protein,
-                Activity_Type,
-                Relation,
-                Activity_Value,
-                Activity_Value_Raw,
-                Unit,
-                Outcome,
-                Source_Column,
-                Activity_Status,
-                Result_Tag
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    activity_record["CID"],
-                    activity_record["AID"],
-                    activity_record["Protein"],
-                    activity_record["Activity_Type"],
-                    activity_record["Relation"],
-                    activity_record["Activity_Value"],
-                    activity_record["Activity_Value_Raw"],
-                    activity_record["Unit"],
-                    activity_record["Outcome"],
-                    activity_record["Source_Column"],
-                    activity_record["Activity_Status"],
-                    activity_record["Result_Tag"],
-                )
-                for activity_record in record["activity_records"]
-            ],
         )
         if total_records:
             fraction = index / total_records
