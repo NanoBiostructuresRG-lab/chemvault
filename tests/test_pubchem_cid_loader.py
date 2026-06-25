@@ -25,6 +25,35 @@ class FakeProgress:
         self.values.append(value)
 
 
+def test_fetch_compound_names_uses_configured_batch_size(monkeypatch):
+    requested_urls = []
+
+    def fake_get(url, timeout):
+        requested_urls.append(url)
+        cid_block = url.split("/compound/cid/")[1].split("/property/Title/JSON")[0]
+        return FakeResponse(
+            {
+                "PropertyTable": {
+                    "Properties": [
+                        {"CID": int(cid), "Title": f"Compound {cid}"}
+                        for cid in cid_block.split(",")
+                    ]
+                }
+            }
+        )
+
+    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+
+    names = pubchem_loader._fetch_compound_names(range(1, 502))
+
+    assert len(requested_urls) == 2
+    assert "/compound/cid/1,2,3" in requested_urls[0]
+    assert "/compound/cid/501/property/Title/JSON" in requested_urls[1]
+    assert names["1"] == "Compound 1"
+    assert names["500"] == "Compound 500"
+    assert names["501"] == "Compound 501"
+
+
 def test_obtener_cids_pubchem_enriches_main_table(monkeypatch):
     connection = sqlite3.connect(":memory:")
     connection.execute(

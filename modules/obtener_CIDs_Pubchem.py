@@ -11,7 +11,7 @@ from services.activity_enrichment import (
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 COMPOUND_ASSAYS_TABLE = "compound_assays"
 REQUEST_TIMEOUT = (5, 60)
-COMPOUND_NAME_BATCH_SIZE = 100
+COMPOUND_NAME_BATCH_SIZE = 500
 AID_CID_BATCH_SIZE = 50
 MAX_ACTIVITY_AIDS = 50
 ACTIVITY_KEYWORDS = (
