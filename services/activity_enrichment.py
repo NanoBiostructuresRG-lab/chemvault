@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 COMPOUND_ACTIVITIES_TABLE = "compound_activities"
+COMPOUND_ASSAYS_TABLE = "compound_assays"
 DEFAULT_ACTIVITY_CHUNK_SIZE = 10
 ACTIVITY_COLUMNS = [
     "CID",
@@ -91,6 +92,54 @@ def _build_activity_progress(
 def _emit_progress(progress_callback, snapshot):
     if progress_callback is not None:
         progress_callback(snapshot)
+
+
+def _empty_activity_result():
+    return {
+        "status": "success",
+        "total_aids": 0,
+        "processed_aids": 0,
+        "successful_aids": 0,
+        "failed_aids": 0,
+        "processed_aid_values": [],
+        "successful_aid_values": [],
+        "failed_aid_values": [],
+        "successful_cid_values": [],
+        "inserted_rows": 0,
+        "error_message": None,
+    }
+
+
+def _compound_assays_exists(connection):
+    cursor = connection.cursor()
+    cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (COMPOUND_ASSAYS_TABLE,),
+    )
+    return cursor.fetchone() is not None
+
+
+def build_activity_jobs_from_compound_assays(connection):
+    if not _compound_assays_exists(connection):
+        return []
+
+    cursor = connection.cursor()
+    cursor.execute(f"""
+        SELECT Protein, AID, CID
+        FROM {COMPOUND_ASSAYS_TABLE}
+        ORDER BY Protein, AID, CID
+    """)
+    grouped_jobs = {}
+    for protein, aid, cid in cursor.fetchall():
+        key = (str(protein), str(aid))
+        job = grouped_jobs.setdefault(
+            key,
+            {"protein": str(protein), "aid": str(aid), "cids": []},
+        )
+        cid = str(cid)
+        if cid not in job["cids"]:
+            job["cids"].append(cid)
+    return list(grouped_jobs.values())
 
 
 def _activity_rows_from_fetch_result(aid_job, activity_by_cid):
@@ -273,3 +322,36 @@ def run_pubchem_activity_enrichment(
     )
     _emit_progress(progress_callback, result["progress"])
     return result
+
+
+def run_activity_enrichment_from_compound_assays(
+    connection,
+    activity_fetcher,
+    chunk_size=DEFAULT_ACTIVITY_CHUNK_SIZE,
+    progress_callback=None,
+    continue_on_error=True,
+):
+    aid_jobs = build_activity_jobs_from_compound_assays(connection)
+    if not aid_jobs:
+        ensure_compound_activities_table(connection)
+        result = _empty_activity_result()
+        result["progress"] = _build_activity_progress(
+            "success",
+            0,
+            0,
+            0,
+            [],
+            [],
+            [],
+            0,
+        )
+        _emit_progress(progress_callback, result["progress"])
+        return result
+    return run_pubchem_activity_enrichment(
+        connection,
+        aid_jobs,
+        activity_fetcher,
+        chunk_size=chunk_size,
+        progress_callback=progress_callback,
+        continue_on_error=continue_on_error,
+    )

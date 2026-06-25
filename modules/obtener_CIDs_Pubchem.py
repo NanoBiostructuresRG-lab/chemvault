@@ -421,6 +421,10 @@ def _fetch_assay_activity(aid, raise_on_error=False):
     return activity_by_cid
 
 
+def fetch_pubchem_assay_activity(aid):
+    return _fetch_assay_activity(aid, raise_on_error=True)
+
+
 def _activity_status_for_record(cid, enriched_cids, activity_was_skipped):
     if activity_was_skipped:
         return "skipped_aid_limit"

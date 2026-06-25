@@ -2,8 +2,10 @@
 import sqlite3
 
 from services.activity_enrichment import (
+    build_activity_jobs_from_compound_assays,
     chunk_aid_jobs,
     ensure_compound_activities_table,
+    run_activity_enrichment_from_compound_assays,
     run_pubchem_activity_enrichment,
 )
 
@@ -187,3 +189,88 @@ def test_chunk_aid_jobs_rejects_non_positive_chunk_size():
             assert str(exc) == "chunk_size must be greater than zero."
         else:
             raise AssertionError("Expected ValueError")
+
+
+def test_build_activity_jobs_from_compound_assays_groups_by_protein_and_aid():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [
+            ("101", "11", "P1"),
+            ("102", "11", "P1"),
+            ("101", "11", "P1"),
+            ("201", "11", "P2"),
+            ("301", "22", "P1"),
+        ],
+    )
+
+    jobs = build_activity_jobs_from_compound_assays(connection)
+
+    assert jobs == [
+        {"protein": "P1", "aid": "11", "cids": ["101", "102"]},
+        {"protein": "P1", "aid": "22", "cids": ["301"]},
+        {"protein": "P2", "aid": "11", "cids": ["201"]},
+    ]
+
+
+def test_run_activity_enrichment_from_compound_assays_fills_compound_activities():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("101", "11", "P1"), ("202", "22", "P1")],
+    )
+
+    result = run_activity_enrichment_from_compound_assays(
+        connection,
+        lambda aid: activity_payload(aid, {"11": "101", "22": "202"}[aid], aid),
+        chunk_size=1,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute("SELECT AID, Protein, CID FROM compound_activities ORDER BY AID")
+
+    assert result["total_aids"] == 2
+    assert result["inserted_rows"] == 2
+    assert cursor.fetchall() == [("11", "P1", "101"), ("22", "P1", "202")]
+
+
+def test_run_activity_enrichment_from_compound_assays_handles_missing_or_empty_source_table():
+    missing_connection = sqlite3.connect(":memory:")
+
+    missing_result = run_activity_enrichment_from_compound_assays(
+        missing_connection,
+        lambda aid: activity_payload(aid, "101", "10"),
+    )
+
+    empty_connection = sqlite3.connect(":memory:")
+    empty_connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+    empty_result = run_activity_enrichment_from_compound_assays(
+        empty_connection,
+        lambda aid: activity_payload(aid, "101", "10"),
+    )
+
+    assert missing_result["total_aids"] == 0
+    assert missing_result["inserted_rows"] == 0
+    assert empty_result["total_aids"] == 0
+    assert empty_result["inserted_rows"] == 0
+
+
+def test_run_activity_enrichment_from_compound_assays_is_idempotent():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+    connection.execute(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES ('101', '11', 'P1')"
+    )
+    fetcher = lambda aid: activity_payload(aid, "101", "10")
+
+    first = run_activity_enrichment_from_compound_assays(connection, fetcher)
+    second = run_activity_enrichment_from_compound_assays(connection, fetcher)
+
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM compound_activities")
+
+    assert first["inserted_rows"] == 1
+    assert second["inserted_rows"] == 0
+    assert cursor.fetchone() == (1,)

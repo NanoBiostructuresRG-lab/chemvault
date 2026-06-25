@@ -688,3 +688,17 @@ def test_fetch_assay_activity_reraises_when_requested(monkeypatch):
         assert str(exc) == "network down"
     else:
         raise AssertionError("Expected RuntimeError")
+
+
+def test_fetch_pubchem_assay_activity_uses_strict_fetch_contract(monkeypatch):
+    def failing_get(url, timeout):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(pubchem_loader.requests, "get", failing_get)
+
+    try:
+        pubchem_loader.fetch_pubchem_assay_activity(41441)
+    except RuntimeError as exc:
+        assert str(exc) == "network down"
+    else:
+        raise AssertionError("Expected RuntimeError")
