@@ -188,6 +188,7 @@ def _get_protein_traceability_summary(connection):
     proteins = [row[0] for row in cursor.fetchall()]
 
     activity_status = "not_attempted"
+    activity_status_counts = {}
     cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='main'")
     if cursor.fetchone() is not None:
         cursor.execute('PRAGMA table_info("main")')
@@ -204,6 +205,7 @@ def _get_protein_traceability_summary(connection):
             )
             rows = cursor.fetchall()
             if rows:
+                activity_status_counts = {status: count for status, count in rows}
                 activity_status = ", ".join(f"{status}: {count}" for status, count in rows)
 
     return {
@@ -212,6 +214,7 @@ def _get_protein_traceability_summary(connection):
         "individual_aids": individual_aids,
         "cid_aid_links": cid_aid_links,
         "activity_status": activity_status,
+        "activity_status_counts": activity_status_counts,
     }
 
 
@@ -259,6 +262,13 @@ def render_protein_traceability_summary(container, connection):
         """,
         unsafe_allow_html=True,
     )
+    skipped_count = summary["activity_status_counts"].get("skipped_aid_limit", 0)
+    if skipped_count > 0:
+        container.warning(
+            "Activity enrichment was skipped for this search because the number of "
+            "BioAssays exceeded the configured safety limit. CIDs and assay links were "
+            "loaded, but detailed activity values were not requested from PubChem."
+        )
 
 
 def _format_audit_label(value):

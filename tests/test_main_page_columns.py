@@ -1,5 +1,11 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from ui.main_page import ACTIVITY_SUMMARY_COLUMNS, _filter_visible_column_options
+import sqlite3
+
+from ui.main_page import (
+    ACTIVITY_SUMMARY_COLUMNS,
+    _filter_visible_column_options,
+    _get_protein_traceability_summary,
+)
 
 
 def test_filter_visible_column_options_hides_only_activity_summary_columns():
@@ -35,3 +41,29 @@ def test_activity_summary_columns_are_exact_legacy_main_columns():
         "Activity_Value",
         "Activity_Enrichment_Status",
     }
+
+
+def test_protein_traceability_summary_exposes_skipped_activity_status_count():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+    connection.execute(
+        """
+        CREATE TABLE main (
+            CID TEXT,
+            Activity_Enrichment_Status TEXT
+        )
+        """
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("1", "11", "P34971"), ("2", "12", "P34971")],
+    )
+    connection.executemany(
+        "INSERT INTO main (CID, Activity_Enrichment_Status) VALUES (?, ?)",
+        [("1", "skipped_aid_limit"), ("2", "skipped_aid_limit")],
+    )
+
+    summary = _get_protein_traceability_summary(connection)
+
+    assert summary["activity_status"] == "skipped_aid_limit: 2"
+    assert summary["activity_status_counts"] == {"skipped_aid_limit": 2}
