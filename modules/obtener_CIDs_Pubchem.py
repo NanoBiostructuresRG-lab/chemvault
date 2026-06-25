@@ -497,6 +497,10 @@ def _collect_pubchem_records(connection, proteins, progreso):
         continue_on_error=True,
         max_workers=4,
         rate_limit_per_second=4,
+        max_retries=3,
+        retry_initial_delay=1.0,
+        retry_backoff_multiplier=2.0,
+        retry_max_delay=8.0,
     )
     enriched_cids = set(activity_result.get("successful_cid_values", []))
 

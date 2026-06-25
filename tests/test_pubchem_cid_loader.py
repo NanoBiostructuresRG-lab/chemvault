@@ -164,6 +164,10 @@ def test_obtener_cids_pubchem_uses_concurrent_activity_enrichment(monkeypatch):
     ]
     assert captured["kwargs"]["max_workers"] == 4
     assert captured["kwargs"]["rate_limit_per_second"] == 4
+    assert captured["kwargs"]["max_retries"] == 3
+    assert captured["kwargs"]["retry_initial_delay"] == 1.0
+    assert captured["kwargs"]["retry_backoff_multiplier"] == 2.0
+    assert captured["kwargs"]["retry_max_delay"] == 8.0
     assert captured["kwargs"]["continue_on_error"] is True
 
 

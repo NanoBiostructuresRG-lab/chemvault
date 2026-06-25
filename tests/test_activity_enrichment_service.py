@@ -3,12 +3,24 @@ import sqlite3
 import threading
 
 from services.activity_enrichment import (
+    _fetch_with_retry,
     build_activity_jobs_from_compound_assays,
     chunk_aid_jobs,
     ensure_compound_activities_table,
     run_activity_enrichment_from_compound_assays,
     run_pubchem_activity_enrichment,
 )
+
+
+class FakeResponse:
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
+class FakeHTTPError(Exception):
+    def __init__(self, status_code, message="HTTP error"):
+        super().__init__(message)
+        self.response = FakeResponse(status_code)
 
 
 def activity_payload(aid, cid, value):
@@ -301,6 +313,115 @@ def test_activity_runner_rate_limiter_uses_global_start_spacing(monkeypatch):
     assert sleep_calls == [0.5]
 
 
+def test_fetch_with_retry_retries_http_503_once_then_succeeds():
+    calls = []
+    sleeps = []
+
+    def fetcher(aid):
+        calls.append(aid)
+        if len(calls) == 1:
+            raise FakeHTTPError(503, "ServerBusy")
+        return activity_payload(aid, "101", "10")
+
+    result = _fetch_with_retry(
+        "11",
+        fetcher,
+        max_retries=3,
+        initial_delay=1.0,
+        backoff_multiplier=2.0,
+        max_delay=8.0,
+        sleep_func=sleeps.append,
+    )
+
+    assert result == activity_payload("11", "101", "10")
+    assert calls == ["11", "11"]
+    assert sleeps == [1.0]
+
+
+def test_fetch_with_retry_reraises_http_503_after_retries_are_exhausted():
+    calls = []
+    sleeps = []
+
+    def fetcher(aid):
+        calls.append(aid)
+        raise FakeHTTPError(503, "ServerBusy")
+
+    try:
+        _fetch_with_retry(
+            "11",
+            fetcher,
+            max_retries=2,
+            initial_delay=1.0,
+            backoff_multiplier=2.0,
+            max_delay=8.0,
+            sleep_func=sleeps.append,
+        )
+    except FakeHTTPError as exc:
+        assert exc.response.status_code == 503
+    else:
+        raise AssertionError("Expected FakeHTTPError")
+
+    assert calls == ["11", "11", "11"]
+    assert sleeps == [1.0, 2.0]
+
+
+def test_fetch_with_retry_does_not_retry_http_400():
+    calls = []
+    sleeps = []
+
+    def fetcher(aid):
+        calls.append(aid)
+        raise FakeHTTPError(400, "Too many SIDs")
+
+    try:
+        _fetch_with_retry(
+            "11",
+            fetcher,
+            max_retries=3,
+            sleep_func=sleeps.append,
+        )
+    except FakeHTTPError as exc:
+        assert exc.response.status_code == 400
+    else:
+        raise AssertionError("Expected FakeHTTPError")
+
+    assert calls == ["11"]
+    assert sleeps == []
+
+
+def test_activity_runner_concurrent_fetch_retries_transient_503_without_blocking_successes():
+    connection = sqlite3.connect(":memory:")
+    calls = []
+
+    def fetcher(aid):
+        calls.append(aid)
+        if aid == "22" and calls.count("22") == 1:
+            raise FakeHTTPError(503, "ServerBusy")
+        return activity_payload(aid, {"11": "101", "22": "202", "33": "303"}[aid], aid)
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        aid_jobs(),
+        fetcher,
+        chunk_size=3,
+        max_workers=3,
+        max_retries=1,
+        retry_initial_delay=0.0,
+        retry_backoff_multiplier=2.0,
+        retry_max_delay=0.0,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute("SELECT AID, CID FROM compound_activities ORDER BY AID")
+
+    assert result["status"] == "success"
+    assert result["processed_aids"] == 3
+    assert result["successful_aids"] == 3
+    assert result["failed_aids"] == 0
+    assert cursor.fetchall() == [("11", "101"), ("22", "202"), ("33", "303")]
+    assert calls.count("22") == 2
+
+
 def test_ensure_compound_activities_table_is_idempotent():
     connection = sqlite3.connect(":memory:")
 
@@ -407,6 +528,10 @@ def test_run_activity_enrichment_from_compound_assays_keeps_sequential_defaults(
     assert captured["aid_jobs"] == [{"protein": "P1", "aid": "11", "cids": ["101"]}]
     assert captured["kwargs"]["max_workers"] == 1
     assert captured["kwargs"]["rate_limit_per_second"] is None
+    assert captured["kwargs"]["max_retries"] == 0
+    assert captured["kwargs"]["retry_initial_delay"] == 1.0
+    assert captured["kwargs"]["retry_backoff_multiplier"] == 2.0
+    assert captured["kwargs"]["retry_max_delay"] == 8.0
 
 
 def test_run_activity_enrichment_from_compound_assays_passes_concurrency_options(monkeypatch):
@@ -444,10 +569,18 @@ def test_run_activity_enrichment_from_compound_assays_passes_concurrency_options
         lambda aid: activity_payload(aid, "101", "10"),
         max_workers=4,
         rate_limit_per_second=4,
+        max_retries=3,
+        retry_initial_delay=1.0,
+        retry_backoff_multiplier=2.0,
+        retry_max_delay=8.0,
     )
 
     assert captured["kwargs"]["max_workers"] == 4
     assert captured["kwargs"]["rate_limit_per_second"] == 4
+    assert captured["kwargs"]["max_retries"] == 3
+    assert captured["kwargs"]["retry_initial_delay"] == 1.0
+    assert captured["kwargs"]["retry_backoff_multiplier"] == 2.0
+    assert captured["kwargs"]["retry_max_delay"] == 8.0
 
 
 def test_run_activity_enrichment_from_compound_assays_handles_missing_or_empty_source_table():

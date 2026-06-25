@@ -98,6 +98,46 @@ def _emit_progress(progress_callback, snapshot):
         progress_callback(snapshot)
 
 
+def _error_status_code(error):
+    response = getattr(error, "response", None)
+    return getattr(response, "status_code", None)
+
+
+def _is_timeout_error(error):
+    return isinstance(error, TimeoutError) or "Timeout" in type(error).__name__
+
+
+def _is_transient_fetch_error(error):
+    status_code = _error_status_code(error)
+    if status_code in (429, 503):
+        return True
+    if status_code is not None:
+        return False
+    return _is_timeout_error(error)
+
+
+def _fetch_with_retry(
+    aid,
+    activity_fetcher,
+    max_retries=3,
+    initial_delay=1.0,
+    backoff_multiplier=2.0,
+    max_delay=8.0,
+    sleep_func=time.sleep,
+):
+    attempt = 0
+    delay = initial_delay
+    while True:
+        try:
+            return activity_fetcher(aid)
+        except Exception as exc:
+            if attempt >= max_retries or not _is_transient_fetch_error(exc):
+                raise
+            sleep_func(min(delay, max_delay))
+            delay = min(delay * backoff_multiplier, max_delay)
+            attempt += 1
+
+
 class _GlobalRateLimiter:
     def __init__(self, rate_limit_per_second):
         self._interval = None
@@ -121,9 +161,24 @@ class _GlobalRateLimiter:
             self._next_start_time = max(now, self._next_start_time) + self._interval
 
 
-def _fetch_activity_for_job(aid_job, activity_fetcher, rate_limiter):
+def _fetch_activity_for_job(
+    aid_job,
+    activity_fetcher,
+    rate_limiter,
+    max_retries=0,
+    retry_initial_delay=1.0,
+    retry_backoff_multiplier=2.0,
+    retry_max_delay=8.0,
+):
     rate_limiter.wait()
-    return activity_fetcher(aid_job["aid"])
+    return _fetch_with_retry(
+        aid_job["aid"],
+        activity_fetcher,
+        max_retries=max_retries,
+        initial_delay=retry_initial_delay,
+        backoff_multiplier=retry_backoff_multiplier,
+        max_delay=retry_max_delay,
+    )
 
 
 def _fetch_activity_chunk_concurrently(
@@ -131,6 +186,10 @@ def _fetch_activity_chunk_concurrently(
     activity_fetcher,
     max_workers,
     rate_limiter,
+    max_retries=0,
+    retry_initial_delay=1.0,
+    retry_backoff_multiplier=2.0,
+    retry_max_delay=8.0,
     stop_on_error=False,
 ):
     chunk = list(chunk)
@@ -153,6 +212,10 @@ def _fetch_activity_chunk_concurrently(
                 aid_job,
                 activity_fetcher,
                 rate_limiter,
+                max_retries,
+                retry_initial_delay,
+                retry_backoff_multiplier,
+                retry_max_delay,
             )
             future_to_job[future] = (next_index, aid_job)
             next_index += 1
@@ -294,9 +357,15 @@ def run_pubchem_activity_enrichment(
     continue_on_error=True,
     max_workers=1,
     rate_limit_per_second=None,
+    max_retries=0,
+    retry_initial_delay=1.0,
+    retry_backoff_multiplier=2.0,
+    retry_max_delay=8.0,
 ):
     if max_workers <= 0:
         raise ValueError("max_workers must be greater than zero.")
+    if max_retries < 0:
+        raise ValueError("max_retries cannot be negative.")
 
     ensure_compound_activities_table(connection)
     aid_jobs = [
@@ -354,6 +423,10 @@ def run_pubchem_activity_enrichment(
                         aid_job,
                         activity_fetcher,
                         rate_limiter,
+                        max_retries,
+                        retry_initial_delay,
+                        retry_backoff_multiplier,
+                        retry_max_delay,
                     )
                 except Exception as exc:
                     fetch_results.append((aid_job, None, exc))
@@ -367,6 +440,10 @@ def run_pubchem_activity_enrichment(
                 activity_fetcher,
                 max_workers,
                 rate_limiter,
+                max_retries,
+                retry_initial_delay,
+                retry_backoff_multiplier,
+                retry_max_delay,
                 stop_on_error=not continue_on_error,
             )
 
@@ -466,6 +543,10 @@ def run_activity_enrichment_from_compound_assays(
     continue_on_error=True,
     max_workers=1,
     rate_limit_per_second=None,
+    max_retries=0,
+    retry_initial_delay=1.0,
+    retry_backoff_multiplier=2.0,
+    retry_max_delay=8.0,
 ):
     aid_jobs = build_activity_jobs_from_compound_assays(connection)
     if not aid_jobs:
@@ -492,4 +573,8 @@ def run_activity_enrichment_from_compound_assays(
         continue_on_error=continue_on_error,
         max_workers=max_workers,
         rate_limit_per_second=rate_limit_per_second,
+        max_retries=max_retries,
+        retry_initial_delay=retry_initial_delay,
+        retry_backoff_multiplier=retry_backoff_multiplier,
+        retry_max_delay=retry_max_delay,
     )

@@ -372,6 +372,10 @@ def render_activity_enrichment_action(connection):
             continue_on_error=True,
             max_workers=4,
             rate_limit_per_second=4,
+            max_retries=3,
+            retry_initial_delay=1.0,
+            retry_backoff_multiplier=2.0,
+            retry_max_delay=8.0,
         )
         message = (
             "PubChem activity enrichment completed. "
