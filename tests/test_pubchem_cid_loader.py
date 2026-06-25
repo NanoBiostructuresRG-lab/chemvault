@@ -64,7 +64,7 @@ def test_obtener_cids_pubchem_enriches_main_table(monkeypatch):
     columns = [row[1] for row in cursor.fetchall()]
     cursor.execute(
         """
-        SELECT CID, AIDs, Proteins, Compound_Name, Activity_Type, Activity_Value, Activity_Enrichment_Status
+        SELECT CID, AIDs, Proteins, Compound_Name, Activity_Enrichment_Status
         FROM main
         """
     )
@@ -76,8 +76,6 @@ def test_obtener_cids_pubchem_enriches_main_table(monkeypatch):
         "AIDs",
         "Proteins",
         "Compound_Name",
-        "Activity_Type",
-        "Activity_Value",
         "Activity_Enrichment_Status",
     ]
     assert row == (
@@ -85,8 +83,6 @@ def test_obtener_cids_pubchem_enriches_main_table(monkeypatch):
         "2339",
         "P21554",
         "Isoproterenol",
-        "IC50_Mean",
-        "AID 2339: IC50_Mean = 0.42 MICROMOLAR (Active)",
         "enriched",
     )
     cursor.execute("SELECT CID, AID, Protein FROM compound_assays")
@@ -175,8 +171,6 @@ def test_obtener_cids_pubchem_skips_activity_for_large_aid_sets(monkeypatch):
     cursor = connection.cursor()
     cursor.execute("SELECT COUNT(*), COUNT(Compound_Name) FROM main")
     assert cursor.fetchone() == (len(aids), len(aids))
-    cursor.execute("SELECT COUNT(*) FROM main WHERE Activity_Value != ''")
-    assert cursor.fetchone() == (0,)
     cursor.execute(
         "SELECT COUNT(*) FROM main WHERE Activity_Enrichment_Status = 'skipped_aid_limit'"
     )

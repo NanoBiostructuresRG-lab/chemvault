@@ -532,8 +532,6 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     _ensure_column(cursor, table, "AIDs")
     _ensure_column(cursor, table, "Proteins")
     _ensure_column(cursor, table, "Compound_Name")
-    _ensure_column(cursor, table, "Activity_Type")
-    _ensure_column(cursor, table, "Activity_Value")
     _ensure_column(cursor, table, "Activity_Enrichment_Status")
     _ensure_compound_assays_table(cursor)
     _ensure_compound_activities_table(cursor)
@@ -548,22 +546,18 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     for index, (cid, record) in enumerate(records.items(), start=1):
         cursor.execute(f"""
         INSERT INTO {table}
-        (CID, AIDs, Proteins, Compound_Name, Activity_Type, Activity_Value, Activity_Enrichment_Status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (CID, AIDs, Proteins, Compound_Name, Activity_Enrichment_Status)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(CID) DO UPDATE SET
             AIDs = excluded.AIDs,
             Proteins = excluded.Proteins,
             Compound_Name = COALESCE(NULLIF({table}.Compound_Name, ''), excluded.Compound_Name),
-            Activity_Type = excluded.Activity_Type,
-            Activity_Value = excluded.Activity_Value,
             Activity_Enrichment_Status = excluded.Activity_Enrichment_Status
         """, (
             cid,
             _join_values(record["aids"]),
             _join_values(record["proteins"]),
             record["compound_name"],
-            _join_values(record["activity_types"]),
-            _join_values(record["activity_values"]),
             record["activity_status"],
         ))
         cursor.executemany(

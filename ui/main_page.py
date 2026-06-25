@@ -44,6 +44,26 @@ from state_keys import (
     SET_TEXT_INPUT_LOCKED,
 )
 
+ACTIVITY_SUMMARY_COLUMNS = {
+    "Activity_Type",
+    "Activity_Value",
+    "Activity_Enrichment_Status",
+}
+
+
+def _filter_visible_column_options(headers, selected_headers):
+    options = [
+        header
+        for header in headers
+        if header not in ACTIVITY_SUMMARY_COLUMNS
+    ]
+    selected = [
+        header
+        for header in selected_headers
+        if header in options
+    ]
+    return options, selected
+
 
 def create_main_layout():
     container0 = st.container(
@@ -662,7 +682,10 @@ def render_columns_card(container):
     with container:
         st.subheader("Columns")
         st.caption("Select columns to preview, refine, curate, or export.")
-        options = st.session_state[HEADERS]
+        options, st.session_state[SELECTED_HEADERS] = _filter_visible_column_options(
+            st.session_state[HEADERS],
+            st.session_state[SELECTED_HEADERS],
+        )
         if len(options) == 0:
             st.info("No columns are available in the current table.")
             return

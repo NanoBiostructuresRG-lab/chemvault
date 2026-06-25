@@ -92,8 +92,6 @@ def build_from_proteins(progreso):
             "AIDs",
             "Proteins",
             "Compound_Name",
-            "Activity_Type",
-            "Activity_Value",
             "Activity_Enrichment_Status",
         ],
         created_by="build_from_proteins",
