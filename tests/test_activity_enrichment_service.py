@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
+import threading
 
 from services.activity_enrichment import (
     build_activity_jobs_from_compound_assays,
@@ -74,6 +75,40 @@ def test_activity_runner_processes_aids_in_chunks_and_emits_progress():
     ]
 
 
+def test_activity_runner_concurrent_fetch_inserts_rows_and_reports_progress():
+    connection = sqlite3.connect(":memory:")
+    snapshots = []
+    calls = []
+
+    def fetcher(aid):
+        calls.append(aid)
+        return activity_payload(aid, {"11": "101", "22": "202", "33": "303"}[aid], aid)
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        aid_jobs(),
+        fetcher,
+        chunk_size=3,
+        max_workers=3,
+        progress_callback=snapshots.append,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute("SELECT AID, CID FROM compound_activities ORDER BY AID")
+
+    assert set(calls) == {"11", "22", "33"}
+    assert result["status"] == "success"
+    assert result["processed_aids"] == 3
+    assert result["successful_aids"] == 3
+    assert result["failed_aids"] == 0
+    assert result["inserted_rows"] == 3
+    assert cursor.fetchall() == [("11", "101"), ("22", "202"), ("33", "303")]
+    assert snapshots[-1]["processed_aids"] == 3
+    assert snapshots[-1]["successful_aids"] == 3
+    assert snapshots[-1]["failed_aids"] == 0
+    assert snapshots[-1]["inserted_rows"] == 3
+
+
 def test_activity_runner_inserts_rows_into_compound_activities():
     connection = sqlite3.connect(":memory:")
 
@@ -139,6 +174,34 @@ def test_activity_runner_continues_after_failed_aid_when_enabled():
     assert cursor.fetchall() == [("11", "101"), ("33", "303")]
 
 
+def test_activity_runner_concurrent_fetch_continues_after_failed_aid_when_enabled():
+    connection = sqlite3.connect(":memory:")
+
+    def fetcher(aid):
+        if aid == "22":
+            raise RuntimeError("PubChem failed")
+        return activity_payload(aid, {"11": "101", "33": "303"}[aid], aid)
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        aid_jobs(),
+        fetcher,
+        chunk_size=3,
+        max_workers=3,
+        continue_on_error=True,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute("SELECT AID, CID FROM compound_activities ORDER BY AID")
+
+    assert result["status"] == "success"
+    assert result["processed_aids"] == 3
+    assert result["successful_aids"] == 2
+    assert result["failed_aids"] == 1
+    assert result["failed_aid_values"] == ["22"]
+    assert cursor.fetchall() == [("11", "101"), ("33", "303")]
+
+
 def test_activity_runner_stops_on_failed_aid_when_disabled():
     connection = sqlite3.connect(":memory:")
     snapshots = []
@@ -167,6 +230,75 @@ def test_activity_runner_stops_on_failed_aid_when_disabled():
     assert result["error_message"] == "PubChem failed"
     assert cursor.fetchall() == [("11", "101")]
     assert snapshots[-1]["status"] == "failed"
+
+
+def test_activity_runner_concurrent_fetch_stops_submitting_after_failure_when_disabled():
+    connection = sqlite3.connect(":memory:")
+    calls = []
+    calls_lock = threading.Lock()
+    release_second_aid = threading.Event()
+    jobs = [
+        {"protein": "P1", "aid": "11", "cids": ["101"]},
+        {"protein": "P1", "aid": "22", "cids": ["202"]},
+        {"protein": "P1", "aid": "33", "cids": ["303"]},
+        {"protein": "P1", "aid": "44", "cids": ["404"]},
+    ]
+
+    def fetcher(aid):
+        with calls_lock:
+            calls.append(aid)
+        if aid == "11":
+            raise RuntimeError("PubChem failed")
+        if aid == "22":
+            release_second_aid.wait(timeout=0.1)
+        return activity_payload(aid, {"22": "202", "33": "303", "44": "404"}[aid], aid)
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        jobs,
+        fetcher,
+        chunk_size=4,
+        max_workers=2,
+        continue_on_error=False,
+    )
+    release_second_aid.set()
+
+    cursor = connection.cursor()
+    cursor.execute("SELECT AID, CID FROM compound_activities ORDER BY AID")
+
+    assert result["status"] == "failed"
+    assert result["failed_aid_values"] == ["11"]
+    assert "33" not in calls
+    assert "44" not in calls
+    assert cursor.fetchall() in ([], [("22", "202")])
+
+
+def test_activity_runner_rate_limiter_uses_global_start_spacing(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    monotonic_value = {"value": 0.0}
+    sleep_calls = []
+
+    def fake_monotonic():
+        return monotonic_value["value"]
+
+    def fake_sleep(delay):
+        sleep_calls.append(delay)
+        monotonic_value["value"] += delay
+
+    activity_time = run_pubchem_activity_enrichment.__globals__["time"]
+    monkeypatch.setattr(activity_time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(activity_time, "sleep", fake_sleep)
+
+    run_pubchem_activity_enrichment(
+        connection,
+        aid_jobs()[:2],
+        lambda aid: activity_payload(aid, {"11": "101", "22": "202"}[aid], aid),
+        chunk_size=2,
+        max_workers=2,
+        rate_limit_per_second=2,
+    )
+
+    assert sleep_calls == [0.5]
 
 
 def test_ensure_compound_activities_table_is_idempotent():
