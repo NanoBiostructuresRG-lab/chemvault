@@ -464,6 +464,8 @@ def run_activity_enrichment_from_compound_assays(
     chunk_size=DEFAULT_ACTIVITY_CHUNK_SIZE,
     progress_callback=None,
     continue_on_error=True,
+    max_workers=1,
+    rate_limit_per_second=None,
 ):
     aid_jobs = build_activity_jobs_from_compound_assays(connection)
     if not aid_jobs:
@@ -488,4 +490,6 @@ def run_activity_enrichment_from_compound_assays(
         chunk_size=chunk_size,
         progress_callback=progress_callback,
         continue_on_error=continue_on_error,
+        max_workers=max_workers,
+        rate_limit_per_second=rate_limit_per_second,
     )

@@ -370,6 +370,8 @@ def render_activity_enrichment_action(connection):
             fetch_pubchem_assay_activity,
             progress_callback=progress_callback,
             continue_on_error=True,
+            max_workers=4,
+            rate_limit_per_second=4,
         )
         message = (
             "PubChem activity enrichment completed. "

@@ -495,6 +495,8 @@ def _collect_pubchem_records(connection, proteins, progreso):
         activity_fetcher,
         progress_callback=activity_progress_callback,
         continue_on_error=True,
+        max_workers=4,
+        rate_limit_per_second=4,
     )
     enriched_cids = set(activity_result.get("successful_cid_values", []))
 

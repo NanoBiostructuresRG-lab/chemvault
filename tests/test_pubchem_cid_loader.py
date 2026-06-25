@@ -125,6 +125,48 @@ def test_obtener_cids_pubchem_enriches_main_table(monkeypatch):
     assert len(progress.values) > 1
 
 
+def test_obtener_cids_pubchem_uses_concurrent_activity_enrichment(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT)"
+    )
+    captured = {}
+
+    def fake_get(url, timeout):
+        if "/assay/target/accession/P21554/aids/JSON" in url:
+            return FakeResponse({"IdentifierList": {"AID": [2339]}})
+        if "/assay/aid/2339/cids/JSON" in url:
+            return FakeResponse(
+                {"InformationList": {"Information": [{"AID": 2339, "CID": [3779]}]}}
+            )
+        if "/compound/cid/3779/property/Title/JSON" in url:
+            return FakeResponse(
+                {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    def fake_activity_runner(connection, aid_jobs, activity_fetcher, **kwargs):
+        captured["aid_jobs"] = aid_jobs
+        captured["kwargs"] = kwargs
+        return {"successful_cid_values": ["3779"]}
+
+    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+    monkeypatch.setattr(
+        pubchem_loader,
+        "run_pubchem_activity_enrichment",
+        fake_activity_runner,
+    )
+
+    pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
+
+    assert captured["aid_jobs"] == [
+        {"protein": "P21554", "aid": "2339", "cids": ["3779"]}
+    ]
+    assert captured["kwargs"]["max_workers"] == 4
+    assert captured["kwargs"]["rate_limit_per_second"] == 4
+    assert captured["kwargs"]["continue_on_error"] is True
+
+
 def test_obtener_cids_pubchem_enriches_activity_for_large_aid_sets(monkeypatch):
     connection = sqlite3.connect(":memory:")
     connection.execute(

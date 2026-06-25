@@ -368,6 +368,88 @@ def test_run_activity_enrichment_from_compound_assays_fills_compound_activities(
     assert cursor.fetchall() == [("11", "P1", "101"), ("22", "P1", "202")]
 
 
+def test_run_activity_enrichment_from_compound_assays_keeps_sequential_defaults(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+    connection.execute(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES ('101', '11', 'P1')"
+    )
+    captured = {}
+
+    def fake_runner(connection, aid_jobs, activity_fetcher, **kwargs):
+        captured["aid_jobs"] = aid_jobs
+        captured["kwargs"] = kwargs
+        return {
+            "status": "success",
+            "total_aids": len(aid_jobs),
+            "processed_aids": 0,
+            "successful_aids": 0,
+            "failed_aids": 0,
+            "processed_aid_values": [],
+            "successful_aid_values": [],
+            "failed_aid_values": [],
+            "successful_cid_values": [],
+            "inserted_rows": 0,
+            "error_message": None,
+        }
+
+    monkeypatch.setitem(
+        run_activity_enrichment_from_compound_assays.__globals__,
+        "run_pubchem_activity_enrichment",
+        fake_runner,
+    )
+
+    run_activity_enrichment_from_compound_assays(
+        connection,
+        lambda aid: activity_payload(aid, "101", "10"),
+    )
+
+    assert captured["aid_jobs"] == [{"protein": "P1", "aid": "11", "cids": ["101"]}]
+    assert captured["kwargs"]["max_workers"] == 1
+    assert captured["kwargs"]["rate_limit_per_second"] is None
+
+
+def test_run_activity_enrichment_from_compound_assays_passes_concurrency_options(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
+    connection.execute(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES ('101', '11', 'P1')"
+    )
+    captured = {}
+
+    def fake_runner(connection, aid_jobs, activity_fetcher, **kwargs):
+        captured["kwargs"] = kwargs
+        return {
+            "status": "success",
+            "total_aids": len(aid_jobs),
+            "processed_aids": 0,
+            "successful_aids": 0,
+            "failed_aids": 0,
+            "processed_aid_values": [],
+            "successful_aid_values": [],
+            "failed_aid_values": [],
+            "successful_cid_values": [],
+            "inserted_rows": 0,
+            "error_message": None,
+        }
+
+    monkeypatch.setitem(
+        run_activity_enrichment_from_compound_assays.__globals__,
+        "run_pubchem_activity_enrichment",
+        fake_runner,
+    )
+
+    run_activity_enrichment_from_compound_assays(
+        connection,
+        lambda aid: activity_payload(aid, "101", "10"),
+        max_workers=4,
+        rate_limit_per_second=4,
+    )
+
+    assert captured["kwargs"]["max_workers"] == 4
+    assert captured["kwargs"]["rate_limit_per_second"] == 4
+
+
 def test_run_activity_enrichment_from_compound_assays_handles_missing_or_empty_source_table():
     missing_connection = sqlite3.connect(":memory:")
 
