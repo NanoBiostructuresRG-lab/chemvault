@@ -2,6 +2,7 @@
 import csv
 import io
 import requests
+import time
 
 from services.activity_enrichment import (
     ensure_compound_activities_table,
@@ -29,6 +30,28 @@ STANDARD_TYPE_COLUMNS = ("PubChem Standard Type", "Standard Type")
 PUBCHEM_STANDARD_UNIT_COLUMNS = ("PubChem Standard Unit", "PubChem Standard Units")
 STANDARD_UNIT_COLUMNS = ("Standard Unit", "Standard Units")
 STANDARD_RELATION_COLUMNS = ("PubChem Standard Relation", "Standard Relation")
+PUBCHEM_STAGE_LABELS = (
+    ("aid_search", "AID search"),
+    ("cid_collection", "CID collection"),
+    ("compound_names", "Compound names"),
+    ("sqlite_main_upsert", "SQLite main upsert"),
+    ("compound_assays_insert", "compound_assays insert"),
+    ("activity_enrichment", "Activity enrichment"),
+)
+
+
+def _new_stage_timings():
+    return {key: 0.0 for key, _ in PUBCHEM_STAGE_LABELS}
+
+
+def _print_pubchem_stage_timings(timings, total_elapsed):
+    total_elapsed = max(total_elapsed, 0.0)
+    denominator = total_elapsed if total_elapsed > 0 else 1.0
+    for key, label in PUBCHEM_STAGE_LABELS:
+        elapsed = timings.get(key, 0.0)
+        percent = (elapsed / denominator) * 100
+        print(f"{label + ':':<25} {elapsed:.1f}s ({percent:.0f}%)")
+    print(f"{'Total:':<25} {total_elapsed:.1f}s")
 
 
 def _ensure_column(cursor, table, column, column_type="TEXT"):
@@ -431,14 +454,19 @@ def _activity_status_for_record(cid, enriched_cids):
     return "partial_or_failed"
 
 
-def _collect_pubchem_records(connection, proteins, progreso):
+def _collect_pubchem_records(connection, proteins, progreso, timings=None):
+    if timings is None:
+        timings = _new_stage_timings()
+
     protein_aids = {}
+    stage_start = time.monotonic()
     for index, protein in enumerate(proteins, start=1):
         try:
             protein_aids[protein] = _fetch_aids_for_protein(protein)
         except Exception as e:
            print(f"Error con {protein}: {e}")
         _update_progress(progreso, 0.05 * (index / len(proteins)))
+    timings["aid_search"] += time.monotonic() - stage_start
 
     trabajos = [
         (protein, aid)
@@ -452,6 +480,7 @@ def _collect_pubchem_records(connection, proteins, progreso):
         return {}
 
     all_aids = [aid for _, aid in trabajos]
+    stage_start = time.monotonic()
     cids_by_aid = _fetch_cids_for_aids(all_aids, progreso, start=0.05, end=0.55)
     records = {}
     for protein, aid in trabajos:
@@ -468,8 +497,11 @@ def _collect_pubchem_records(connection, proteins, progreso):
             record["proteins"].add(protein)
             record["assays"].add((cid, str(aid), protein))
     _update_progress(progreso, 0.60)
+    timings["cid_collection"] += time.monotonic() - stage_start
 
+    stage_start = time.monotonic()
     compound_names = _fetch_compound_names(records.keys(), progreso, start=0.60, end=0.85)
+    timings["compound_names"] += time.monotonic() - stage_start
 
     aid_jobs = [
         {
@@ -489,6 +521,7 @@ def _collect_pubchem_records(connection, proteins, progreso):
     def activity_fetcher(aid):
         return _fetch_assay_activity(aid, raise_on_error=True)
 
+    stage_start = time.monotonic()
     activity_result = run_pubchem_activity_enrichment(
         connection,
         aid_jobs,
@@ -502,6 +535,7 @@ def _collect_pubchem_records(connection, proteins, progreso):
         retry_backoff_multiplier=2.0,
         retry_max_delay=8.0,
     )
+    timings["activity_enrichment"] += time.monotonic() - stage_start
     enriched_cids = set(activity_result.get("successful_cid_values", []))
 
     for cid, record in records.items():
@@ -513,6 +547,8 @@ def _collect_pubchem_records(connection, proteins, progreso):
 
 
 def obtener_CIDs_Pubchem(connection, proteins, progreso):
+    total_start = time.monotonic()
+    timings = _new_stage_timings()
     cursor = connection.cursor()
     table = "main"
 
@@ -529,9 +565,10 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     """)
     connection.commit()
 
-    records = _collect_pubchem_records(connection, proteins, progreso)
+    records = _collect_pubchem_records(connection, proteins, progreso, timings)
     total_records = len(records)
     for index, (cid, record) in enumerate(records.items(), start=1):
+        stage_start = time.monotonic()
         cursor.execute(f"""
         INSERT INTO {table}
         (CID, AIDs, Proteins, Compound_Name, Activity_Enrichment_Status)
@@ -548,6 +585,9 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
             record["compound_name"],
             record["activity_status"],
         ))
+        timings["sqlite_main_upsert"] += time.monotonic() - stage_start
+
+        stage_start = time.monotonic()
         cursor.executemany(
             f"""
             INSERT OR IGNORE INTO {COMPOUND_ASSAYS_TABLE}
@@ -556,9 +596,11 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
             """,
             sorted(record["assays"]),
         )
+        timings["compound_assays_insert"] += time.monotonic() - stage_start
         if total_records:
             fraction = index / total_records
             _update_progress(progreso, 0.95 + (0.05 * fraction))
 
     connection.commit()
     _update_progress(progreso, 1.0)
+    _print_pubchem_stage_timings(timings, time.monotonic() - total_start)
