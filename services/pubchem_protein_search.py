@@ -14,12 +14,18 @@ from services.pubchem_client import (
     fetch_cids_for_aid_batch,
     fetch_compound_titles_for_cid_batch,
 )
+from services.pubchem_repository import (
+    count_compound_assay_rows,
+    ensure_pubchem_search_schema,
+    insert_compound_assays_chunk,
+    iter_compound_assay_chunks,
+    iter_main_record_chunks,
+    upsert_main_records_chunk,
+)
 
-COMPOUND_ASSAYS_TABLE = "compound_assays"
 COMPOUND_NAME_BATCH_SIZE = 500
 AID_CID_BATCH_SIZE = 50
 MAX_ACTIVITY_AIDS = 50
-SQLITE_WRITE_CHUNK_SIZE = 5000
 ACTIVITY_KEYWORDS = (
     "IC50",
     "EC50",
@@ -57,32 +63,6 @@ def _print_pubchem_stage_timings(timings, total_elapsed):
         percent = (elapsed / denominator) * 100
         print(f"{label + ':':<25} {elapsed:.1f}s ({percent:.0f}%)")
     print(f"{'Total:':<25} {total_elapsed:.1f}s")
-
-
-def _ensure_column(cursor, table, column, column_type="TEXT"):
-    columns = [row[1] for row in cursor.execute(f"PRAGMA table_info({table})").fetchall()]
-    if column not in columns:
-        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
-
-
-def _ensure_compound_assays_table(cursor):
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {COMPOUND_ASSAYS_TABLE} (
-            CID TEXT NOT NULL,
-            AID TEXT NOT NULL,
-            Protein TEXT NOT NULL,
-            UNIQUE(CID, AID, Protein)
-        )
-    """)
-
-
-def _ensure_compound_activities_table(cursor):
-    ensure_compound_activities_table(cursor.connection)
-
-
-def _join_values(values):
-    clean_values = [str(value).strip() for value in values if str(value).strip()]
-    return ", ".join(sorted(set(clean_values)))
 
 
 def _batched(values, size):
@@ -566,85 +546,32 @@ def _collect_pubchem_records(connection, proteins, progreso, timings=None):
 def obtener_CIDs_Pubchem(connection, proteins, progreso):
     total_start = time.monotonic()
     timings = _new_stage_timings()
-    cursor = connection.cursor()
     table = "main"
 
-    _ensure_column(cursor, table, "CID")
-    _ensure_column(cursor, table, "AIDs")
-    _ensure_column(cursor, table, "Proteins")
-    _ensure_column(cursor, table, "Compound_Name")
-    _ensure_column(cursor, table, "Activity_Enrichment_Status")
-    _ensure_compound_assays_table(cursor)
-    _ensure_compound_activities_table(cursor)
-    cursor.execute(f"""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_cid_unique
-    ON {table}(CID)
-    """)
-    connection.commit()
+    ensure_pubchem_search_schema(connection, table)
+    ensure_compound_activities_table(connection)
 
     records = _collect_pubchem_records(connection, proteins, progreso, timings)
 
     total_records = len(records)
-    record_items = list(records.items())
-
-    main_upsert_sql = f"""
-    INSERT INTO {table}
-    (CID, AIDs, Proteins, Compound_Name, Activity_Enrichment_Status)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(CID) DO UPDATE SET
-        AIDs = excluded.AIDs,
-        Proteins = excluded.Proteins,
-        Compound_Name = COALESCE(NULLIF({table}.Compound_Name, ''), excluded.Compound_Name),
-        Activity_Enrichment_Status = excluded.Activity_Enrichment_Status
-    """
+    main_rows_written = 0
 
     stage_start = time.monotonic()
-    for chunk_index, chunk in enumerate(_batched(record_items, SQLITE_WRITE_CHUNK_SIZE), start=1):
-        main_rows = [
-            (
-                cid,
-                _join_values(record["aids"]),
-                _join_values(record["proteins"]),
-                record["compound_name"],
-                record["activity_status"],
-            )
-            for cid, record in chunk
-        ]
-        cursor.executemany(main_upsert_sql, main_rows)
+    for chunk in iter_main_record_chunks(records):
+        main_rows_written += upsert_main_records_chunk(connection, chunk, table)
 
         if total_records:
-            processed = min(chunk_index * SQLITE_WRITE_CHUNK_SIZE, total_records)
-            fraction = processed / total_records
+            fraction = main_rows_written / total_records
             _update_progress(progreso, 0.95 + (0.025 * fraction))
 
     timings["sqlite_main_upsert"] += time.monotonic() - stage_start
 
-    compound_assays_insert_sql = f"""
-    INSERT OR IGNORE INTO {COMPOUND_ASSAYS_TABLE}
-    (CID, AID, Protein)
-    VALUES (?, ?, ?)
-    """
-
-    total_assay_rows = sum(len(record["assays"]) for record in records.values())
+    total_assay_rows = count_compound_assay_rows(records)
     assay_rows_written = 0
-    assay_buffer = []
 
     stage_start = time.monotonic()
-    for record in records.values():
-        assay_buffer.extend(record["assays"])
-
-        if len(assay_buffer) >= SQLITE_WRITE_CHUNK_SIZE:
-            cursor.executemany(compound_assays_insert_sql, assay_buffer)
-            assay_rows_written += len(assay_buffer)
-            assay_buffer = []
-
-            if total_assay_rows:
-                fraction = assay_rows_written / total_assay_rows
-                _update_progress(progreso, 0.975 + (0.020 * fraction))
-
-    if assay_buffer:
-        cursor.executemany(compound_assays_insert_sql, assay_buffer)
-        assay_rows_written += len(assay_buffer)
+    for assay_chunk in iter_compound_assay_chunks(records):
+        assay_rows_written += insert_compound_assays_chunk(connection, assay_chunk)
 
         if total_assay_rows:
             fraction = assay_rows_written / total_assay_rows
