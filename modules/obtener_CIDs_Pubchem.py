@@ -92,6 +92,26 @@ def _update_progress(progreso, value):
 
 
 def _fetch_compound_names(cids, progreso=None, start=0.0, end=1.0):
+    max_retries = 3
+    initial_delay = 1.0
+    backoff_multiplier = 2.0
+    max_delay = 8.0
+
+    def is_transient_error(error):
+        response = getattr(error, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if status_code in (429, 503):
+            return True
+        if status_code is not None:
+            return False
+        return isinstance(
+            error,
+            (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+            ),
+        )
+
     compound_names = {}
     batches = list(_batched(cids, COMPOUND_NAME_BATCH_SIZE))
     if not batches:
@@ -105,8 +125,17 @@ def _fetch_compound_names(cids, progreso=None, start=0.0, end=1.0):
             f"{','.join(map(str, batch))}/property/Title/JSON"
         )
         try:
-            response = requests.get(url, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
+            delay = initial_delay
+            for attempt in range(max_retries + 1):
+                try:
+                    response = requests.get(url, timeout=REQUEST_TIMEOUT)
+                    response.raise_for_status()
+                    break
+                except Exception as e:
+                    if attempt >= max_retries or not is_transient_error(e):
+                        raise
+                    time.sleep(min(delay, max_delay))
+                    delay = min(delay * backoff_multiplier, max_delay)
             data = response.json()
             properties = data.get("PropertyTable", {}).get("Properties", [])
             for item in properties:
