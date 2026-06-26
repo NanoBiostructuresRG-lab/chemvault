@@ -15,6 +15,7 @@ REQUEST_TIMEOUT = (5, 60)
 COMPOUND_NAME_BATCH_SIZE = 500
 AID_CID_BATCH_SIZE = 50
 MAX_ACTIVITY_AIDS = 50
+SQLITE_WRITE_CHUNK_SIZE = 5000
 ACTIVITY_KEYWORDS = (
     "IC50",
     "EC50",
@@ -566,40 +567,74 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     connection.commit()
 
     records = _collect_pubchem_records(connection, proteins, progreso, timings)
-    total_records = len(records)
-    for index, (cid, record) in enumerate(records.items(), start=1):
-        stage_start = time.monotonic()
-        cursor.execute(f"""
-        INSERT INTO {table}
-        (CID, AIDs, Proteins, Compound_Name, Activity_Enrichment_Status)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(CID) DO UPDATE SET
-            AIDs = excluded.AIDs,
-            Proteins = excluded.Proteins,
-            Compound_Name = COALESCE(NULLIF({table}.Compound_Name, ''), excluded.Compound_Name),
-            Activity_Enrichment_Status = excluded.Activity_Enrichment_Status
-        """, (
-            cid,
-            _join_values(record["aids"]),
-            _join_values(record["proteins"]),
-            record["compound_name"],
-            record["activity_status"],
-        ))
-        timings["sqlite_main_upsert"] += time.monotonic() - stage_start
 
-        stage_start = time.monotonic()
-        cursor.executemany(
-            f"""
-            INSERT OR IGNORE INTO {COMPOUND_ASSAYS_TABLE}
-            (CID, AID, Protein)
-            VALUES (?, ?, ?)
-            """,
-            sorted(record["assays"]),
-        )
-        timings["compound_assays_insert"] += time.monotonic() - stage_start
+    total_records = len(records)
+    record_items = list(records.items())
+
+    main_upsert_sql = f"""
+    INSERT INTO {table}
+    (CID, AIDs, Proteins, Compound_Name, Activity_Enrichment_Status)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(CID) DO UPDATE SET
+        AIDs = excluded.AIDs,
+        Proteins = excluded.Proteins,
+        Compound_Name = COALESCE(NULLIF({table}.Compound_Name, ''), excluded.Compound_Name),
+        Activity_Enrichment_Status = excluded.Activity_Enrichment_Status
+    """
+
+    stage_start = time.monotonic()
+    for chunk_index, chunk in enumerate(_batched(record_items, SQLITE_WRITE_CHUNK_SIZE), start=1):
+        main_rows = [
+            (
+                cid,
+                _join_values(record["aids"]),
+                _join_values(record["proteins"]),
+                record["compound_name"],
+                record["activity_status"],
+            )
+            for cid, record in chunk
+        ]
+        cursor.executemany(main_upsert_sql, main_rows)
+
         if total_records:
-            fraction = index / total_records
-            _update_progress(progreso, 0.95 + (0.05 * fraction))
+            processed = min(chunk_index * SQLITE_WRITE_CHUNK_SIZE, total_records)
+            fraction = processed / total_records
+            _update_progress(progreso, 0.95 + (0.025 * fraction))
+
+    timings["sqlite_main_upsert"] += time.monotonic() - stage_start
+
+    compound_assays_insert_sql = f"""
+    INSERT OR IGNORE INTO {COMPOUND_ASSAYS_TABLE}
+    (CID, AID, Protein)
+    VALUES (?, ?, ?)
+    """
+
+    total_assay_rows = sum(len(record["assays"]) for record in records.values())
+    assay_rows_written = 0
+    assay_buffer = []
+
+    stage_start = time.monotonic()
+    for record in records.values():
+        assay_buffer.extend(record["assays"])
+
+        if len(assay_buffer) >= SQLITE_WRITE_CHUNK_SIZE:
+            cursor.executemany(compound_assays_insert_sql, assay_buffer)
+            assay_rows_written += len(assay_buffer)
+            assay_buffer = []
+
+            if total_assay_rows:
+                fraction = assay_rows_written / total_assay_rows
+                _update_progress(progreso, 0.975 + (0.020 * fraction))
+
+    if assay_buffer:
+        cursor.executemany(compound_assays_insert_sql, assay_buffer)
+        assay_rows_written += len(assay_buffer)
+
+        if total_assay_rows:
+            fraction = assay_rows_written / total_assay_rows
+            _update_progress(progreso, 0.975 + (0.020 * fraction))
+
+    timings["compound_assays_insert"] += time.monotonic() - stage_start
 
     connection.commit()
     _update_progress(progreso, 1.0)
