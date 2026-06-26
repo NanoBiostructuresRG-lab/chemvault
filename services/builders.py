@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import streamlit as st
 
-from modules.obtener_CIDs_Pubchem import obtener_CIDs_Pubchem
+from services.pubchem_protein_search import obtener_CIDs_Pubchem
 from services.database import get_connection
 from services.db_audit import register_operation, register_table_metadata
 from state_keys import CURRENT_TABLE, DATABASE_ID, SELECTED_PROTEINS, SET_TEXT_INPUT_LOCKED

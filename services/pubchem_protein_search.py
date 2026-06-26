@@ -668,3 +668,14 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     connection.commit()
     _update_progress(progreso, 1.0)
     _print_pubchem_stage_timings(timings, time.monotonic() - total_start)
+
+
+def run_pubchem_protein_search(connection, proteins, progress_callback):
+    return obtener_CIDs_Pubchem(connection, proteins, progress_callback)
+
+
+__all__ = [
+    "obtener_CIDs_Pubchem",
+    "run_pubchem_protein_search",
+    "fetch_pubchem_assay_activity",
+]

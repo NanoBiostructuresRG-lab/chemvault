@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from modules.obtener_CIDs_Pubchem import fetch_pubchem_assay_activity
+from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
     get_activity_csv_bytes,
