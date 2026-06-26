@@ -8,10 +8,14 @@ from services.activity_enrichment import (
     ensure_compound_activities_table,
     run_pubchem_activity_enrichment,
 )
+from services.pubchem_client import (
+    fetch_aids_for_protein,
+    fetch_assay_activity_csv,
+    fetch_cids_for_aid_batch,
+    fetch_compound_titles_for_cid_batch,
+)
 
-BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 COMPOUND_ASSAYS_TABLE = "compound_assays"
-REQUEST_TIMEOUT = (5, 60)
 COMPOUND_NAME_BATCH_SIZE = 500
 AID_CID_BATCH_SIZE = 50
 MAX_ACTIVITY_AIDS = 50
@@ -120,23 +124,17 @@ def _fetch_compound_names(cids, progreso=None, start=0.0, end=1.0):
         return compound_names
 
     for index, batch in enumerate(batches, start=1):
-        url = (
-            f"{BASE_URL}/compound/cid/"
-            f"{','.join(map(str, batch))}/property/Title/JSON"
-        )
         try:
             delay = initial_delay
             for attempt in range(max_retries + 1):
                 try:
-                    response = requests.get(url, timeout=REQUEST_TIMEOUT)
-                    response.raise_for_status()
+                    data = fetch_compound_titles_for_cid_batch(batch)
                     break
                 except Exception as e:
                     if attempt >= max_retries or not is_transient_error(e):
                         raise
                     time.sleep(min(delay, max_delay))
                     delay = min(delay * backoff_multiplier, max_delay)
-            data = response.json()
             properties = data.get("PropertyTable", {}).get("Properties", [])
             for item in properties:
                 cid = str(item.get("CID", "")).strip()
@@ -152,10 +150,7 @@ def _fetch_compound_names(cids, progreso=None, start=0.0, end=1.0):
 
 
 def _fetch_aids_for_protein(protein):
-    url = f"{BASE_URL}/assay/target/accession/{protein}/aids/JSON"
-    response = requests.get(url, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    data = response.json()
+    data = fetch_aids_for_protein(protein)
     return data["IdentifierList"]["AID"]
 
 
@@ -168,14 +163,8 @@ def _fetch_cids_for_aids(aids, progreso=None, start=0.0, end=1.0):
         return cids_by_aid
 
     for index, batch in enumerate(batches, start=1):
-        url = (
-            f"{BASE_URL}/assay/aid/"
-            f"{','.join(map(str, batch))}/cids/JSON"
-        )
         try:
-            response = requests.get(url, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            data = response.json()
+            data = fetch_cids_for_aid_batch(batch)
             for item in data.get("InformationList", {}).get("Information", []):
                 aid = str(item.get("AID", batch[0] if len(batch) == 1 else "")).strip()
                 cids = item.get("CID", [])
@@ -370,12 +359,10 @@ def _classify_activity_failure(row, activity_columns):
 
 
 def _fetch_assay_activity(aid, raise_on_error=False):
-    url = f"{BASE_URL}/assay/aid/{aid}/CSV"
     activity_by_cid = {}
     try:
-        response = requests.get(url, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        reader = csv.DictReader(io.StringIO(response.text))
+        text = fetch_assay_activity_csv(aid)
+        reader = csv.DictReader(io.StringIO(text))
         rows = list(reader)
         columns = _activity_columns(reader.fieldnames or [])
         units = _activity_unit_map(rows, [*columns, *STANDARD_ACTIVITY_COLUMNS])

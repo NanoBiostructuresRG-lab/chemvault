@@ -2,6 +2,7 @@
 import sqlite3
 
 from services import pubchem_protein_search as pubchem_loader
+from services import pubchem_client
 
 
 class FakeResponse:
@@ -42,7 +43,7 @@ def test_fetch_compound_names_uses_configured_batch_size(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
 
     names = pubchem_loader._fetch_compound_names(range(1, 502))
 
@@ -83,7 +84,7 @@ def test_obtener_cids_pubchem_enriches_main_table(monkeypatch):
             )
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
     progress = FakeProgress()
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], progress)
@@ -179,7 +180,7 @@ def test_obtener_cids_pubchem_uses_concurrent_activity_enrichment(monkeypatch):
         captured["kwargs"] = kwargs
         return {"successful_cid_values": ["3779"]}
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
     monkeypatch.setattr(
         pubchem_loader,
         "run_pubchem_activity_enrichment",
@@ -250,7 +251,7 @@ def test_obtener_cids_pubchem_enriches_activity_for_large_aid_sets(monkeypatch):
             )
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
 
@@ -304,7 +305,7 @@ def test_obtener_cids_pubchem_preserves_cid_deduplication_and_assay_traceability
             )
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
@@ -361,7 +362,7 @@ def test_compound_activities_stores_one_row_per_cid_aid_activity(monkeypatch):
             )
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
 
@@ -413,7 +414,7 @@ def test_compound_activities_allows_multiple_results_for_same_cid_aid(monkeypatc
             )
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
 
@@ -439,7 +440,7 @@ def test_activity_parser_enriches_real_ki_value(monkeypatch):
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -478,7 +479,7 @@ def test_activity_parser_ignores_qualifier_only_columns(monkeypatch):
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -497,7 +498,7 @@ def test_activity_parser_uses_qualifier_as_complement_to_real_value(monkeypatch)
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -521,7 +522,7 @@ def test_activity_parser_enriches_pubchem_standard_value_with_metadata(monkeypat
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -560,7 +561,7 @@ def test_activity_parser_uses_result_unit_for_pubchem_standard_value(monkeypatch
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -583,7 +584,7 @@ def test_activity_parser_enriches_standard_value_fallback(monkeypatch):
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -608,7 +609,7 @@ def test_activity_parser_uses_plural_standard_units_for_standard_value(monkeypat
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -631,7 +632,7 @@ def test_activity_parser_marks_relative_potency_without_declared_unit_as_dimensi
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -654,7 +655,7 @@ def test_activity_parser_keeps_declared_unit_for_relative_potency(monkeypatch):
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -677,7 +678,7 @@ def test_activity_parser_leaves_kd_unit_empty_when_pubchem_has_none(monkeypatch)
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -701,7 +702,7 @@ def test_activity_parser_keeps_specific_column_priority_over_standard_value(monk
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -725,7 +726,7 @@ def test_activity_parser_leaves_empty_standard_value_as_no_activity(monkeypatch)
     )
 
     monkeypatch.setattr(
-        pubchem_loader.requests,
+        pubchem_client.requests,
         "get",
         lambda url, timeout: FakeResponse(text=assay_csv),
     )
@@ -762,7 +763,7 @@ def test_fetch_assay_activity_keeps_legacy_empty_result_on_request_error(monkeyp
     def failing_get(url, timeout):
         raise RuntimeError("network down")
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", failing_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", failing_get)
 
     assert pubchem_loader._fetch_assay_activity(41441) == {}
 
@@ -771,7 +772,7 @@ def test_fetch_assay_activity_reraises_when_requested(monkeypatch):
     def failing_get(url, timeout):
         raise RuntimeError("network down")
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", failing_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", failing_get)
 
     try:
         pubchem_loader._fetch_assay_activity(41441, raise_on_error=True)
@@ -785,7 +786,7 @@ def test_fetch_pubchem_assay_activity_uses_strict_fetch_contract(monkeypatch):
     def failing_get(url, timeout):
         raise RuntimeError("network down")
 
-    monkeypatch.setattr(pubchem_loader.requests, "get", failing_get)
+    monkeypatch.setattr(pubchem_client.requests, "get", failing_get)
 
     try:
         pubchem_loader.fetch_pubchem_assay_activity(41441)
