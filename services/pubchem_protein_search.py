@@ -8,6 +8,8 @@ from services.activity_enrichment import (
     ensure_compound_activities_table,
     run_pubchem_activity_enrichment,
 )
+from services.job_models import JobType
+from services.job_store import JobStore
 from services.pubchem_client import (
     fetch_aids_for_protein,
     fetch_assay_activity_csv,
@@ -42,6 +44,59 @@ STANDARD_TYPE_COLUMNS = ("PubChem Standard Type", "Standard Type")
 PUBCHEM_STANDARD_UNIT_COLUMNS = ("PubChem Standard Unit", "PubChem Standard Units")
 STANDARD_UNIT_COLUMNS = ("Standard Unit", "Standard Units")
 STANDARD_RELATION_COLUMNS = ("PubChem Standard Relation", "Standard Relation")
+
+JOB_STAGE_PROGRESS = {
+    "aid_search": (0.0, 0.05),
+    "cid_collection": (0.05, 0.60),
+    "compound_names": (0.60, 0.85),
+    "activity_enrichment": (0.85, 0.95),
+    "sqlite_main_upsert": (0.95, 0.975),
+    "compound_assays_insert": (0.975, 0.995),
+    "completed": (1.0, 1.0),
+}
+
+JOB_STAGE_MESSAGES = {
+    "aid_search": "Searching PubChem AIDs",
+    "cid_collection": "Collecting compound CIDs",
+    "compound_names": "Fetching compound names",
+    "activity_enrichment": "Enriching assay activity",
+    "sqlite_main_upsert": "Updating main records",
+    "compound_assays_insert": "Inserting compound assay records",
+    "completed": "PubChem protein search completed",
+}
+
+
+class _JobTrackingProgress:
+    def __init__(self, progress_callback, job_store, job_id):
+        self.progress_callback = progress_callback
+        self.job_store = job_store
+        self.job_id = job_id
+        self.stage = ""
+
+    def set_stage(self, stage):
+        self.stage = stage
+        progress = JOB_STAGE_PROGRESS[stage][0]
+        self.job_store.update_progress(
+            self.job_id,
+            stage=stage,
+            progress=progress,
+            message=JOB_STAGE_MESSAGES[stage],
+        )
+
+    def progress(self, value):
+        value = min(max(value, 0.0), 1.0)
+        if self.progress_callback is not None:
+            self.progress_callback.progress(value)
+        if not self.stage:
+            return
+        lower, upper = JOB_STAGE_PROGRESS[self.stage]
+        tracked_progress = min(max(value, lower), upper)
+        self.job_store.update_progress(
+            self.job_id,
+            stage=self.stage,
+            progress=tracked_progress,
+            message=JOB_STAGE_MESSAGES[self.stage],
+        )
 
 
 def _new_stage_timings():
@@ -444,11 +499,19 @@ def _activity_status_for_record(cid, enriched_cids):
     return "partial_or_failed"
 
 
-def _collect_pubchem_records(connection, proteins, progreso, timings=None):
+def _collect_pubchem_records(
+    connection,
+    proteins,
+    progreso,
+    timings=None,
+    stage_callback=None,
+):
     if timings is None:
         timings = _new_stage_timings()
 
     protein_aids = {}
+    if stage_callback is not None:
+        stage_callback("aid_search")
     stage_start = time.monotonic()
     for index, protein in enumerate(proteins, start=1):
         try:
@@ -470,6 +533,8 @@ def _collect_pubchem_records(connection, proteins, progreso, timings=None):
         return {}
 
     all_aids = [aid for _, aid in trabajos]
+    if stage_callback is not None:
+        stage_callback("cid_collection")
     stage_start = time.monotonic()
     cids_by_aid = _fetch_cids_for_aids(all_aids, progreso, start=0.05, end=0.55)
     records = {}
@@ -489,6 +554,8 @@ def _collect_pubchem_records(connection, proteins, progreso, timings=None):
     _update_progress(progreso, 0.60)
     timings.add("cid_collection", time.monotonic() - stage_start)
 
+    if stage_callback is not None:
+        stage_callback("compound_names")
     stage_start = time.monotonic()
     compound_names = _fetch_compound_names(records.keys(), progreso, start=0.60, end=0.85)
     timings.add("compound_names", time.monotonic() - stage_start)
@@ -511,6 +578,8 @@ def _collect_pubchem_records(connection, proteins, progreso, timings=None):
     def activity_fetcher(aid):
         return _fetch_assay_activity(aid, raise_on_error=True)
 
+    if stage_callback is not None:
+        stage_callback("activity_enrichment")
     stage_start = time.monotonic()
     activity_result = run_pubchem_activity_enrichment(
         connection,
@@ -536,7 +605,12 @@ def _collect_pubchem_records(connection, proteins, progreso, timings=None):
     return records
 
 
-def obtener_CIDs_Pubchem(connection, proteins, progreso):
+def _run_pubchem_protein_search(
+    connection,
+    proteins,
+    progreso,
+    stage_callback=None,
+):
     total_start = time.monotonic()
     timings = _new_stage_timings()
     table = "main"
@@ -544,11 +618,19 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     ensure_pubchem_search_schema(connection, table)
     ensure_compound_activities_table(connection)
 
-    records = _collect_pubchem_records(connection, proteins, progreso, timings)
+    records = _collect_pubchem_records(
+        connection,
+        proteins,
+        progreso,
+        timings,
+        stage_callback=stage_callback,
+    )
 
     total_records = len(records)
     main_rows_written = 0
 
+    if stage_callback is not None:
+        stage_callback("sqlite_main_upsert")
     stage_start = time.monotonic()
     for chunk in iter_main_record_chunks(records):
         main_rows_written += upsert_main_records_chunk(connection, chunk, table)
@@ -562,6 +644,8 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     total_assay_rows = count_compound_assay_rows(records)
     assay_rows_written = 0
 
+    if stage_callback is not None:
+        stage_callback("compound_assays_insert")
     stage_start = time.monotonic()
     for assay_chunk in iter_compound_assay_chunks(records):
         assay_rows_written += insert_compound_assays_chunk(connection, assay_chunk)
@@ -577,12 +661,59 @@ def obtener_CIDs_Pubchem(connection, proteins, progreso):
     _print_pubchem_stage_timings(timings, time.monotonic() - total_start)
 
 
+def obtener_CIDs_Pubchem(connection, proteins, progreso):
+    return _run_pubchem_protein_search(connection, proteins, progreso)
+
+
 def run_pubchem_protein_search(connection, proteins, progress_callback):
     return obtener_CIDs_Pubchem(connection, proteins, progress_callback)
+
+
+def run_pubchem_protein_search_job(
+    connection,
+    proteins,
+    progress_callback=None,
+    *,
+    job_store=None,
+    job_id=None,
+    database_id="",
+    metadata=None,
+):
+    """Run the search synchronously while persisting its job lifecycle."""
+    store = job_store or JobStore(connection)
+    job = store.get_job(job_id) if job_id is not None else None
+    if job is None:
+        job = store.create_job(
+            job_type=JobType.PUBCHEM_PROTEIN_SEARCH,
+            database_id=database_id,
+            metadata=metadata,
+            job_id=job_id,
+        )
+
+    store.start_job(job.job_id)
+    tracked_progress = _JobTrackingProgress(
+        progress_callback,
+        store,
+        job.job_id,
+    )
+    try:
+        _run_pubchem_protein_search(
+            connection,
+            proteins,
+            tracked_progress,
+            stage_callback=tracked_progress.set_stage,
+        )
+    except Exception as error:
+        store.fail_job(job.job_id, str(error))
+        raise
+
+    tracked_progress.set_stage("completed")
+    return store.complete_job(job.job_id)
 
 
 __all__ = [
     "obtener_CIDs_Pubchem",
     "run_pubchem_protein_search",
+    "run_pubchem_protein_search_job",
     "fetch_pubchem_assay_activity",
 ]
