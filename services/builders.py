@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import os
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -8,9 +7,9 @@ import streamlit as st
 from services.pubchem_protein_search import obtener_CIDs_Pubchem
 from services.database import get_connection
 from services.db_audit import register_operation, register_table_metadata
-from services.job_launcher import (
-    create_and_launch_pubchem_job,
-    resolve_database_path,
+from services.pubchem_job_service import (
+    register_protein_search_build,
+    start_pubchem_search,
 )
 from state_keys import CURRENT_TABLE, DATABASE_ID, SELECTED_PROTEINS, SET_TEXT_INPUT_LOCKED
 
@@ -72,31 +71,6 @@ def build_from_csv(uploaded_file):
     )
 
 
-def register_protein_search_build(connection, proteins):
-    register_table_metadata(
-        connection,
-        "main",
-        role="base",
-        origin="protein_search",
-        created_by="build_from_proteins",
-        notes="Initial table created from selected proteins.",
-    )
-    register_operation(
-        connection,
-        "protein_search_loaded",
-        target_table="main",
-        output_columns=[
-            "CID",
-            "AIDs",
-            "Proteins",
-            "Compound_Name",
-            "Activity_Enrichment_Status",
-        ],
-        created_by="build_from_proteins",
-        details=f"Loaded selected proteins: {', '.join(map(str, proteins))}.",
-    )
-
-
 def build_from_proteins(progreso):
     st.session_state[CURRENT_TABLE] = "main"
     conn = get_connection(st.session_state[DATABASE_ID])
@@ -109,18 +83,7 @@ def launch_protein_search_job():
     st.session_state[CURRENT_TABLE] = "main"
     database_id = st.session_state[DATABASE_ID]
     proteins = list(st.session_state[SELECTED_PROTEINS])
-    db_path = Path("SQL") / f"{database_id}.db"
-    conn = get_connection(database_id)
-    try:
-        job = create_and_launch_pubchem_job(
-            conn,
-            db_path,
-            proteins,
-            database_id=database_id,
-        )
-    finally:
-        conn.close()
-    return job, resolve_database_path(db_path)
+    return start_pubchem_search(database_id, proteins)
 
 
 def run_protein_search(progreso=None):

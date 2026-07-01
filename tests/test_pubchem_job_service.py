@@ -62,3 +62,58 @@ def test_register_completed_pubchem_job_uses_existing_build_registration(
     pubchem_job_service.register_completed_pubchem_job(db_path, job)
 
     assert calls == [["P34971"]]
+
+
+def test_start_pubchem_search_launches_job_with_explicit_inputs(tmp_path, monkeypatch):
+    calls = {}
+
+    class FakeConnection:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    connection = FakeConnection()
+    expected_job = object()
+
+    def fake_get_connection(database_id):
+        calls["database_id"] = database_id
+        return connection
+
+    monkeypatch.setattr(
+        pubchem_job_service,
+        "get_connection",
+        fake_get_connection,
+    )
+
+    def fake_create(connection_arg, db_path, proteins, *, database_id):
+        calls["launch"] = (connection_arg, db_path, proteins, database_id)
+        return expected_job
+
+    monkeypatch.setattr(
+        pubchem_job_service,
+        "create_and_launch_pubchem_job",
+        fake_create,
+    )
+    monkeypatch.setattr(
+        pubchem_job_service,
+        "resolve_database_path",
+        lambda db_path: db_path.resolve(),
+    )
+
+    result = pubchem_job_service.start_pubchem_search(
+        "protein_db",
+        ("P34971",),
+        db_dir=tmp_path,
+    )
+
+    expected_path = tmp_path / "protein_db.db"
+    assert result == (expected_job, expected_path.resolve())
+    assert calls["database_id"] == "protein_db"
+    assert calls["launch"] == (
+        connection,
+        expected_path,
+        ["P34971"],
+        "protein_db",
+    )
+    assert connection.closed is True

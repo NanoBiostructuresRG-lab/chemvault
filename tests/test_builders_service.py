@@ -71,8 +71,11 @@ def test_build_from_proteins_sets_main_table_and_delegates_to_pubchem(monkeypatc
 
     monkeypatch.setattr(builders.st, "session_state", session_state)
     monkeypatch.setattr(builders, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(builders, "register_table_metadata", lambda *args, **kwargs: None)
-    monkeypatch.setattr(builders, "register_operation", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        builders,
+        "register_protein_search_build",
+        lambda *args, **kwargs: None,
+    )
     monkeypatch.setattr(
         builders,
         "obtener_CIDs_Pubchem",
@@ -95,3 +98,25 @@ def test_run_protein_search_dispatches_to_worker_job(monkeypatch):
     )
 
     assert builders.run_protein_search(None) == expected
+
+
+def test_launch_protein_search_job_delegates_explicit_session_values(monkeypatch):
+    expected = (object(), object())
+    session_state = {
+        "database_id": "protein_db",
+        "current_table": "",
+        "selected_proteins": ["P34971"],
+    }
+    calls = []
+    monkeypatch.setattr(builders.st, "session_state", session_state)
+    monkeypatch.setattr(
+        builders,
+        "start_pubchem_search",
+        lambda database_id, proteins: calls.append((database_id, proteins)) or expected,
+    )
+
+    result = builders.launch_protein_search_job()
+
+    assert result == expected
+    assert calls == [("protein_db", ["P34971"])]
+    assert session_state["current_table"] == "main"

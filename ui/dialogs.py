@@ -3,7 +3,6 @@ import sqlite3
 
 import streamlit as st
 
-from services.builders import run_protein_search
 from services.database import update_headers
 from services.job_models import JobStatus
 from services.job_store import (
@@ -14,8 +13,10 @@ from services.pubchem_job_service import (
     cancel_pubchem_job,
     load_pubchem_job,
     register_completed_pubchem_job,
+    start_pubchem_search,
 )
 from state_keys import (
+    CURRENT_TABLE,
     DATABASE_ID,
     INPUT_PROTEIN,
     PUBCHEM_JOB_COMPLETION_HANDLED,
@@ -156,7 +157,11 @@ def select_proteins():
             st.info("Building the protein database. This can take a few minutes for targets with many BioAssays.")
             st.toast(f"Building database with proteins: {st.session_state[SELECTED_PROTEINS]}")
             try:
-                job, db_path = run_protein_search(None)
+                st.session_state[CURRENT_TABLE] = "main"
+                job, db_path = start_pubchem_search(
+                    st.session_state[DATABASE_ID],
+                    list(st.session_state[SELECTED_PROTEINS]),
+                )
             except Exception as error:
                 st.error(f"The protein search could not be started: {error}")
                 return
