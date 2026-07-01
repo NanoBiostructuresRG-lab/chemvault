@@ -345,6 +345,7 @@ def test_user_table_profiles_exclude_internal_tables(tmp_path):
         cur.execute("CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT, CID TEXT)")
         cur.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
         cur.execute("CREATE TABLE compound_activities (CID TEXT, AID TEXT)")
+        cur.execute("CREATE TABLE _chemvault_jobs (job_id TEXT)")
         cur.execute("INSERT INTO main (CID) VALUES ('1')")
         ensure_table_metadata(con)
 

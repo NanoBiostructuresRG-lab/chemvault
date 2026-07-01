@@ -2,6 +2,8 @@
 import io
 import sqlite3
 
+import pytest
+
 from services import builders
 
 
@@ -81,3 +83,35 @@ def test_build_from_proteins_sets_main_table_and_delegates_to_pubchem(monkeypatc
 
     assert session_state["current_table"] == "main"
     assert calls == [(connection, ["P34971"], progreso)]
+
+
+def test_run_protein_search_keeps_synchronous_fallback(monkeypatch):
+    calls = []
+    progress = object()
+    monkeypatch.setattr(
+        builders,
+        "build_from_proteins",
+        lambda received_progress: calls.append(("sync", received_progress)),
+    )
+    monkeypatch.setattr(
+        builders,
+        "launch_protein_search_job",
+        lambda: calls.append(("worker", None)),
+    )
+
+    result = builders.run_protein_search(progress, use_worker_mode=False)
+
+    assert result is None
+    assert calls == [("sync", progress)]
+
+
+def test_run_protein_search_dispatches_to_worker_mode(monkeypatch):
+    expected = (object(), object())
+    monkeypatch.setattr(builders, "launch_protein_search_job", lambda: expected)
+    monkeypatch.setattr(
+        builders,
+        "build_from_proteins",
+        lambda progress: pytest.fail("synchronous fallback must not run"),
+    )
+
+    assert builders.run_protein_search(None, use_worker_mode=True) == expected
