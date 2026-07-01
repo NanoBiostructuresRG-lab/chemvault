@@ -21,6 +21,7 @@ from services.harmonsmile_cache import (
 )
 from services.selection import get_active_selected_headers, get_selected_columns
 from services.sql_utils import table_exists
+from services.runtime_config import USE_PUBCHEM_WORKER_MODE
 from state_keys import (
     CODIGO_BUSCAR,
     CURRENT_TABLE,
@@ -33,6 +34,7 @@ from state_keys import (
     NEW_TABLE_NAME,
     ORDER_BY_COLUMN,
     ORDER_DIRECTION,
+    PUBCHEM_JOB_ID,
     SELECTED_HEADERS,
     SET_TEXT_INPUT_LOCKED,
     TYPE_OF_FILTER,
@@ -77,6 +79,12 @@ def render_sidebar(select_proteins_callback, clear_preview_callback, build_query
 
         render_curate_card()
         render_export_card()
+
+    if (
+        USE_PUBCHEM_WORKER_MODE
+        and st.session_state.get(PUBCHEM_JOB_ID, "")
+    ):
+        select_proteins_callback()
 
 
 def _clear_refine_feedback(clear_preview_callback):

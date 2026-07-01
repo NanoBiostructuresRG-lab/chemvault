@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import os
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -7,6 +8,10 @@ import streamlit as st
 from services.pubchem_protein_search import obtener_CIDs_Pubchem
 from services.database import get_connection
 from services.db_audit import register_operation, register_table_metadata
+from services.job_launcher import (
+    create_and_launch_pubchem_job,
+    resolve_database_path,
+)
 from state_keys import CURRENT_TABLE, DATABASE_ID, SELECTED_PROTEINS, SET_TEXT_INPUT_LOCKED
 
 
@@ -67,16 +72,9 @@ def build_from_csv(uploaded_file):
     )
 
 
-def build_from_proteins(progreso):
-    st.session_state[CURRENT_TABLE] = "main"
-    conn = get_connection(st.session_state[DATABASE_ID])
-    obtener_CIDs_Pubchem(
-        conn,
-        st.session_state[SELECTED_PROTEINS],
-        progreso,
-    )
+def register_protein_search_build(connection, proteins):
     register_table_metadata(
-        conn,
+        connection,
         "main",
         role="base",
         origin="protein_search",
@@ -84,7 +82,7 @@ def build_from_proteins(progreso):
         notes="Initial table created from selected proteins.",
     )
     register_operation(
-        conn,
+        connection,
         "protein_search_loaded",
         target_table="main",
         output_columns=[
@@ -95,5 +93,38 @@ def build_from_proteins(progreso):
             "Activity_Enrichment_Status",
         ],
         created_by="build_from_proteins",
-        details=f"Loaded selected proteins: {', '.join(map(str, st.session_state[SELECTED_PROTEINS]))}.",
+        details=f"Loaded selected proteins: {', '.join(map(str, proteins))}.",
     )
+
+
+def build_from_proteins(progreso):
+    st.session_state[CURRENT_TABLE] = "main"
+    conn = get_connection(st.session_state[DATABASE_ID])
+    proteins = list(st.session_state[SELECTED_PROTEINS])
+    obtener_CIDs_Pubchem(conn, proteins, progreso)
+    register_protein_search_build(conn, proteins)
+
+
+def launch_protein_search_job():
+    st.session_state[CURRENT_TABLE] = "main"
+    database_id = st.session_state[DATABASE_ID]
+    proteins = list(st.session_state[SELECTED_PROTEINS])
+    db_path = Path("SQL") / f"{database_id}.db"
+    conn = get_connection(database_id)
+    try:
+        job = create_and_launch_pubchem_job(
+            conn,
+            db_path,
+            proteins,
+            database_id=database_id,
+        )
+    finally:
+        conn.close()
+    return job, resolve_database_path(db_path)
+
+
+def run_protein_search(progreso, use_worker_mode=False):
+    if use_worker_mode:
+        return launch_protein_search_job()
+    build_from_proteins(progreso)
+    return None

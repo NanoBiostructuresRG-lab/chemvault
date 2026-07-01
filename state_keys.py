@@ -12,6 +12,9 @@ HEADERS = "headers"
 SELECTED_HEADERS = "selected_headers"
 SELECTED_PROTEINS = "selected_proteins"
 CURRENT_TABLE = "current_table"
+PUBCHEM_JOB_ID = "pubchem_job_id"
+PUBCHEM_JOB_DB_PATH = "pubchem_job_db_path"
+PUBCHEM_JOB_COMPLETION_HANDLED = "pubchem_job_completion_handled"
 ALL_TABLES = "all_tables"
 GROUP_COUNT_COLUMN = "grupo_a_contar"
 CUSTOM_QUERY = "custom_query"
@@ -50,6 +53,9 @@ ALL_SESSION_KEYS = (
     SELECTED_HEADERS,
     SELECTED_PROTEINS,
     CURRENT_TABLE,
+    PUBCHEM_JOB_ID,
+    PUBCHEM_JOB_DB_PATH,
+    PUBCHEM_JOB_COMPLETION_HANDLED,
     ALL_TABLES,
     GROUP_COUNT_COLUMN,
     CUSTOM_QUERY,

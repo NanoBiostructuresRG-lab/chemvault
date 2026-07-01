@@ -17,6 +17,7 @@ INTERNAL_TABLES = {
     HARMONSMILE_CACHE_TABLE,
     COMPOUND_ASSAYS_TABLE,
     COMPOUND_ACTIVITIES_TABLE,
+    "_chemvault_jobs",
     "sqlite_sequence",
 }
 

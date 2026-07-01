@@ -29,6 +29,7 @@ def get_tables_from_connection(connection):
         AND name != '_chemvault_table_metadata'
         AND name != '_chemvault_operation_log'
         AND name != '_chemvault_harmonsmile_cache'
+        AND name != '_chemvault_jobs'
         AND name != 'compound_assays'
         AND name != 'compound_activities'
         ORDER BY name
