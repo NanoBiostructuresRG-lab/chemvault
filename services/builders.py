@@ -123,8 +123,5 @@ def launch_protein_search_job():
     return job, resolve_database_path(db_path)
 
 
-def run_protein_search(progreso, use_worker_mode=False):
-    if use_worker_mode:
-        return launch_protein_search_job()
-    build_from_proteins(progreso)
-    return None
+def run_protein_search(progreso=None):
+    return launch_protein_search_job()

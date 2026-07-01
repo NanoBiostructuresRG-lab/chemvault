@@ -11,7 +11,6 @@ from services.job_store import (
     STALE_JOB_ERROR_MESSAGE,
     JobStore,
 )
-from services.runtime_config import USE_PUBCHEM_WORKER_MODE
 from state_keys import (
     DATABASE_ID,
     INPUT_PROTEIN,
@@ -119,10 +118,7 @@ def render_pubchem_job_status():
 
 @st.dialog("Select Proteins", dismissible=False)
 def select_proteins():
-    if (
-        USE_PUBCHEM_WORKER_MODE
-        and st.session_state.get(PUBCHEM_JOB_ID, "")
-    ):
+    if st.session_state.get(PUBCHEM_JOB_ID, ""):
         job_id = st.session_state[PUBCHEM_JOB_ID]
         db_path = st.session_state.get(PUBCHEM_JOB_DB_PATH, "")
         try:
@@ -164,23 +160,16 @@ def select_proteins():
         else:
             st.info("Building the protein database. This can take a few minutes for targets with many BioAssays.")
             st.toast(f"Building database with proteins: {st.session_state[SELECTED_PROTEINS]}")
-            if USE_PUBCHEM_WORKER_MODE:
-                try:
-                    job, db_path = run_protein_search(
-                        None,
-                        use_worker_mode=True,
-                    )
-                except Exception as error:
-                    st.error(f"The protein search could not be started: {error}")
-                    return
-                st.session_state[PUBCHEM_JOB_ID] = job.job_id
-                st.session_state[PUBCHEM_JOB_DB_PATH] = str(db_path)
-                st.session_state[PUBCHEM_JOB_COMPLETION_HANDLED] = False
-                st.rerun(scope="fragment")
-            else:
-                progreso = st.progress(0)
-                run_protein_search(progreso, use_worker_mode=False)
-                update_headers()
+            try:
+                job, db_path = run_protein_search(None)
+            except Exception as error:
+                st.error(f"The protein search could not be started: {error}")
+                return
+            st.session_state[PUBCHEM_JOB_ID] = job.job_id
+            st.session_state[PUBCHEM_JOB_DB_PATH] = str(db_path)
+            st.session_state[PUBCHEM_JOB_COMPLETION_HANDLED] = False
+            st.rerun(scope="fragment")
+            return
         st.rerun()
     if st.button("Cancel"):
         st.session_state[SELECTED_PROTEINS] = []
