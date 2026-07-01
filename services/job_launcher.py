@@ -79,7 +79,12 @@ def create_and_launch_pubchem_job(
 
     launcher = launcher or launch_pubchem_worker
     try:
-        launcher(db_path, job.job_id)
+        process = launcher(db_path, job.job_id)
+        worker_pid = getattr(process, "pid", None)
+        if worker_pid is not None:
+            updated = store.set_worker_pid(job.job_id, worker_pid)
+            if updated is not None:
+                job = updated
     except Exception as error:
         store.fail_job(job.job_id, str(error))
         raise

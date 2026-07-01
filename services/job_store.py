@@ -50,6 +50,8 @@ def _job_from_row(row):
         started_at=row["started_at"] or "",
         finished_at=row["finished_at"] or "",
         last_heartbeat_at=row["last_heartbeat_at"] or "",
+        cancel_requested_at=row["cancel_requested_at"] or "",
+        worker_pid=row["worker_pid"],
         metadata=_metadata_dict(row["metadata_json"]),
     )
 
@@ -74,19 +76,26 @@ class JobStore:
                 started_at TEXT,
                 finished_at TEXT,
                 last_heartbeat_at TEXT,
+                cancel_requested_at TEXT,
+                worker_pid INTEGER,
                 metadata_json TEXT
             )
         """)
         cursor.execute(f"PRAGMA table_info({JOBS_TABLE})")
         columns = {row[1] for row in cursor.fetchall()}
-        if "last_heartbeat_at" not in columns:
-            try:
-                cursor.execute(
-                    f"ALTER TABLE {JOBS_TABLE} ADD COLUMN last_heartbeat_at TEXT"
-                )
-            except sqlite3.OperationalError as error:
-                if "duplicate column name" not in str(error).lower():
-                    raise
+        for column_name, column_type in [
+            ("last_heartbeat_at", "TEXT"),
+            ("cancel_requested_at", "TEXT"),
+            ("worker_pid", "INTEGER"),
+        ]:
+            if column_name not in columns:
+                try:
+                    cursor.execute(
+                        f"ALTER TABLE {JOBS_TABLE} ADD COLUMN {column_name} {column_type}"
+                    )
+                except sqlite3.OperationalError as error:
+                    if "duplicate column name" not in str(error).lower():
+                        raise
         cursor.execute(f"""
             UPDATE {JOBS_TABLE}
             SET last_heartbeat_at = COALESCE(
@@ -129,9 +138,11 @@ class JobStore:
                 error_message,
                 created_at,
                 last_heartbeat_at,
+                cancel_requested_at,
+                worker_pid,
                 metadata_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -144,6 +155,8 @@ class JobStore:
                 "",
                 created_at,
                 created_at,
+                "",
+                None,
                 _metadata_json(metadata),
             ),
         )
@@ -186,6 +199,49 @@ class JobStore:
             WHERE job_id = ? AND status IN (?, ?)
             """,
             (_utc_now(), job_id, *ACTIVE_JOB_STATUSES),
+        )
+        updated = cursor.rowcount == 1
+        self.connection.commit()
+        return self.get_job(job_id) if updated else None
+
+    def set_worker_pid(self, job_id, worker_pid):
+        self.ensure_jobs_table()
+        cursor = self.connection.cursor()
+        cursor.execute(
+            f"""
+            UPDATE {JOBS_TABLE}
+            SET worker_pid = ?
+            WHERE job_id = ?
+            """,
+            (int(worker_pid), job_id),
+        )
+        updated = cursor.rowcount == 1
+        self.connection.commit()
+        return self.get_job(job_id) if updated else None
+
+    def cancel_job(self, job_id, message="Cancellation requested"):
+        self.ensure_jobs_table()
+        now = _utc_now()
+        cursor = self.connection.cursor()
+        cursor.execute(
+            f"""
+            UPDATE {JOBS_TABLE}
+            SET status = ?,
+                finished_at = ?,
+                cancel_requested_at = ?,
+                message = ?,
+                last_heartbeat_at = ?
+            WHERE job_id = ? AND status IN (?, ?)
+            """,
+            (
+                JobStatus.CANCELLED.value,
+                now,
+                now,
+                str(message),
+                now,
+                job_id,
+                *ACTIVE_JOB_STATUSES,
+            ),
         )
         updated = cursor.rowcount == 1
         self.connection.commit()
@@ -338,6 +394,8 @@ class JobStore:
                     started_at,
                     finished_at,
                     last_heartbeat_at,
+                    cancel_requested_at,
+                    worker_pid,
                     metadata_json
                 FROM {JOBS_TABLE}
                 WHERE job_id = ?
@@ -362,6 +420,8 @@ class JobStore:
             "started_at",
             "finished_at",
             "last_heartbeat_at",
+            "cancel_requested_at",
+            "worker_pid",
             "metadata_json",
         ]
         return _job_from_row(dict(zip(keys, row)))
@@ -388,6 +448,8 @@ class JobStore:
                     started_at,
                     finished_at,
                     last_heartbeat_at,
+                    cancel_requested_at,
+                    worker_pid,
                     metadata_json
                 FROM {JOBS_TABLE}
                 ORDER BY created_at DESC
@@ -411,6 +473,8 @@ class JobStore:
             "started_at",
             "finished_at",
             "last_heartbeat_at",
+            "cancel_requested_at",
+            "worker_pid",
             "metadata_json",
         ]
         return [_job_from_row(dict(zip(keys, row))) for row in rows]
@@ -440,6 +504,14 @@ def update_progress(connection, job_id, stage, progress, message=None, metadata=
 
 def heartbeat_job(connection, job_id):
     return JobStore(connection).heartbeat_job(job_id)
+
+
+def set_worker_pid(connection, job_id, worker_pid):
+    return JobStore(connection).set_worker_pid(job_id, worker_pid)
+
+
+def cancel_job(connection, job_id, message="Cancellation requested"):
+    return JobStore(connection).cancel_job(job_id, message=message)
 
 
 def complete_job(connection, job_id, metadata=None):

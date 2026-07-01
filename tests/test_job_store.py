@@ -62,7 +62,12 @@ def test_ensure_jobs_table_creates_and_migrates_last_heartbeat_column():
         row[1] for row in connection.execute(f"PRAGMA table_info({JOBS_TABLE})")
     }
     assert "last_heartbeat_at" in columns
-    assert JobStore(connection).get_job("legacy-job").last_heartbeat_at == created_at
+    assert "cancel_requested_at" in columns
+    assert "worker_pid" in columns
+    migrated = JobStore(connection).get_job("legacy-job")
+    assert migrated.last_heartbeat_at == created_at
+    assert migrated.cancel_requested_at == ""
+    assert migrated.worker_pid is None
 
 
 def test_create_job_persists_pending_record():
@@ -150,6 +155,45 @@ def test_fail_job_marks_finished_with_error():
     assert failed.finished_at
     assert failed.error_message == "PubChem timeout"
     assert failed.metadata == {"aid": "123"}
+
+
+def test_set_worker_pid_persists_process_identifier():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    job = store.create_job(job_id="job-1")
+
+    updated = store.set_worker_pid(job.job_id, 12345)
+
+    assert updated.worker_pid == 12345
+    assert store.get_job(job.job_id).worker_pid == 12345
+
+
+def test_cancel_job_marks_active_job_cancelled():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    job = store.create_job(job_id="job-1")
+    store.start_job(job.job_id)
+
+    cancelled = store.cancel_job(job.job_id, "User cancelled")
+
+    assert cancelled.status == JobStatus.CANCELLED.value
+    assert cancelled.finished_at
+    assert cancelled.cancel_requested_at
+    assert cancelled.message == "User cancelled"
+    assert store.heartbeat_job(job.job_id) is None
+    assert store.update_progress(job.job_id, "compound_names", 0.8) is None
+    assert store.complete_job(job.job_id) is None
+
+
+def test_cancel_job_ignores_terminal_jobs():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    job = store.create_job(job_id="job-1")
+    store.start_job(job.job_id)
+    store.complete_job(job.job_id)
+
+    assert store.cancel_job(job.job_id) is None
+    assert store.get_job(job.job_id).status == JobStatus.COMPLETED.value
 
 
 def test_get_job_returns_none_for_missing_job():

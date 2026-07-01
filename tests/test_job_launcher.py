@@ -63,10 +63,14 @@ def test_create_and_launch_job_persists_proteins_before_launch(tmp_path):
     connection = sqlite3.connect(db_path)
     observed = {}
 
+    class FakeProcess:
+        pid = 12345
+
     def fake_launcher(received_db_path, job_id):
         observed["db_path"] = received_db_path
         with sqlite3.connect(received_db_path) as worker_connection:
             observed["job"] = JobStore(worker_connection).get_job(job_id)
+        return FakeProcess()
 
     created = create_and_launch_pubchem_job(
         connection,
@@ -79,6 +83,8 @@ def test_create_and_launch_job_persists_proteins_before_launch(tmp_path):
     assert observed["db_path"] == db_path
     assert observed["job"].job_id == created.job_id
     assert observed["job"].metadata == {"proteins": ["P32245"]}
+    assert created.worker_pid == 12345
+    assert JobStore(connection).get_job(created.job_id).worker_pid == 12345
     connection.close()
 
 

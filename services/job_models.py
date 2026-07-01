@@ -33,4 +33,6 @@ class JobRecord:
     started_at: str = ""
     finished_at: str = ""
     last_heartbeat_at: str = ""
+    cancel_requested_at: str = ""
+    worker_pid: int | None = None
     metadata: dict = field(default_factory=dict)
