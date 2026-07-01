@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
 
-from services.job_models import JobStatus
 from services.job_store import JobStore
+from services.pubchem_job_service import cancel_pubchem_job
 from ui import dialogs, main_page
 
 
@@ -42,8 +42,8 @@ def test_cancelled_terminal_job_is_not_registered_as_completed(tmp_path, monkeyp
     store = JobStore(connection)
     store.create_job(job_id="job-1")
     store.start_job("job-1")
-    cancelled = store.cancel_job("job-1", "Cancelled by user")
     connection.close()
+    cancelled = cancel_pubchem_job(db_path, "job-1")
     messages = []
     exits = []
 

@@ -4,11 +4,6 @@ import sqlite3
 import streamlit as st
 
 from services.database import update_headers
-from services.job_models import JobStatus
-from services.job_store import (
-    ACTIVE_JOB_STATUSES,
-    STALE_JOB_ERROR_MESSAGE,
-)
 from services.pubchem_job_service import (
     cancel_pubchem_job,
     load_pubchem_job,
@@ -55,20 +50,23 @@ def _render_job_snapshot(job):
 
 def _render_terminal_pubchem_job(db_path, job):
     _render_job_snapshot(job)
-    if job.status == JobStatus.CANCELLED.value:
+    if job.is_cancelled:
         st.info("Protein search cancelled.")
         _render_job_dialog_exit("Close")
         return
 
-    if job.status == JobStatus.FAILED.value:
-        if job.error_message == STALE_JOB_ERROR_MESSAGE:
-            st.error(STALE_JOB_ERROR_MESSAGE)
+    if job.is_failed:
+        if job.is_stale_failure:
+            st.error(job.error_message)
         else:
             st.error(f"The protein search failed: {job.error_message}")
         _render_job_dialog_exit("Close")
         return
 
-    if not st.session_state.get(PUBCHEM_JOB_COMPLETION_HANDLED, False):
+    if job.is_completed and not st.session_state.get(
+        PUBCHEM_JOB_COMPLETION_HANDLED,
+        False,
+    ):
         try:
             register_completed_pubchem_job(db_path, job)
         except Exception as error:
@@ -77,8 +75,9 @@ def _render_terminal_pubchem_job(db_path, job):
         st.session_state[PUBCHEM_JOB_COMPLETION_HANDLED] = True
         update_headers()
 
-    st.success("Protein search completed.")
-    _render_job_dialog_exit("Continue")
+    if job.is_completed:
+        st.success("Protein search completed.")
+        _render_job_dialog_exit("Continue")
 
 
 @st.fragment(run_every="2s")
@@ -100,7 +99,7 @@ def render_pubchem_job_status():
     if job is None:
         st.rerun()
 
-    if job.status not in ACTIVE_JOB_STATUSES:
+    if not job.is_active:
         st.rerun()
     _render_job_snapshot(job)
     if st.button("Cancel search", key="pubchem_job_cancel"):
@@ -135,7 +134,7 @@ def select_proteins():
             st.error("The protein search status is unavailable.")
             _render_job_dialog_exit("Close")
             return
-        if job.status in ACTIVE_JOB_STATUSES:
+        if job.is_active:
             render_pubchem_job_status()
         else:
             _render_terminal_pubchem_job(db_path, job)
