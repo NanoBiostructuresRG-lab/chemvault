@@ -29,6 +29,12 @@ def test_clear_pubchem_job_state_resets_dialog_tracking(monkeypatch):
     }
 
 
+def test_database_locked_errors_are_detected_as_transient():
+    assert dialogs._is_database_locked_error(sqlite3.OperationalError("database is locked"))
+    assert dialogs._is_database_locked_error(sqlite3.OperationalError("database table is locked"))
+    assert not dialogs._is_database_locked_error(sqlite3.OperationalError("no such table: main"))
+
+
 def test_dialog_query_lazily_marks_stale_job_failed(tmp_path):
     db_path = tmp_path / "stale.db"
     connection = sqlite3.connect(db_path)

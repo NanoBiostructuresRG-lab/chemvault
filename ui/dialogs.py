@@ -32,6 +32,11 @@ def _load_pubchem_job(db_path, job_id):
         connection.close()
 
 
+def _is_database_locked_error(error):
+    message = str(error).lower()
+    return "database is locked" in message or "database table is locked" in message
+
+
 def _register_completed_pubchem_job(db_path, job):
     connection = sqlite3.connect(db_path)
     try:
@@ -97,6 +102,11 @@ def render_pubchem_job_status():
 
     try:
         job = _load_pubchem_job(db_path, job_id)
+    except sqlite3.OperationalError as error:
+        if _is_database_locked_error(error):
+            st.info("The protein search database is busy. ChemVault will retry automatically.")
+            return
+        st.rerun()
     except Exception:
         st.rerun()
     if job is None:
@@ -117,6 +127,14 @@ def select_proteins():
         db_path = st.session_state.get(PUBCHEM_JOB_DB_PATH, "")
         try:
             job = _load_pubchem_job(db_path, job_id)
+        except sqlite3.OperationalError as error:
+            if _is_database_locked_error(error):
+                st.info("The protein search database is busy while the worker finishes writing. ChemVault will retry automatically.")
+                render_pubchem_job_status()
+                return
+            st.error(f"The protein search status could not be read: {error}")
+            _render_job_dialog_exit("Close")
+            return
         except Exception as error:
             st.error(f"The protein search status could not be read: {error}")
             _render_job_dialog_exit("Close")
