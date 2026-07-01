@@ -24,9 +24,7 @@ def agregar_df_por_pk(df, pk, fk):
     conn = get_connection(st.session_state[DATABASE_ID])
     cursor = conn.cursor()
     table = st.session_state[CURRENT_TABLE]
-    print(df)
     columnas_a_actualizar = [col for col in df.columns if col != fk]
-    print(columnas_a_actualizar)
     if not columnas_a_actualizar:
         return False
 
@@ -38,7 +36,6 @@ def agregar_df_por_pk(df, pk, fk):
         for col in columnas_a_actualizar:
             if col not in columnas_existentes:
                 cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
-        print("Columnas agregadas")
 
         temp_table_name = "_temp_updates"
         df.to_sql(temp_table_name, conn, if_exists="replace", index=False)
@@ -55,14 +52,10 @@ def agregar_df_por_pk(df, pk, fk):
             SET {set_clause}
             WHERE {pk} IN (SELECT {fk} FROM {temp_table_name})
         """
-        print("Query construido")
         cursor.execute(update_query)
-        print("query ejecutado")
         cursor.execute(f"DROP TABLE IF EXISTS {temp_table_name}")
-        print("tabla eliminada")
 
         conn.commit()
-        print("after commit")
 
         return True
 

@@ -148,10 +148,8 @@ def select_proteins():
     if st.button("Confirm selection"):
         if len(st.session_state[SELECTED_PROTEINS]) == 0:
             st.toast("Select at least one protein")
-            print("Select at least one protein")
         elif st.session_state[DATABASE_ID] == "":
             st.toast("First, enter a name for your SQL database")
-            print("First, enter a name for your SQL database")
         else:
             st.info("Building the protein database. This can take a few minutes for targets with many BioAssays.")
             st.toast(f"Building database with proteins: {st.session_state[SELECTED_PROTEINS]}")
