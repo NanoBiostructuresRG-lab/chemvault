@@ -3,13 +3,17 @@ import sqlite3
 
 import streamlit as st
 
-from services.builders import register_protein_search_build, run_protein_search
+from services.builders import run_protein_search
 from services.database import update_headers
 from services.job_models import JobStatus
 from services.job_store import (
     ACTIVE_JOB_STATUSES,
     STALE_JOB_ERROR_MESSAGE,
-    JobStore,
+)
+from services.pubchem_job_service import (
+    cancel_pubchem_job,
+    load_pubchem_job,
+    register_completed_pubchem_job,
 )
 from state_keys import (
     DATABASE_ID,
@@ -21,38 +25,9 @@ from state_keys import (
 )
 
 
-def _load_pubchem_job(db_path, job_id):
-    connection = sqlite3.connect(db_path)
-    try:
-        store = JobStore(connection)
-        store.fail_stale_job(job_id)
-        return store.get_job(job_id)
-    finally:
-        connection.close()
-
-
 def _is_database_locked_error(error):
     message = str(error).lower()
     return "database is locked" in message or "database table is locked" in message
-
-
-def _register_completed_pubchem_job(db_path, job):
-    connection = sqlite3.connect(db_path)
-    try:
-        register_protein_search_build(
-            connection,
-            job.metadata.get("proteins", []),
-        )
-    finally:
-        connection.close()
-
-
-def _cancel_pubchem_job(db_path, job_id):
-    connection = sqlite3.connect(db_path)
-    try:
-        return JobStore(connection).cancel_job(job_id, "Cancelled by user")
-    finally:
-        connection.close()
 
 
 def _clear_pubchem_job_state():
@@ -94,7 +69,7 @@ def _render_terminal_pubchem_job(db_path, job):
 
     if not st.session_state.get(PUBCHEM_JOB_COMPLETION_HANDLED, False):
         try:
-            _register_completed_pubchem_job(db_path, job)
+            register_completed_pubchem_job(db_path, job)
         except Exception as error:
             st.error(f"The completed search could not be registered: {error}")
             return
@@ -113,7 +88,7 @@ def render_pubchem_job_status():
         return
 
     try:
-        job = _load_pubchem_job(db_path, job_id)
+        job = load_pubchem_job(db_path, job_id)
     except sqlite3.OperationalError as error:
         if _is_database_locked_error(error):
             st.info("The protein search database is busy. ChemVault will retry automatically.")
@@ -128,7 +103,7 @@ def render_pubchem_job_status():
         st.rerun()
     _render_job_snapshot(job)
     if st.button("Cancel search", key="pubchem_job_cancel"):
-        cancelled = _cancel_pubchem_job(db_path, job_id)
+        cancelled = cancel_pubchem_job(db_path, job_id)
         if cancelled is not None:
             st.info("Cancellation requested. The worker will stop at the next safe checkpoint.")
         else:
@@ -142,7 +117,7 @@ def select_proteins():
         job_id = st.session_state[PUBCHEM_JOB_ID]
         db_path = st.session_state.get(PUBCHEM_JOB_DB_PATH, "")
         try:
-            job = _load_pubchem_job(db_path, job_id)
+            job = load_pubchem_job(db_path, job_id)
         except sqlite3.OperationalError as error:
             if _is_database_locked_error(error):
                 st.info("The protein search database is busy while the worker finishes writing. ChemVault will retry automatically.")
