@@ -4,7 +4,8 @@ import sqlite3
 import pytest
 
 from services import job_worker
-from services.job_models import JobStatus
+from services import pubchem_protein_search as pubchem_search
+from services.job_models import JobNotActiveError, JobStatus
 from services.job_store import JobStore
 
 
@@ -72,6 +73,28 @@ def test_worker_marks_job_failed_and_propagates_execution_error(tmp_path, monkey
     assert failed.status == JobStatus.FAILED.value
     assert failed.error_message == "PubChem execution failed"
     assert failed.finished_at
+
+
+def test_worker_does_not_complete_job_failed_by_another_process(tmp_path, monkeypatch):
+    db_path = tmp_path / "worker-ownership-lost.db"
+    _create_database_with_job(db_path, metadata={"proteins": ["P32245"]})
+
+    def externally_fail_job(connection, proteins, progress, stage_callback=None):
+        JobStore(connection).fail_job("job-1", "failed externally")
+
+    monkeypatch.setattr(
+        pubchem_search,
+        "_run_pubchem_protein_search",
+        externally_fail_job,
+    )
+
+    with pytest.raises(JobNotActiveError, match="no longer active"):
+        job_worker.run_pubchem_protein_search_worker(db_path, "job-1")
+
+    failed = _load_job(db_path)
+    assert failed.status == JobStatus.FAILED.value
+    assert failed.error_message == "failed externally"
+    assert failed.progress < 1.0
 
 
 def test_worker_rejects_missing_job(tmp_path, monkeypatch):

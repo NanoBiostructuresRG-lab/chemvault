@@ -1,8 +1,17 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
+from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from services.job_models import JobStatus, JobType
-from services.job_store import JOBS_TABLE, JobStore, create_job, ensure_jobs_table
+from services.job_store import (
+    JOBS_TABLE,
+    STALE_JOB_ERROR_MESSAGE,
+    JobStore,
+    create_job,
+    ensure_jobs_table,
+)
 
 
 def test_ensure_jobs_table_creates_internal_table():
@@ -17,6 +26,43 @@ def test_ensure_jobs_table_creates_internal_table():
     )
 
     assert cursor.fetchone()[0] == JOBS_TABLE
+
+
+def test_ensure_jobs_table_creates_and_migrates_last_heartbeat_column():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(f"""
+        CREATE TABLE {JOBS_TABLE} (
+            job_id TEXT PRIMARY KEY,
+            job_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            database_id TEXT,
+            current_stage TEXT,
+            progress REAL NOT NULL DEFAULT 0.0,
+            message TEXT,
+            error_message TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            metadata_json TEXT
+        )
+    """)
+    created_at = "2026-01-01T00:00:00+00:00"
+    connection.execute(
+        f"""
+        INSERT INTO {JOBS_TABLE} (
+            job_id, job_type, status, progress, created_at, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        ("legacy-job", "pubchem_protein_search", "pending", 0.0, created_at, "{}"),
+    )
+
+    ensure_jobs_table(connection)
+
+    columns = {
+        row[1] for row in connection.execute(f"PRAGMA table_info({JOBS_TABLE})")
+    }
+    assert "last_heartbeat_at" in columns
+    assert JobStore(connection).get_job("legacy-job").last_heartbeat_at == created_at
 
 
 def test_create_job_persists_pending_record():
@@ -37,6 +83,7 @@ def test_create_job_persists_pending_record():
     assert job.progress == 0.0
     assert job.metadata == {"protein": "P32245"}
     assert job.created_at
+    assert job.last_heartbeat_at == job.created_at
 
 
 def test_start_job_updates_status_and_started_timestamp():
@@ -50,6 +97,7 @@ def test_start_job_updates_status_and_started_timestamp():
     assert started.started_at
     assert started.finished_at == ""
     assert started.error_message == ""
+    assert started.last_heartbeat_at
 
 
 def test_update_progress_updates_stage_message_and_metadata():
@@ -131,3 +179,86 @@ def test_module_create_job_wrapper_uses_store():
 
     assert job.job_id == "job-1"
     assert job.database_id == "test_db"
+
+
+def test_heartbeat_and_progress_only_update_active_jobs():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    job = store.create_job(job_id="job-1")
+
+    connection.execute(
+        f"UPDATE {JOBS_TABLE} SET last_heartbeat_at = ? WHERE job_id = ?",
+        ("2000-01-01T00:00:00+00:00", job.job_id),
+    )
+    connection.commit()
+    heartbeat = store.heartbeat_job(job.job_id)
+    updated = store.update_progress(job.job_id, "aid_search", 0.1)
+    assert heartbeat is not None
+    assert heartbeat.last_heartbeat_at != "2000-01-01T00:00:00+00:00"
+    assert updated.progress == 0.1
+
+    store.fail_job(job.job_id, "external failure")
+    failed_before = store.get_job(job.job_id)
+
+    assert store.heartbeat_job(job.job_id) is None
+    assert store.update_progress(job.job_id, "compound_names", 0.8) is None
+    assert store.complete_job(job.job_id) is None
+    failed_after = store.get_job(job.job_id)
+    assert failed_after.status == JobStatus.FAILED.value
+    assert failed_after.progress == failed_before.progress
+    assert failed_after.current_stage == failed_before.current_stage
+    assert failed_after.last_heartbeat_at == failed_before.last_heartbeat_at
+    assert store.start_job(job.job_id) is None
+
+
+def _set_heartbeat(connection, job_id, heartbeat):
+    connection.execute(
+        f"UPDATE {JOBS_TABLE} SET last_heartbeat_at = ? WHERE job_id = ?",
+        (heartbeat.isoformat(), job_id),
+    )
+    connection.commit()
+
+
+def test_recent_running_heartbeat_is_not_marked_stale():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    store.create_job(job_id="job-1")
+    store.start_job("job-1")
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    _set_heartbeat(connection, "job-1", now - timedelta(seconds=30))
+
+    marked = store.fail_stale_job("job-1", timeout_seconds=60, now=now)
+
+    assert marked is False
+    assert store.get_job("job-1").status == JobStatus.RUNNING.value
+
+
+@pytest.mark.parametrize("status", ["pending", "running"])
+def test_old_active_heartbeat_is_atomically_marked_failed(status):
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    store.create_job(job_id="job-1")
+    if status == "running":
+        store.start_job("job-1")
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    _set_heartbeat(connection, "job-1", now - timedelta(seconds=61))
+
+    assert store.fail_stale_job("job-1", timeout_seconds=60, now=now) is True
+    assert store.fail_stale_job("job-1", timeout_seconds=60, now=now) is False
+
+    failed = store.get_job("job-1")
+    assert failed.status == JobStatus.FAILED.value
+    assert failed.error_message == STALE_JOB_ERROR_MESSAGE
+
+
+def test_stale_job_is_not_returned_as_active():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    store.create_job(job_id="stale")
+    store.create_job(job_id="recent")
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    _set_heartbeat(connection, "stale", now - timedelta(seconds=61))
+    _set_heartbeat(connection, "recent", now - timedelta(seconds=10))
+
+    assert store.get_active_job("stale", timeout_seconds=60, now=now) is None
+    assert store.get_active_job("recent", timeout_seconds=60, now=now).job_id == "recent"

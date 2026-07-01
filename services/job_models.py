@@ -15,6 +15,10 @@ class JobType(str, Enum):
     PUBCHEM_PROTEIN_SEARCH = "pubchem_protein_search"
 
 
+class JobNotActiveError(RuntimeError):
+    """Raised when a worker no longer owns an active job."""
+
+
 @dataclass(frozen=True)
 class JobRecord:
     job_id: str
@@ -28,4 +32,5 @@ class JobRecord:
     created_at: str = ""
     started_at: str = ""
     finished_at: str = ""
+    last_heartbeat_at: str = ""
     metadata: dict = field(default_factory=dict)

@@ -8,7 +8,7 @@ from services.activity_enrichment import (
     ensure_compound_activities_table,
     run_pubchem_activity_enrichment,
 )
-from services.job_models import JobType
+from services.job_models import JobNotActiveError, JobStatus, JobType
 from services.job_store import JobStore
 from services.pubchem_client import (
     fetch_aids_for_protein,
@@ -76,12 +76,14 @@ class _JobTrackingProgress:
     def set_stage(self, stage):
         self.stage = stage
         progress = JOB_STAGE_PROGRESS[stage][0]
-        self.job_store.update_progress(
+        job = self.job_store.update_progress(
             self.job_id,
             stage=stage,
             progress=progress,
             message=JOB_STAGE_MESSAGES[stage],
         )
+        if job is None:
+            raise JobNotActiveError(f"Job is no longer active: {self.job_id}")
 
     def progress(self, value):
         value = min(max(value, 0.0), 1.0)
@@ -91,12 +93,14 @@ class _JobTrackingProgress:
             return
         lower, upper = JOB_STAGE_PROGRESS[self.stage]
         tracked_progress = min(max(value, lower), upper)
-        self.job_store.update_progress(
+        job = self.job_store.update_progress(
             self.job_id,
             stage=self.stage,
             progress=tracked_progress,
             message=JOB_STAGE_MESSAGES[self.stage],
         )
+        if job is None:
+            raise JobNotActiveError(f"Job is no longer active: {self.job_id}")
 
 
 def _new_stage_timings():
@@ -690,25 +694,31 @@ def run_pubchem_protein_search_job(
             job_id=job_id,
         )
 
-    store.start_job(job.job_id)
-    tracked_progress = _JobTrackingProgress(
-        progress_callback,
-        store,
-        job.job_id,
-    )
     try:
+        started = store.start_job(job.job_id)
+        if started is None or started.status != JobStatus.RUNNING.value:
+            raise JobNotActiveError(f"Job could not be claimed: {job.job_id}")
+        tracked_progress = _JobTrackingProgress(
+            progress_callback,
+            store,
+            job.job_id,
+        )
         _run_pubchem_protein_search(
             connection,
             proteins,
             tracked_progress,
             stage_callback=tracked_progress.set_stage,
         )
+        tracked_progress.set_stage("completed")
+        completed = store.complete_job(job.job_id)
+        if completed is None:
+            raise JobNotActiveError(f"Job is no longer active: {job.job_id}")
+        return completed
+    except JobNotActiveError:
+        raise
     except Exception as error:
         store.fail_job(job.job_id, str(error))
         raise
-
-    tracked_progress.set_stage("completed")
-    return store.complete_job(job.job_id)
 
 
 __all__ = [

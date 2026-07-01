@@ -6,7 +6,11 @@ import streamlit as st
 from services.builders import register_protein_search_build, run_protein_search
 from services.database import update_headers
 from services.job_models import JobStatus
-from services.job_store import JobStore
+from services.job_store import (
+    ACTIVE_JOB_STATUSES,
+    STALE_JOB_ERROR_MESSAGE,
+    JobStore,
+)
 from services.runtime_config import USE_PUBCHEM_WORKER_MODE
 from state_keys import (
     DATABASE_ID,
@@ -21,7 +25,9 @@ from state_keys import (
 def _load_pubchem_job(db_path, job_id):
     connection = sqlite3.connect(db_path)
     try:
-        return JobStore(connection).get_job(job_id)
+        store = JobStore(connection)
+        store.fail_stale_job(job_id)
+        return store.get_job(job_id)
     finally:
         connection.close()
 
@@ -50,24 +56,7 @@ def _render_job_dialog_exit(label):
         st.rerun()
 
 
-@st.fragment(run_every="2s")
-def render_pubchem_job_status():
-    job_id = st.session_state.get(PUBCHEM_JOB_ID, "")
-    db_path = st.session_state.get(PUBCHEM_JOB_DB_PATH, "")
-    if not job_id or not db_path:
-        return
-
-    try:
-        job = _load_pubchem_job(db_path, job_id)
-    except Exception as error:
-        st.error(f"The protein search status could not be read: {error}")
-        _render_job_dialog_exit("Close")
-        return
-    if job is None:
-        st.error("The protein search status is unavailable.")
-        _render_job_dialog_exit("Close")
-        return
-
+def _render_job_snapshot(job):
     st.info("Building the protein database. This can take a few minutes for targets with many BioAssays.")
     st.progress(min(max(job.progress, 0.0), 1.0))
     stage = job.current_stage.replace("_", " ").title() if job.current_stage else "Preparing"
@@ -75,11 +64,15 @@ def render_pubchem_job_status():
     if job.message:
         st.write(job.message)
 
+
+def _render_terminal_pubchem_job(db_path, job):
+    _render_job_snapshot(job)
     if job.status == JobStatus.FAILED.value:
-        st.error(f"The protein search failed: {job.error_message}")
+        if job.error_message == STALE_JOB_ERROR_MESSAGE:
+            st.error(STALE_JOB_ERROR_MESSAGE)
+        else:
+            st.error(f"The protein search failed: {job.error_message}")
         _render_job_dialog_exit("Close")
-        return
-    if job.status != JobStatus.COMPLETED.value:
         return
 
     if not st.session_state.get(PUBCHEM_JOB_COMPLETION_HANDLED, False):
@@ -95,13 +88,47 @@ def render_pubchem_job_status():
     _render_job_dialog_exit("Continue")
 
 
+@st.fragment(run_every="2s")
+def render_pubchem_job_status():
+    job_id = st.session_state.get(PUBCHEM_JOB_ID, "")
+    db_path = st.session_state.get(PUBCHEM_JOB_DB_PATH, "")
+    if not job_id or not db_path:
+        return
+
+    try:
+        job = _load_pubchem_job(db_path, job_id)
+    except Exception:
+        st.rerun()
+    if job is None:
+        st.rerun()
+
+    if job.status not in ACTIVE_JOB_STATUSES:
+        st.rerun()
+    _render_job_snapshot(job)
+
+
 @st.dialog("Select Proteins", dismissible=False)
 def select_proteins():
     if (
         USE_PUBCHEM_WORKER_MODE
         and st.session_state.get(PUBCHEM_JOB_ID, "")
     ):
-        render_pubchem_job_status()
+        job_id = st.session_state[PUBCHEM_JOB_ID]
+        db_path = st.session_state.get(PUBCHEM_JOB_DB_PATH, "")
+        try:
+            job = _load_pubchem_job(db_path, job_id)
+        except Exception as error:
+            st.error(f"The protein search status could not be read: {error}")
+            _render_job_dialog_exit("Close")
+            return
+        if job is None:
+            st.error("The protein search status is unavailable.")
+            _render_job_dialog_exit("Close")
+            return
+        if job.status in ACTIVE_JOB_STATUSES:
+            render_pubchem_job_status()
+        else:
+            _render_terminal_pubchem_job(db_path, job)
         return
 
     st.write("Search CIDs by BioAssays, using a protein as target.")

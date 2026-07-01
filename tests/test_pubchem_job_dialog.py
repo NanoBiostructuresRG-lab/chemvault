@@ -1,4 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import sqlite3
+
+from services.job_store import JOBS_TABLE, STALE_JOB_ERROR_MESSAGE, JobStore
 from ui import dialogs, main_page
 
 
@@ -24,3 +27,22 @@ def test_clear_pubchem_job_state_resets_dialog_tracking(monkeypatch):
         "pubchem_job_completion_handled": False,
         "selected_proteins": [],
     }
+
+
+def test_dialog_query_lazily_marks_stale_job_failed(tmp_path):
+    db_path = tmp_path / "stale.db"
+    connection = sqlite3.connect(db_path)
+    store = JobStore(connection)
+    store.create_job(job_id="job-1")
+    store.start_job("job-1")
+    connection.execute(
+        f"UPDATE {JOBS_TABLE} SET last_heartbeat_at = ? WHERE job_id = ?",
+        ("2000-01-01T00:00:00+00:00", "job-1"),
+    )
+    connection.commit()
+    connection.close()
+
+    failed = dialogs._load_pubchem_job(db_path, "job-1")
+
+    assert failed.status == "failed"
+    assert failed.error_message == STALE_JOB_ERROR_MESSAGE

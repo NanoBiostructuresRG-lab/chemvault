@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import json
+import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from services.job_models import JobRecord, JobStatus, JobType
+from services.runtime_config import JOB_HEARTBEAT_TIMEOUT_SECONDS
 
 JOBS_TABLE = "_chemvault_jobs"
+ACTIVE_JOB_STATUSES = (JobStatus.PENDING.value, JobStatus.RUNNING.value)
+STALE_JOB_ERROR_MESSAGE = "Protein search stopped unexpectedly. Please try again."
 
 
 def _utc_now():
@@ -45,6 +49,7 @@ def _job_from_row(row):
         created_at=row["created_at"] or "",
         started_at=row["started_at"] or "",
         finished_at=row["finished_at"] or "",
+        last_heartbeat_at=row["last_heartbeat_at"] or "",
         metadata=_metadata_dict(row["metadata_json"]),
     )
 
@@ -68,8 +73,27 @@ class JobStore:
                 created_at TEXT NOT NULL,
                 started_at TEXT,
                 finished_at TEXT,
+                last_heartbeat_at TEXT,
                 metadata_json TEXT
             )
+        """)
+        cursor.execute(f"PRAGMA table_info({JOBS_TABLE})")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "last_heartbeat_at" not in columns:
+            try:
+                cursor.execute(
+                    f"ALTER TABLE {JOBS_TABLE} ADD COLUMN last_heartbeat_at TEXT"
+                )
+            except sqlite3.OperationalError as error:
+                if "duplicate column name" not in str(error).lower():
+                    raise
+        cursor.execute(f"""
+            UPDATE {JOBS_TABLE}
+            SET last_heartbeat_at = COALESCE(
+                NULLIF(started_at, ''),
+                created_at
+            )
+            WHERE last_heartbeat_at IS NULL OR last_heartbeat_at = ''
         """)
         cursor.execute(f"""
             CREATE INDEX IF NOT EXISTS idx_chemvault_jobs_created_at
@@ -104,9 +128,10 @@ class JobStore:
                 message,
                 error_message,
                 created_at,
+                last_heartbeat_at,
                 metadata_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -118,6 +143,7 @@ class JobStore:
                 "",
                 "",
                 created_at,
+                created_at,
                 _metadata_json(metadata),
             ),
         )
@@ -126,6 +152,7 @@ class JobStore:
 
     def start_job(self, job_id):
         self.ensure_jobs_table()
+        now = _utc_now()
         cursor = self.connection.cursor()
         cursor.execute(
             f"""
@@ -133,13 +160,36 @@ class JobStore:
             SET status = ?,
                 started_at = COALESCE(started_at, ?),
                 finished_at = NULL,
-                error_message = ''
-            WHERE job_id = ?
+                error_message = '',
+                last_heartbeat_at = ?
+            WHERE job_id = ? AND status = ?
             """,
-            (JobStatus.RUNNING.value, _utc_now(), job_id),
+            (
+                JobStatus.RUNNING.value,
+                now,
+                now,
+                job_id,
+                JobStatus.PENDING.value,
+            ),
         )
+        updated = cursor.rowcount == 1
         self.connection.commit()
-        return self.get_job(job_id)
+        return self.get_job(job_id) if updated else None
+
+    def heartbeat_job(self, job_id):
+        self.ensure_jobs_table()
+        cursor = self.connection.cursor()
+        cursor.execute(
+            f"""
+            UPDATE {JOBS_TABLE}
+            SET last_heartbeat_at = ?
+            WHERE job_id = ? AND status IN (?, ?)
+            """,
+            (_utc_now(), job_id, *ACTIVE_JOB_STATUSES),
+        )
+        updated = cursor.rowcount == 1
+        self.connection.commit()
+        return self.get_job(job_id) if updated else None
 
     def update_progress(self, job_id, stage, progress, message=None, metadata=None):
         self.ensure_jobs_table()
@@ -147,25 +197,27 @@ class JobStore:
         updates = [
             "current_stage = ?",
             "progress = ?",
+            "last_heartbeat_at = ?",
         ]
-        params = [stage, float(progress)]
+        params = [stage, float(progress), _utc_now()]
         if message is not None:
             updates.append("message = ?")
             params.append(message)
         if metadata is not None:
             updates.append("metadata_json = ?")
             params.append(_metadata_json(metadata))
-        params.append(job_id)
+        params.extend((job_id, *ACTIVE_JOB_STATUSES))
         cursor.execute(
             f"""
             UPDATE {JOBS_TABLE}
             SET {", ".join(updates)}
-            WHERE job_id = ?
+            WHERE job_id = ? AND status IN (?, ?)
             """,
             params,
         )
+        updated = cursor.rowcount == 1
         self.connection.commit()
-        return self.get_job(job_id)
+        return self.get_job(job_id) if updated else None
 
     def complete_job(self, job_id, metadata=None):
         self.ensure_jobs_table()
@@ -175,22 +227,25 @@ class JobStore:
             "progress = ?",
             "finished_at = ?",
             "error_message = ''",
+            "last_heartbeat_at = ?",
         ]
-        params = [JobStatus.COMPLETED.value, 1.0, _utc_now()]
+        now = _utc_now()
+        params = [JobStatus.COMPLETED.value, 1.0, now, now]
         if metadata is not None:
             updates.append("metadata_json = ?")
             params.append(_metadata_json(metadata))
-        params.append(job_id)
+        params.extend((job_id, *ACTIVE_JOB_STATUSES))
         cursor.execute(
             f"""
             UPDATE {JOBS_TABLE}
             SET {", ".join(updates)}
-            WHERE job_id = ?
+            WHERE job_id = ? AND status IN (?, ?)
             """,
             params,
         )
+        updated = cursor.rowcount == 1
         self.connection.commit()
-        return self.get_job(job_id)
+        return self.get_job(job_id) if updated else None
 
     def fail_job(self, job_id, error_message, metadata=None):
         self.ensure_jobs_table()
@@ -204,17 +259,63 @@ class JobStore:
         if metadata is not None:
             updates.append("metadata_json = ?")
             params.append(_metadata_json(metadata))
-        params.append(job_id)
+        params.extend((job_id, *ACTIVE_JOB_STATUSES))
         cursor.execute(
             f"""
             UPDATE {JOBS_TABLE}
             SET {", ".join(updates)}
-            WHERE job_id = ?
+            WHERE job_id = ? AND status IN (?, ?)
             """,
             params,
         )
+        updated = cursor.rowcount == 1
         self.connection.commit()
-        return self.get_job(job_id)
+        return self.get_job(job_id) if updated else None
+
+    def fail_stale_job(
+        self,
+        job_id,
+        timeout_seconds=JOB_HEARTBEAT_TIMEOUT_SECONDS,
+        now=None,
+    ):
+        self.ensure_jobs_table()
+        now = now or datetime.now(timezone.utc)
+        cutoff = (now - timedelta(seconds=float(timeout_seconds))).isoformat()
+        cursor = self.connection.cursor()
+        cursor.execute(
+            f"""
+            UPDATE {JOBS_TABLE}
+            SET status = ?,
+                finished_at = ?,
+                error_message = ?
+            WHERE job_id = ?
+              AND status IN (?, ?)
+              AND last_heartbeat_at < ?
+            """,
+            (
+                JobStatus.FAILED.value,
+                now.isoformat(),
+                STALE_JOB_ERROR_MESSAGE,
+                job_id,
+                *ACTIVE_JOB_STATUSES,
+                cutoff,
+            ),
+        )
+        marked_stale = cursor.rowcount == 1
+        self.connection.commit()
+        return marked_stale
+
+    def get_active_job(
+        self,
+        job_id,
+        timeout_seconds=JOB_HEARTBEAT_TIMEOUT_SECONDS,
+        now=None,
+    ):
+        self.fail_stale_job(job_id, timeout_seconds=timeout_seconds, now=now)
+        job = self.get_job(job_id)
+        if job is None or job.status not in ACTIVE_JOB_STATUSES:
+            return None
+        return job
 
     def get_job(self, job_id):
         self.ensure_jobs_table()
@@ -236,6 +337,7 @@ class JobStore:
                     created_at,
                     started_at,
                     finished_at,
+                    last_heartbeat_at,
                     metadata_json
                 FROM {JOBS_TABLE}
                 WHERE job_id = ?
@@ -259,6 +361,7 @@ class JobStore:
             "created_at",
             "started_at",
             "finished_at",
+            "last_heartbeat_at",
             "metadata_json",
         ]
         return _job_from_row(dict(zip(keys, row)))
@@ -284,6 +387,7 @@ class JobStore:
                     created_at,
                     started_at,
                     finished_at,
+                    last_heartbeat_at,
                     metadata_json
                 FROM {JOBS_TABLE}
                 ORDER BY created_at DESC
@@ -306,6 +410,7 @@ class JobStore:
             "created_at",
             "started_at",
             "finished_at",
+            "last_heartbeat_at",
             "metadata_json",
         ]
         return [_job_from_row(dict(zip(keys, row))) for row in rows]
@@ -333,6 +438,10 @@ def update_progress(connection, job_id, stage, progress, message=None, metadata=
     )
 
 
+def heartbeat_job(connection, job_id):
+    return JobStore(connection).heartbeat_job(job_id)
+
+
 def complete_job(connection, job_id, metadata=None):
     return JobStore(connection).complete_job(job_id, metadata=metadata)
 
@@ -347,6 +456,32 @@ def fail_job(connection, job_id, error_message, metadata=None):
 
 def get_job(connection, job_id):
     return JobStore(connection).get_job(job_id)
+
+
+def fail_stale_job(
+    connection,
+    job_id,
+    timeout_seconds=JOB_HEARTBEAT_TIMEOUT_SECONDS,
+    now=None,
+):
+    return JobStore(connection).fail_stale_job(
+        job_id,
+        timeout_seconds=timeout_seconds,
+        now=now,
+    )
+
+
+def get_active_job(
+    connection,
+    job_id,
+    timeout_seconds=JOB_HEARTBEAT_TIMEOUT_SECONDS,
+    now=None,
+):
+    return JobStore(connection).get_active_job(
+        job_id,
+        timeout_seconds=timeout_seconds,
+        now=now,
+    )
 
 
 def list_jobs(connection, limit=50):

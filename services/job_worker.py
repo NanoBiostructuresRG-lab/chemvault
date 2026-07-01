@@ -5,7 +5,7 @@ import os
 import sqlite3
 import sys
 
-from services.job_models import JobStatus, JobType
+from services.job_models import JobNotActiveError, JobStatus, JobType
 from services.job_store import JobStore
 from services.pubchem_protein_search import run_pubchem_protein_search_job
 
@@ -59,6 +59,8 @@ def run_pubchem_protein_search_worker(db_path, job_id):
                 job_store=store,
                 job_id=job_id,
             )
+        except JobNotActiveError:
+            raise
         except Exception as error:
             current_job = store.get_job(job_id)
             if current_job is not None and current_job.status != JobStatus.FAILED.value:
