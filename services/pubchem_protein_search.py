@@ -73,6 +73,11 @@ class _JobTrackingProgress:
         self.job_id = job_id
         self.stage = ""
 
+    def check_active(self):
+        job = self.job_store.heartbeat_job(self.job_id)
+        if job is None:
+            raise JobNotActiveError(f"Job is no longer active: {self.job_id}")
+
     def set_stage(self, stage):
         self.stage = stage
         progress = JOB_STAGE_PROGRESS[stage][0]
@@ -127,7 +132,13 @@ def _update_progress(progreso, value):
     progreso.progress(min(max(value, 0.0), 1.0))
 
 
-def _fetch_compound_names(cids, progreso=None, start=0.0, end=1.0):
+def _fetch_compound_names(
+    cids,
+    progreso=None,
+    start=0.0,
+    end=1.0,
+    cancel_check=None,
+):
     max_retries = 3
     initial_delay = 1.0
     backoff_multiplier = 2.0
@@ -156,6 +167,8 @@ def _fetch_compound_names(cids, progreso=None, start=0.0, end=1.0):
         return compound_names
 
     for index, batch in enumerate(batches, start=1):
+        if cancel_check is not None:
+            cancel_check()
         try:
             delay = initial_delay
             for attempt in range(max_retries + 1):
@@ -165,7 +178,11 @@ def _fetch_compound_names(cids, progreso=None, start=0.0, end=1.0):
                 except Exception as e:
                     if attempt >= max_retries or not is_transient_error(e):
                         raise
+                    if cancel_check is not None:
+                        cancel_check()
                     time.sleep(min(delay, max_delay))
+                    if cancel_check is not None:
+                        cancel_check()
                     delay = min(delay * backoff_multiplier, max_delay)
             properties = data.get("PropertyTable", {}).get("Properties", [])
             for item in properties:
@@ -173,6 +190,8 @@ def _fetch_compound_names(cids, progreso=None, start=0.0, end=1.0):
                 title = str(item.get("Title", "")).strip()
                 if cid and title:
                     compound_names[cid] = title
+        except JobNotActiveError:
+            raise
         except Exception as e:
             print(f"Error fetching compound names: {e}")
         if progreso is not None:
@@ -561,7 +580,13 @@ def _collect_pubchem_records(
     if stage_callback is not None:
         stage_callback("compound_names")
     stage_start = time.monotonic()
-    compound_names = _fetch_compound_names(records.keys(), progreso, start=0.60, end=0.85)
+    compound_names = _fetch_compound_names(
+        records.keys(),
+        progreso,
+        start=0.60,
+        end=0.85,
+        cancel_check=getattr(progreso, "check_active", None),
+    )
     timings.add("compound_names", time.monotonic() - stage_start)
 
     aid_jobs = [

@@ -4,7 +4,7 @@ import sqlite3
 import pytest
 
 from services import pubchem_protein_search as pubchem_search
-from services.job_models import JobStatus
+from services.job_models import JobNotActiveError, JobStatus
 from services.job_store import JobStore
 
 
@@ -150,3 +150,49 @@ def test_run_pubchem_protein_search_job_marks_failure_and_reraises(monkeypatch):
     assert failed.started_at
     assert failed.finished_at
     assert failed.error_message == "unhandled PubChem failure"
+
+
+def test_job_tracking_check_active_raises_after_cancellation():
+    connection = _connection()
+    store = JobStore(connection)
+    job = store.create_job(job_id="job-cancelled")
+    store.start_job(job.job_id)
+    progress = pubchem_search._JobTrackingProgress(None, store, job.job_id)
+    store.cancel_job(job.job_id, "Cancelled by user")
+
+    with pytest.raises(JobNotActiveError, match="no longer active"):
+        progress.check_active()
+
+
+def test_fetch_compound_names_stops_before_retry_sleep_when_cancelled(monkeypatch):
+    fetch_calls = []
+    cancel_checks = []
+
+    def failing_fetch(batch):
+        fetch_calls.append(batch)
+        raise pubchem_search.requests.exceptions.Timeout("temporary timeout")
+
+    def cancel_check():
+        cancel_checks.append(True)
+        if len(cancel_checks) == 2:
+            raise JobNotActiveError("cancelled")
+
+    monkeypatch.setattr(
+        pubchem_search,
+        "fetch_compound_titles_for_cid_batch",
+        failing_fetch,
+    )
+    monkeypatch.setattr(
+        pubchem_search.time,
+        "sleep",
+        lambda delay: pytest.fail("retry sleep must not run after cancellation"),
+    )
+
+    with pytest.raises(JobNotActiveError, match="cancelled"):
+        pubchem_search._fetch_compound_names(
+            ["202"],
+            cancel_check=cancel_check,
+        )
+
+    assert len(fetch_calls) == 1
+    assert len(cancel_checks) == 2
