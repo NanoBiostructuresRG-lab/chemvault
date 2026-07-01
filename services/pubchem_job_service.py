@@ -4,7 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from services.database import get_connection
+from services.database_core import get_connection
 from services.db_audit import register_operation, register_table_metadata
 from services.job_launcher import (
     create_and_launch_pubchem_job,

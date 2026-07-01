@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import os
-import sqlite3
 
 import streamlit as st
 
+from services.database_core import get_connection
 from services.db_audit import register_operation, register_table_metadata
 from services.sql_utils import (
     ensure_main_table,
@@ -22,10 +22,6 @@ from state_keys import (
     SELECTED_HEADERS,
     SET_TEXT_INPUT_LOCKED,
 )
-
-
-def get_connection(db_name):
-    return sqlite3.connect(f"SQL/{db_name}.db", check_same_thread=False)
 
 
 def _get_active_selected_headers():

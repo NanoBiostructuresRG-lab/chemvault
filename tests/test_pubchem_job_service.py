@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import ast
 import sqlite3
 
 import pytest
@@ -6,6 +7,27 @@ import pytest
 from services import pubchem_job_service
 from services.job_models import JobRecord, JobStatus
 from services.job_store import JOBS_TABLE, STALE_JOB_ERROR_MESSAGE, JobStore
+
+
+def test_pubchem_job_service_has_no_streamlit_database_imports():
+    source = pubchem_job_service.__loader__.get_source(
+        pubchem_job_service.__name__,
+    )
+    tree = ast.parse(source)
+    imported_modules = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+    }
+    imported_modules.update(
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    )
+
+    assert "services.database" not in imported_modules
+    assert "streamlit" not in imported_modules
 
 
 @pytest.mark.parametrize(
