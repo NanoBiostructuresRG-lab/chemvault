@@ -47,6 +47,14 @@ def _register_completed_pubchem_job(db_path, job):
         connection.close()
 
 
+def _cancel_pubchem_job(db_path, job_id):
+    connection = sqlite3.connect(db_path)
+    try:
+        return JobStore(connection).cancel_job(job_id, "Cancelled by user")
+    finally:
+        connection.close()
+
+
 def _clear_pubchem_job_state():
     st.session_state[PUBCHEM_JOB_ID] = ""
     st.session_state[PUBCHEM_JOB_DB_PATH] = ""
@@ -71,6 +79,11 @@ def _render_job_snapshot(job):
 
 def _render_terminal_pubchem_job(db_path, job):
     _render_job_snapshot(job)
+    if job.status == JobStatus.CANCELLED.value:
+        st.info("Protein search cancelled.")
+        _render_job_dialog_exit("Close")
+        return
+
     if job.status == JobStatus.FAILED.value:
         if job.error_message == STALE_JOB_ERROR_MESSAGE:
             st.error(STALE_JOB_ERROR_MESSAGE)
@@ -114,6 +127,13 @@ def render_pubchem_job_status():
     if job.status not in ACTIVE_JOB_STATUSES:
         st.rerun()
     _render_job_snapshot(job)
+    if st.button("Cancel search", key="pubchem_job_cancel"):
+        cancelled = _cancel_pubchem_job(db_path, job_id)
+        if cancelled is not None:
+            st.info("Cancellation requested. The worker will stop at the next safe checkpoint.")
+        else:
+            st.info("The protein search is no longer active.")
+        st.rerun()
 
 
 @st.dialog("Select Proteins", dismissible=False)
