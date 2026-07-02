@@ -12,6 +12,18 @@ class DatabaseMetrics:
     group_count: int
 
 
+class DatabaseNotFoundError(LookupError):
+    """Raised when a requested local database is unavailable."""
+
+
+class TableNotFoundError(LookupError):
+    """Raised when a requested table is unavailable."""
+
+
+class InvalidColumnError(ValueError):
+    """Raised when a requested column is unavailable."""
+
+
 def create_database(input_database_id: str) -> DatabaseState:
     return database_service.set_database_id(input_database_id)
 
@@ -46,4 +58,39 @@ def get_database_metrics(
             group_column,
             headers,
         ),
+    )
+
+
+def list_database_tables(database_id: str) -> list[str]:
+    tables = database_service.get_tables(database_id)
+    if not tables:
+        raise DatabaseNotFoundError(
+            f"Database '{database_id}' was not found or contains no tables."
+        )
+    return tables
+
+
+def get_table_state(database_id: str, current_table: str) -> DatabaseState:
+    tables = list_database_tables(database_id)
+    if current_table not in tables:
+        raise TableNotFoundError(
+            f"Table '{current_table}' was not found in database '{database_id}'."
+        )
+    return database_service.update_headers(database_id, current_table, [])
+
+
+def get_table_metrics(
+    database_id: str,
+    current_table: str,
+    group_column: str = "",
+) -> DatabaseMetrics:
+    state = get_table_state(database_id, current_table)
+    if group_column and group_column not in state.headers:
+        raise InvalidColumnError(f"Unknown column: {group_column}")
+    connection = database_service.get_connection(database_id)
+    return get_database_metrics(
+        connection,
+        state.current_table,
+        group_column,
+        state.headers,
     )

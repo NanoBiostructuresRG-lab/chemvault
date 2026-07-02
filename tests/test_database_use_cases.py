@@ -3,6 +3,8 @@ import ast
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from application import database_use_cases
 from services.database import DatabaseState
 
@@ -98,3 +100,144 @@ def test_get_database_metrics_combines_row_and_group_counts():
         row_count=3,
         group_count=2,
     )
+
+
+def test_get_table_state_rejects_missing_database_without_opening_it(monkeypatch):
+    monkeypatch.setattr(
+        database_use_cases.database_service,
+        "get_tables",
+        lambda database_id: [],
+    )
+    monkeypatch.setattr(
+        database_use_cases.database_service,
+        "update_headers",
+        lambda *args: pytest.fail("missing database must not be opened"),
+    )
+
+    with pytest.raises(database_use_cases.DatabaseNotFoundError):
+        database_use_cases.get_table_state("missing", "main")
+
+
+def test_list_database_tables_returns_available_tables(monkeypatch):
+    monkeypatch.setattr(
+        database_use_cases.database_service,
+        "get_tables",
+        lambda database_id: ["main", "curated"],
+    )
+
+    assert database_use_cases.list_database_tables("test_db") == [
+        "main",
+        "curated",
+    ]
+
+
+def test_list_database_tables_rejects_missing_database_without_opening_it(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        database_use_cases.database_service,
+        "get_tables",
+        lambda database_id: [],
+    )
+    monkeypatch.setattr(
+        database_use_cases.database_service,
+        "get_connection",
+        lambda *args: pytest.fail("missing database must not be opened"),
+    )
+
+    with pytest.raises(database_use_cases.DatabaseNotFoundError):
+        database_use_cases.list_database_tables("missing")
+
+
+def test_get_table_state_rejects_missing_table(monkeypatch):
+    monkeypatch.setattr(
+        database_use_cases.database_service,
+        "get_tables",
+        lambda database_id: ["main"],
+    )
+
+    with pytest.raises(database_use_cases.TableNotFoundError):
+        database_use_cases.get_table_state("test_db", "missing")
+
+
+def test_get_table_metrics_opens_validated_database(monkeypatch):
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        headers=("category",),
+    )
+    connection = object()
+    expected = database_use_cases.DatabaseMetrics(row_count=3, group_count=2)
+    calls = []
+    monkeypatch.setattr(
+        database_use_cases,
+        "get_table_state",
+        lambda database_id, table: state,
+    )
+    monkeypatch.setattr(
+        database_use_cases.database_service,
+        "get_connection",
+        lambda database_id: connection,
+    )
+    monkeypatch.setattr(
+        database_use_cases,
+        "get_database_metrics",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    result = database_use_cases.get_table_metrics(
+        "test_db",
+        "main",
+        "category",
+    )
+
+    assert result is expected
+    assert calls == [(connection, "main", "category", ("category",))]
+
+
+def test_get_table_metrics_allows_empty_group_column(monkeypatch):
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        headers=("category",),
+    )
+    connection = object()
+    expected = database_use_cases.DatabaseMetrics(row_count=3, group_count=0)
+    monkeypatch.setattr(database_use_cases, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        database_use_cases.database_service,
+        "get_connection",
+        lambda database_id: connection,
+    )
+    monkeypatch.setattr(
+        database_use_cases,
+        "get_database_metrics",
+        lambda *args: expected,
+    )
+
+    assert database_use_cases.get_table_metrics("test_db", "main") is expected
+
+
+def test_get_table_metrics_rejects_unknown_group_column_before_query(monkeypatch):
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        headers=("category",),
+    )
+    monkeypatch.setattr(database_use_cases, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        database_use_cases.database_service,
+        "get_connection",
+        lambda *args: pytest.fail("invalid column must not open the database"),
+    )
+    monkeypatch.setattr(
+        database_use_cases,
+        "get_database_metrics",
+        lambda *args: pytest.fail("invalid column must not execute metrics query"),
+    )
+
+    with pytest.raises(
+        database_use_cases.InvalidColumnError,
+        match="Unknown column: missing",
+    ):
+        database_use_cases.get_table_metrics("test_db", "main", "missing")
