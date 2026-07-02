@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-07-01
+
+### Added
+- Added backend-ready `application/` use-case layer.
+- Added database use cases for database creation, opening, refresh, and metrics.
+- Added table use cases for active column selection, previews, selected-row loading, and CSV export.
+- Added curation use cases for CID validation, HARMONSMILE, CHAMANP, and curated-data merge operations.
+
+### Changed
+- Updated Streamlit UI modules to delegate selected operations through `application/`.
+- Preserved Streamlit as the UI layer while keeping backend-ready orchestration outside the UI.
+
+### Validation
+- Full grep over `application/` and `services/` for Streamlit/session_state references returns no output.
+- Full test suite passed: 249 tests.
+- Manual Streamlit smoke test passed.
+
+---
+
 ## [0.2.0] - 2026-07-01
 
 ### Changed
