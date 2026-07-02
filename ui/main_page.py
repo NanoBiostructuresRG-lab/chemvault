@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from application.database_use_cases import get_database_metrics
+from application.table_use_cases import preview_selected_columns
 from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
@@ -30,7 +31,6 @@ from services.db_audit import (
 from services.database import (
     get_connection,
 )
-from services.selection import build_preview_table
 from services.sql_utils import quote_identifier
 from state_keys import (
     ALL_TABLES,
@@ -860,7 +860,7 @@ def render_columns_card(container):
         )
         st.markdown("#### Selected columns preview")
         st.dataframe(
-            build_preview_table(
+            preview_selected_columns(
                 st.session_state.get(DATABASE_ID, ""),
                 st.session_state.get(CURRENT_TABLE, ""),
                 st.session_state.get(HEADERS, []),
