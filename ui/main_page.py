@@ -840,7 +840,15 @@ def render_columns_card(container):
             f"{selected_columns}"
         )
         st.markdown("#### Selected columns preview")
-        st.dataframe(build_preview_table(), hide_index=True)
+        st.dataframe(
+            build_preview_table(
+                st.session_state.get(DATABASE_ID, ""),
+                st.session_state.get(CURRENT_TABLE, ""),
+                st.session_state.get(HEADERS, []),
+                st.session_state.get(SELECTED_HEADERS, []),
+            ),
+            hide_index=True,
+        )
 
 
 def _can_cast_value(value, target_type):

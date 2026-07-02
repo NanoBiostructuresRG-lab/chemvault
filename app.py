@@ -23,6 +23,7 @@ from state_keys import (
     NEW_TABLE_NAME,
     ORDER_BY_COLUMN,
     ORDER_DIRECTION,
+    SELECTED_HEADERS,
     TYPE_OF_FILTER,
     WHERE_COLUMN,
     WHERE_CONDITION,
@@ -78,7 +79,10 @@ apply_global_theme()
 if st.session_state.get(DATABASE_ID, "") != "":
     update_headers()
 else:
-    sync_selected_headers()
+    st.session_state[SELECTED_HEADERS] = sync_selected_headers(
+        st.session_state.get(HEADERS, []),
+        st.session_state.get(SELECTED_HEADERS, []),
+    )
 
 
 def clear_depurado_preview():
@@ -87,7 +91,10 @@ def clear_depurado_preview():
 
 def construir_linea_query():
     new_table_name = st.session_state.get(NEW_TABLE_NAME, "").strip()
-    selected_headers = get_active_selected_headers()
+    selected_headers = get_active_selected_headers(
+        st.session_state.get(HEADERS, []),
+        st.session_state.get(SELECTED_HEADERS, []),
+    )
     current_table = st.session_state.get(CURRENT_TABLE, "")
 
     if not is_valid_table_name(new_table_name):

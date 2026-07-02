@@ -19,61 +19,37 @@ def create_selection_db():
     return connection
 
 
-def test_get_active_selected_headers_drops_stale_columns(monkeypatch):
-    monkeypatch.setattr(
-        selection.st,
-        "session_state",
-        {
-            "headers": ["CID", "SMILES"],
-            "selected_headers": ["CID", "stale_column", "SMILES"],
-        },
+def test_get_active_selected_headers_drops_stale_columns():
+    result = selection.get_active_selected_headers(
+        ["CID", "SMILES"],
+        ["CID", "stale_column", "SMILES"],
     )
 
-    assert selection.get_active_selected_headers() == ["CID", "SMILES"]
+    assert result == ["CID", "SMILES"]
 
 
-def test_sync_selected_headers_updates_session_state(monkeypatch):
-    session_state = {
-        "headers": ["CID"],
-        "selected_headers": ["CID", "SMILES"],
-    }
-    monkeypatch.setattr(selection.st, "session_state", session_state)
-
-    selection.sync_selected_headers()
-
-    assert session_state["selected_headers"] == ["CID"]
-
-
-def test_build_preview_table_returns_empty_without_selection(monkeypatch):
-    monkeypatch.setattr(
-        selection.st,
-        "session_state",
-        {
-            "database_id": "test_db",
-            "current_table": "main",
-            "headers": ["CID"],
-            "selected_headers": [],
-        },
+def test_sync_selected_headers_returns_active_selection():
+    result = selection.sync_selected_headers(
+        ["CID"],
+        ["CID", "SMILES"],
     )
 
-    assert selection.build_preview_table().empty
+    assert result == ["CID"]
+
+
+def test_build_preview_table_returns_empty_without_selection():
+    assert selection.build_preview_table("test_db", "main", ["CID"], []).empty
 
 
 def test_build_preview_table_limits_to_selected_columns(monkeypatch):
     connection = create_selection_db()
     monkeypatch.setattr(selection, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(
-        selection.st,
-        "session_state",
-        {
-            "database_id": "test_db",
-            "current_table": "main",
-            "headers": ["CID", "SMILES", "MW"],
-            "selected_headers": ["CID", "stale_column", "SMILES"],
-        },
+    result = selection.build_preview_table(
+        "test_db",
+        "main",
+        ["CID", "SMILES", "MW"],
+        ["CID", "stale_column", "SMILES"],
     )
-
-    result = selection.build_preview_table()
 
     expected = pd.DataFrame(
         [
@@ -87,18 +63,12 @@ def test_build_preview_table_limits_to_selected_columns(monkeypatch):
 def test_get_selected_columns_returns_all_selected_rows(monkeypatch):
     connection = create_selection_db()
     monkeypatch.setattr(selection, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(
-        selection.st,
-        "session_state",
-        {
-            "database_id": "test_db",
-            "current_table": "main",
-            "headers": ["CID", "SMILES", "MW"],
-            "selected_headers": ["CID", "MW"],
-        },
+    result = selection.get_selected_columns(
+        "test_db",
+        "main",
+        ["CID", "SMILES", "MW"],
+        ["CID", "MW"],
     )
-
-    result = selection.get_selected_columns()
 
     expected = pd.DataFrame(
         [

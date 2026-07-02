@@ -14,11 +14,13 @@ from state_keys import (
     NEW_TABLE_NAME,
     ORDER_BY_COLUMN,
     ORDER_DIRECTION,
+    SELECTED_HEADERS,
     TYPE_OF_FILTER,
     WHERE_COLUMN,
     WHERE_CONDITION,
 )
 from services.sql_utils import is_valid_table_name, quote_identifier
+from services.selection import get_active_selected_headers
 
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
@@ -46,6 +48,7 @@ def load_app_functions(function_names):
         "NEW_TABLE_NAME": NEW_TABLE_NAME,
         "ORDER_BY_COLUMN": ORDER_BY_COLUMN,
         "ORDER_DIRECTION": ORDER_DIRECTION,
+        "SELECTED_HEADERS": SELECTED_HEADERS,
         "TYPE_OF_FILTER": TYPE_OF_FILTER,
         "WHERE_COLUMN": WHERE_COLUMN,
         "WHERE_CONDITION": WHERE_CONDITION,
@@ -87,11 +90,7 @@ def load_query_builder(session_state):
             "construir_linea_query",
         ]
     )
-    ns["get_active_selected_headers"] = lambda: [
-        col
-        for col in ns["st"].session_state.get("selected_headers", [])
-        if col in ns["st"].session_state.get("headers", [])
-    ]
+    ns["get_active_selected_headers"] = get_active_selected_headers
     ns["st"].session_state.update(session_state)
     return ns
 

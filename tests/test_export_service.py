@@ -22,78 +22,62 @@ def create_export_db():
     return connection
 
 
-def test_export_table_returns_empty_csv_without_database(monkeypatch):
-    monkeypatch.setattr(export.st, "session_state", {"database_id": "", "current_table": ""})
-
-    assert csv_text(export.export_table()) == "\n"
+def test_export_table_returns_empty_csv_without_database():
+    assert csv_text(export.export_table("", "", [], [])) == "\n"
 
 
 def test_export_table_exports_all_columns_when_no_columns_are_selected(monkeypatch):
     connection = create_export_db()
     monkeypatch.setattr(export, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(
-        export.st,
-        "session_state",
-        {
-            "database_id": "test_db",
-            "current_table": "main",
-            "headers": ["CID", "SMILES", "group_id"],
-            "selected_headers": [],
-        },
+    result = export.export_table(
+        "test_db",
+        "main",
+        ["CID", "SMILES", "group_id"],
+        [],
     )
 
-    assert csv_text(export.export_table()) == "CID,SMILES,group_id\n1,CCO,A\n2,CCC,B\n3,CCN,A\n"
+    assert csv_text(result) == "CID,SMILES,group_id\n1,CCO,A\n2,CCC,B\n3,CCN,A\n"
 
 
 def test_export_table_exports_only_active_selected_columns(monkeypatch):
     connection = create_export_db()
     monkeypatch.setattr(export, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(
-        export.st,
-        "session_state",
-        {
-            "database_id": "test_db",
-            "current_table": "main",
-            "headers": ["CID", "SMILES", "group_id"],
-            "selected_headers": ["CID", "stale_column", "SMILES"],
-        },
+    result = export.export_table(
+        "test_db",
+        "main",
+        ["CID", "SMILES", "group_id"],
+        ["CID", "stale_column", "SMILES"],
     )
 
-    assert csv_text(export.export_table()) == "CID,SMILES\n1,CCO\n2,CCC\n3,CCN\n"
+    assert csv_text(result) == "CID,SMILES\n1,CCO\n2,CCC\n3,CCN\n"
 
 
 def test_export_table_by_sub_grupo_filters_rows_and_selected_columns(monkeypatch):
     connection = create_export_db()
     monkeypatch.setattr(export, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(
-        export.st,
-        "session_state",
-        {
-            "database_id": "test_db",
-            "current_table": "main",
-            "headers": ["CID", "SMILES", "group_id"],
-            "selected_headers": ["CID", "SMILES"],
-        },
+    result = export.export_table_by_sub_grupo(
+        codigo_buscar="A",
+        columna_filtro="group_id",
+        database_id="test_db",
+        current_table="main",
+        headers=["CID", "SMILES", "group_id"],
+        selected_headers=["CID", "SMILES"],
     )
-
-    result = export.export_table_by_sub_grupo(codigo_buscar="A", columna_filtro="group_id")
 
     assert csv_text(result) == "CID,SMILES\n1,CCO\n3,CCN\n"
 
 
-def test_export_table_by_sub_grupo_returns_empty_csv_for_invalid_filter_column(monkeypatch):
-    monkeypatch.setattr(
-        export.st,
-        "session_state",
-        {
-            "database_id": "test_db",
-            "current_table": "main",
-            "headers": ["CID"],
-            "selected_headers": ["CID"],
-        },
+def test_export_table_by_sub_grupo_returns_empty_csv_for_invalid_filter_column():
+    result = export.export_table_by_sub_grupo(
+        codigo_buscar="A",
+        columna_filtro="missing",
+        database_id="test_db",
+        current_table="main",
+        headers=["CID"],
+        selected_headers=["CID"],
     )
 
-    assert csv_text(export.export_table_by_sub_grupo(codigo_buscar="A", columna_filtro="missing")) == "\n"
+    assert csv_text(result) == "\n"
 
 
 def test_query_to_csv_bytes_fetches_rows_in_chunks():

@@ -181,7 +181,10 @@ def render_refine_card(clear_preview_callback, build_query_callback):
                 query_to_run = build_query_callback()
                 new_table_name = st.session_state[NEW_TABLE_NAME].strip()
                 source_table = st.session_state[CURRENT_TABLE]
-                source_columns = get_active_selected_headers()
+                source_columns = get_active_selected_headers(
+                    st.session_state.get(HEADERS, []),
+                    st.session_state.get(SELECTED_HEADERS, []),
+                )
                 if table_exists(conn, new_table_name):
                     raise ValueError(
                         f"Table '{new_table_name}' already exists. Use another name or delete it first."
@@ -294,7 +297,10 @@ def render_curate_card():
             st.session_state[SELECTING_CHAMANP] = True
 
         if st.session_state[SELECTING_HARMONSMILE]:
-            selected_headers = get_active_selected_headers()
+            selected_headers = get_active_selected_headers(
+                st.session_state.get(HEADERS, []),
+                st.session_state.get(SELECTED_HEADERS, []),
+            )
             if len(selected_headers) == 0:
                 st.warning("Select the CID column before running HARMONSMILE.")
             elif len(selected_headers) > 1:
@@ -421,7 +427,12 @@ def render_curate_card():
                     st.session_state[SELECTED_COLLECTIONS],
                 ]
                 run_chamanp(
-                    get_selected_columns(),
+                    get_selected_columns(
+                        st.session_state.get(DATABASE_ID, ""),
+                        st.session_state.get(CURRENT_TABLE, ""),
+                        st.session_state.get(HEADERS, []),
+                        st.session_state.get(SELECTED_HEADERS, []),
+                    ),
                     st.session_state[SELECTED_IDENTIFIER],
                     st.session_state[SELECTED_SMILES],
                     st.session_state[SELECTED_COLLECTIONS],
@@ -460,14 +471,22 @@ def render_export_card():
         if st.session_state.get(DATABASE_ID, "") == "" or st.session_state.get(CURRENT_TABLE, "") == "":
             st.info("Load or select a database before exporting.")
         else:
-            selected_headers = get_active_selected_headers()
+            selected_headers = get_active_selected_headers(
+                st.session_state.get(HEADERS, []),
+                st.session_state.get(SELECTED_HEADERS, []),
+            )
             header_options = (
                 selected_headers if len(selected_headers) > 0 else st.session_state.get(HEADERS, [])
             )
 
             st.download_button(
                 label="Download CSV",
-                data=export_table(),
+                data=export_table(
+                    st.session_state.get(DATABASE_ID, ""),
+                    st.session_state.get(CURRENT_TABLE, ""),
+                    st.session_state.get(HEADERS, []),
+                    st.session_state.get(SELECTED_HEADERS, []),
+                ),
                 file_name=f"{st.session_state[CURRENT_TABLE]}_export.csv",
                 mime="text/csv",
                 icon=":material/download:",
@@ -490,6 +509,10 @@ def render_export_card():
                             data=export_table_by_sub_grupo(
                                 codigo_buscar=st.session_state[CODIGO_BUSCAR],
                                 columna_filtro=st.session_state[SELECTED_SMILES_FOR_EXPORT],
+                                database_id=st.session_state.get(DATABASE_ID, ""),
+                                current_table=st.session_state.get(CURRENT_TABLE, ""),
+                                headers=st.session_state.get(HEADERS, []),
+                                selected_headers=st.session_state.get(SELECTED_HEADERS, []),
                             ),
                             file_name=f"{st.session_state[CURRENT_TABLE]}_subgroup.csv",
                             mime="text/csv",
