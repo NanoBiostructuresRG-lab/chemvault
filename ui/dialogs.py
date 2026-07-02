@@ -3,7 +3,6 @@ import sqlite3
 
 import streamlit as st
 
-from services.database import update_headers
 from services.pubchem_job_service import (
     cancel_pubchem_job,
     load_pubchem_job,
@@ -19,6 +18,7 @@ from state_keys import (
     PUBCHEM_JOB_ID,
     SELECTED_PROTEINS,
 )
+from ui.session_state import refresh_database_state
 
 
 def _is_database_locked_error(error):
@@ -73,7 +73,7 @@ def _render_terminal_pubchem_job(db_path, job):
             st.error(f"The completed search could not be registered: {error}")
             return
         st.session_state[PUBCHEM_JOB_COMPLETION_HANDLED] = True
-        update_headers()
+        refresh_database_state(st.session_state)
 
     if job.is_completed:
         st.success("Protein search completed.")

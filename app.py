@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-import streamlit as st
-import numpy as np
 import os
+
+import numpy as np
+import streamlit as st
 from PIL import Image
-from services.database import (
-    update_headers,
-)
+
 from services.selection import (
     get_active_selected_headers,
     sync_selected_headers,
@@ -38,8 +37,8 @@ from ui.main_page import (
     render_table_maintenance_card,
     render_table_manager_card,
 )
+from ui.session_state import initialize_session_state, refresh_database_state
 from ui.sidebar import render_sidebar
-from ui.session_state import initialize_session_state
 from ui.theme import apply_global_theme
 
 
@@ -77,7 +76,7 @@ apply_global_theme()
 
 # Keep shared table state synchronized before rendering the sidebar.
 if st.session_state.get(DATABASE_ID, "") != "":
-    update_headers()
+    refresh_database_state(st.session_state)
 else:
     st.session_state[SELECTED_HEADERS] = sync_selected_headers(
         st.session_state.get(HEADERS, []),
@@ -136,6 +135,7 @@ def construir_linea_query():
                 raise ValueError("The ORDER BY column must be one of the selected columns.")
             filter_clause = f"ORDER BY {quote_identifier(order_col)} {direction}"
     return base_query + filter_clause
+
 
 render_sidebar(select_proteins, clear_depurado_preview, construir_linea_query)
 

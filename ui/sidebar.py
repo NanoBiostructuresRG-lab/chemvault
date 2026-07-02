@@ -11,7 +11,7 @@ from services.curation import (
     run_chamanp,
     run_harmonsmile,
 )
-from services.database import count_rows, get_connection, update_headers
+from services.database import count_rows, get_connection
 from services.db_audit import register_operation, register_table_metadata
 from services.export import export_table, export_table_by_sub_grupo
 from services.harmonsmile_cache import (
@@ -46,6 +46,7 @@ from state_keys import (
     SELECTING_CHAMANP,
     SELECTING_HARMONSMILE,
 )
+from ui.session_state import refresh_database_state
 
 
 def render_build_card(select_proteins_callback):
@@ -65,7 +66,7 @@ def render_build_card(select_proteins_callback):
                 st.session_state[DATABASE_ID],
                 st.session_state[CURRENT_TABLE],
             )
-            update_headers()
+            refresh_database_state(st.session_state)
             st.rerun()
 
 
@@ -74,7 +75,10 @@ def render_sidebar(select_proteins_callback, clear_preview_callback, build_query
         st.header("Actions")
         if st.session_state[CURRENT_TABLE] == "" or (
             st.session_state[DATABASE_ID] != ""
-            and count_rows(get_connection(st.session_state[DATABASE_ID])) == 0
+            and count_rows(
+                get_connection(st.session_state[DATABASE_ID]),
+                st.session_state[CURRENT_TABLE],
+            ) == 0
         ):
             render_build_card(select_proteins_callback)
         else:
@@ -220,7 +224,7 @@ def render_refine_card(clear_preview_callback, build_query_callback):
                 st.session_state[CURRENT_TABLE] = new_table_name
                 st.session_state[SELECTED_HEADERS] = []
                 st.session_state[CUSTOM_QUERY] = query_to_run
-                update_headers()
+                refresh_database_state(st.session_state)
                 st.session_state[DEPURADO_SUCCESS_TABLE] = new_table_name
                 st.session_state[DEPURADO_SUCCESS_MESSAGE] = (
                     f"Table '{new_table_name}' was created and is now the active table."
@@ -365,7 +369,7 @@ def render_curate_card():
                             cid_column,
                             cids=job["valid_cids"],
                         )
-                        update_headers()
+                        refresh_database_state(st.session_state)
                         output_columns = [
                             header
                             for header in st.session_state.get(HEADERS, [])

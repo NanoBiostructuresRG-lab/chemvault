@@ -30,9 +30,6 @@ from services.database import (
     count_rows,
     count_rows_group_by,
     get_connection,
-    load_existing_database,
-    set_database_id,
-    update_headers,
 )
 from services.selection import build_preview_table
 from services.sql_utils import quote_identifier
@@ -47,12 +44,31 @@ from state_keys import (
     SELECTED_HEADERS,
     SET_TEXT_INPUT_LOCKED,
 )
+from ui.session_state import (
+    load_database_from_selection,
+    refresh_database_state,
+    set_database_from_input,
+)
 
 ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Type",
     "Activity_Value",
     "Activity_Enrichment_Status",
 }
+
+
+def _set_database_id_from_input():
+    database_state = set_database_from_input(st.session_state)
+    if database_state.message:
+        st.toast(database_state.message)
+
+
+def _load_existing_database_from_selection():
+    load_database_from_selection(st.session_state)
+
+
+def _refresh_database_state():
+    refresh_database_state(st.session_state)
 
 
 def _filter_visible_column_options(headers, selected_headers):
@@ -758,7 +774,7 @@ def render_database_card(container):
             label="SQL Database name",
             value=st.session_state[DATABASE_ID],
             key=INPUT_DATABASE_ID,
-            on_change=set_database_id,
+            on_change=_set_database_id_from_input,
             disabled=st.session_state[SET_TEXT_INPUT_LOCKED],
         )
         dbs = [file_name.replace(".db", "") for file_name in os.listdir("SQL")]
@@ -766,11 +782,11 @@ def render_database_card(container):
             "Or select an existing SQL database",
             dbs,
             key=EXISTING_DB_SELECT,
-            on_change=load_existing_database,
+            on_change=_load_existing_database_from_selection,
         )
         return
 
-    update_headers()
+    _refresh_database_state()
     container.subheader("Database")
     container.caption("Active table and row summary.")
     table_options = st.session_state.get(ALL_TABLES, [])
@@ -781,11 +797,16 @@ def render_database_card(container):
     if st.session_state.get(CURRENT_TABLE, "") not in table_options:
         st.session_state[CURRENT_TABLE] = table_options[0]
     conn = get_connection(st.session_state[DATABASE_ID])
-    row_count = count_rows(conn)
+    row_count = count_rows(conn, st.session_state[CURRENT_TABLE])
     if len(st.session_state.get(HEADERS, [])) > 0:
         if st.session_state.get(GROUP_COUNT_COLUMN, "") not in st.session_state[HEADERS]:
             st.session_state[GROUP_COUNT_COLUMN] = st.session_state[HEADERS][0]
-    group_count = count_rows_group_by(conn)
+    group_count = count_rows_group_by(
+        conn,
+        st.session_state[CURRENT_TABLE],
+        st.session_state.get(GROUP_COUNT_COLUMN, ""),
+        st.session_state.get(HEADERS, []),
+    )
     render_database_metrics(
         container,
         st.session_state[DATABASE_ID],
@@ -799,7 +820,7 @@ def render_database_card(container):
         "Select table",
         table_options,
         key=CURRENT_TABLE,
-        on_change=update_headers,
+        on_change=_refresh_database_state,
     )
     if len(st.session_state.get(HEADERS, [])) > 0:
         container.selectbox(
