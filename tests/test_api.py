@@ -15,6 +15,28 @@ from services.database import DatabaseState
 client = TestClient(api_main.app)
 
 
+def test_docs_endpoint_is_available():
+    response = client.get("/docs", follow_redirects=False)
+
+    assert response.status_code in {200, 307, 308}
+    if response.is_redirect:
+        assert response.headers["location"]
+
+
+def test_openapi_schema_exposes_read_only_contract():
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    schema = response.json()
+    assert schema["info"]["title"] == "ChemVault API"
+    assert {
+        "/health",
+        "/databases/{database_id}/tables",
+        "/databases/{database_id}/tables/{table_name}/metrics",
+        "/databases/{database_id}/tables/{table_name}/preview",
+    }.issubset(schema["paths"])
+
+
 def test_health_endpoint():
     response = client.get("/health")
 
