@@ -60,7 +60,11 @@ def render_build_card(select_proteins_callback):
             db_name = uploaded_file.name.replace(".csv", "")
             st.session_state[DATABASE_ID] = db_name
             st.session_state[CURRENT_TABLE] = "main"
-            build_from_csv(uploaded_file)
+            st.session_state[CURRENT_TABLE] = build_from_csv(
+                uploaded_file,
+                st.session_state[DATABASE_ID],
+                st.session_state[CURRENT_TABLE],
+            )
             update_headers()
             st.rerun()
 
