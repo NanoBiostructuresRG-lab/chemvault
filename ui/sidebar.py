@@ -10,13 +10,12 @@ from application.table_use_cases import (
     load_selected_columns,
     resolve_selected_columns,
 )
-from services.builders import build_from_csv
-from services.curation import (
-    agregar_df_por_pk,
+from application.curation_use_cases import (
     is_cid_header,
     run_chamanp,
     run_harmonsmile,
 )
+from services.builders import build_from_csv
 from services.database import count_rows, get_connection
 from services.db_audit import register_operation, register_table_metadata
 from services.harmonsmile_cache import (
