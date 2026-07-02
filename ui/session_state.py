@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from services.database import (
-    load_existing_database,
-    set_database_id,
-    update_headers,
+from application.database_use_cases import (
+    create_database,
+    open_database,
+    refresh_database,
 )
 from state_keys import (
     ALL_TABLES,
@@ -66,7 +66,7 @@ def apply_database_state(session_state, database_state):
 
 
 def refresh_database_state(session_state):
-    database_state = update_headers(
+    database_state = refresh_database(
         session_state.get(DATABASE_ID, ""),
         session_state.get(CURRENT_TABLE, ""),
         session_state.get(SELECTED_HEADERS, []),
@@ -76,7 +76,7 @@ def refresh_database_state(session_state):
 
 
 def set_database_from_input(session_state):
-    database_state = set_database_id(
+    database_state = create_database(
         session_state.get(INPUT_DATABASE_ID, ""),
     )
     apply_database_state(session_state, database_state)
@@ -84,7 +84,7 @@ def set_database_from_input(session_state):
 
 
 def load_database_from_selection(session_state):
-    database_state = load_existing_database(
+    database_state = open_database(
         session_state.get(EXISTING_DB_SELECT, ""),
     )
     apply_database_state(session_state, database_state)

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from application.database_use_cases import get_database_metrics
+from application.table_use_cases import preview_selected_columns
 from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
@@ -27,11 +29,8 @@ from services.db_audit import (
     get_user_table_profiles,
 )
 from services.database import (
-    count_rows,
-    count_rows_group_by,
     get_connection,
 )
-from services.selection import build_preview_table
 from services.sql_utils import quote_identifier
 from state_keys import (
     ALL_TABLES,
@@ -797,11 +796,10 @@ def render_database_card(container):
     if st.session_state.get(CURRENT_TABLE, "") not in table_options:
         st.session_state[CURRENT_TABLE] = table_options[0]
     conn = get_connection(st.session_state[DATABASE_ID])
-    row_count = count_rows(conn, st.session_state[CURRENT_TABLE])
     if len(st.session_state.get(HEADERS, [])) > 0:
         if st.session_state.get(GROUP_COUNT_COLUMN, "") not in st.session_state[HEADERS]:
             st.session_state[GROUP_COUNT_COLUMN] = st.session_state[HEADERS][0]
-    group_count = count_rows_group_by(
+    metrics = get_database_metrics(
         conn,
         st.session_state[CURRENT_TABLE],
         st.session_state.get(GROUP_COUNT_COLUMN, ""),
@@ -811,8 +809,8 @@ def render_database_card(container):
         container,
         st.session_state[DATABASE_ID],
         st.session_state[CURRENT_TABLE],
-        row_count,
-        group_count,
+        metrics.row_count,
+        metrics.group_count,
     )
     render_protein_traceability_summary(container, conn)
     container.markdown("#### Table controls")
@@ -862,7 +860,7 @@ def render_columns_card(container):
         )
         st.markdown("#### Selected columns preview")
         st.dataframe(
-            build_preview_table(
+            preview_selected_columns(
                 st.session_state.get(DATABASE_ID, ""),
                 st.session_state.get(CURRENT_TABLE, ""),
                 st.session_state.get(HEADERS, []),

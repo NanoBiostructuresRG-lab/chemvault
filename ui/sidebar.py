@@ -4,22 +4,25 @@ import os
 
 import streamlit as st
 
-from services.builders import build_from_csv
-from services.curation import (
-    agregar_df_por_pk,
+from application.table_use_cases import (
+    export_filtered_selection,
+    export_selected_columns,
+    load_selected_columns,
+    resolve_selected_columns,
+)
+from application.curation_use_cases import (
     is_cid_header,
     run_chamanp,
     run_harmonsmile,
 )
+from services.builders import build_from_csv
 from services.database import count_rows, get_connection
 from services.db_audit import register_operation, register_table_metadata
-from services.export import export_table, export_table_by_sub_grupo
 from services.harmonsmile_cache import (
     merge_harmonsmile_cache_to_table,
     prepare_harmonsmile_job,
     run_harmonsmile_chunks,
 )
-from services.selection import get_active_selected_headers, get_selected_columns
 from services.sql_utils import table_exists
 from state_keys import (
     CODIGO_BUSCAR,
@@ -189,7 +192,7 @@ def render_refine_card(clear_preview_callback, build_query_callback):
                 query_to_run = build_query_callback()
                 new_table_name = st.session_state[NEW_TABLE_NAME].strip()
                 source_table = st.session_state[CURRENT_TABLE]
-                source_columns = get_active_selected_headers(
+                source_columns = resolve_selected_columns(
                     st.session_state.get(HEADERS, []),
                     st.session_state.get(SELECTED_HEADERS, []),
                 )
@@ -305,7 +308,7 @@ def render_curate_card():
             st.session_state[SELECTING_CHAMANP] = True
 
         if st.session_state[SELECTING_HARMONSMILE]:
-            selected_headers = get_active_selected_headers(
+            selected_headers = resolve_selected_columns(
                 st.session_state.get(HEADERS, []),
                 st.session_state.get(SELECTED_HEADERS, []),
             )
@@ -435,7 +438,7 @@ def render_curate_card():
                     st.session_state[SELECTED_COLLECTIONS],
                 ]
                 run_chamanp(
-                    get_selected_columns(
+                    load_selected_columns(
                         st.session_state.get(DATABASE_ID, ""),
                         st.session_state.get(CURRENT_TABLE, ""),
                         st.session_state.get(HEADERS, []),
@@ -479,7 +482,7 @@ def render_export_card():
         if st.session_state.get(DATABASE_ID, "") == "" or st.session_state.get(CURRENT_TABLE, "") == "":
             st.info("Load or select a database before exporting.")
         else:
-            selected_headers = get_active_selected_headers(
+            selected_headers = resolve_selected_columns(
                 st.session_state.get(HEADERS, []),
                 st.session_state.get(SELECTED_HEADERS, []),
             )
@@ -489,7 +492,7 @@ def render_export_card():
 
             st.download_button(
                 label="Download CSV",
-                data=export_table(
+                data=export_selected_columns(
                     st.session_state.get(DATABASE_ID, ""),
                     st.session_state.get(CURRENT_TABLE, ""),
                     st.session_state.get(HEADERS, []),
@@ -514,9 +517,9 @@ def render_export_card():
 
                         st.download_button(
                             label="Download subgroup CSV",
-                            data=export_table_by_sub_grupo(
-                                codigo_buscar=st.session_state[CODIGO_BUSCAR],
-                                columna_filtro=st.session_state[SELECTED_SMILES_FOR_EXPORT],
+                            data=export_filtered_selection(
+                                search_value=st.session_state[CODIGO_BUSCAR],
+                                filter_column=st.session_state[SELECTED_SMILES_FOR_EXPORT],
                                 database_id=st.session_state.get(DATABASE_ID, ""),
                                 current_table=st.session_state.get(CURRENT_TABLE, ""),
                                 headers=st.session_state.get(HEADERS, []),
