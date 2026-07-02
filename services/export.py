@@ -1,17 +1,10 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import csv
 import io
-import streamlit as st
 
-from services.database import get_connection
+from services.database_core import get_connection
+from services.selection import get_active_selected_headers
 from services.sql_utils import quote_identifier
-from state_keys import CURRENT_TABLE, DATABASE_ID, HEADERS, SELECTED_HEADERS
-
-
-def _get_active_selected_headers():
-    headers = st.session_state.get(HEADERS, [])
-    selected = st.session_state.get(SELECTED_HEADERS, [])
-    return [col for col in selected if col in headers]
 
 
 EXPORT_FETCH_SIZE = 5000
@@ -37,41 +30,46 @@ def _query_to_csv_bytes(connection, query, params=None, fetch_size=EXPORT_FETCH_
     return buffer.getvalue().encode("utf-8")
 
 
-def export_table():
-    if st.session_state.get(DATABASE_ID, "") == "" or st.session_state.get(CURRENT_TABLE, "") == "":
+def export_table(database_id, current_table, headers, selected_headers):
+    if database_id == "" or current_table == "":
         return _empty_csv_bytes()
 
-    conn = get_connection(st.session_state[DATABASE_ID])
-    table = st.session_state[CURRENT_TABLE]
-    selected_headers = _get_active_selected_headers()
+    conn = get_connection(database_id)
+    active_headers = get_active_selected_headers(headers, selected_headers)
 
-    if len(selected_headers) == 0:
-        query = f"SELECT * FROM {quote_identifier(table)}"
+    if len(active_headers) == 0:
+        query = f"SELECT * FROM {quote_identifier(current_table)}"
     else:
-        cols = ", ".join(quote_identifier(col) for col in selected_headers)
-        query = f"SELECT {cols} FROM {quote_identifier(table)}"
+        cols = ", ".join(quote_identifier(col) for col in active_headers)
+        query = f"SELECT {cols} FROM {quote_identifier(current_table)}"
 
     return _query_to_csv_bytes(conn, query)
 
 
-def export_table_by_sub_grupo(codigo_buscar: str, columna_filtro: str):
-    if st.session_state.get(DATABASE_ID, "") == "" or st.session_state.get(CURRENT_TABLE, "") == "":
+def export_table_by_sub_grupo(
+    codigo_buscar: str,
+    columna_filtro: str,
+    database_id,
+    current_table,
+    headers,
+    selected_headers,
+):
+    if database_id == "" or current_table == "":
         return _empty_csv_bytes()
-    if columna_filtro not in st.session_state.get(HEADERS, []):
+    if columna_filtro not in headers:
         return _empty_csv_bytes()
 
-    conn = get_connection(st.session_state[DATABASE_ID])
-    table = st.session_state[CURRENT_TABLE]
-    selected_headers = _get_active_selected_headers()
+    conn = get_connection(database_id)
+    active_headers = get_active_selected_headers(headers, selected_headers)
 
-    if len(selected_headers) == 0:
+    if len(active_headers) == 0:
         cols = "*"
     else:
-        cols = ", ".join(quote_identifier(col) for col in selected_headers)
+        cols = ", ".join(quote_identifier(col) for col in active_headers)
 
     query = f"""
         SELECT {cols}
-        FROM {quote_identifier(table)}
+        FROM {quote_identifier(current_table)}
         WHERE {quote_identifier(columna_filtro)} LIKE ?
     """
 

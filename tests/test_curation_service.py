@@ -4,7 +4,13 @@ import pandas as pd
 import sqlite3
 
 from services import curation
-from services.curation import agregar_df_por_pk, is_cid_header, run_chamanp, run_harmonsmile
+from services.curation import (
+    CurationUpdateError,
+    agregar_df_por_pk,
+    is_cid_header,
+    run_chamanp,
+    run_harmonsmile,
+)
 
 
 @pytest.mark.parametrize(
@@ -75,9 +81,8 @@ def test_agregar_df_por_pk_adds_new_columns_and_updates_matching_rows(monkeypatc
         ]
     )
     monkeypatch.setattr(curation, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(curation.st, "session_state", {"database_id": "test_db", "current_table": "main"})
 
-    assert agregar_df_por_pk(df, "CID", "PubChem_CID") is True
+    assert agregar_df_por_pk(df, "CID", "PubChem_CID", "test_db", "main") is True
 
     cursor = connection.cursor()
     cursor.execute('PRAGMA table_info("main")')
@@ -100,9 +105,8 @@ def test_agregar_df_por_pk_updates_existing_columns_without_adding_duplicate(mon
     connection.execute('ALTER TABLE "main" ADD COLUMN MW TEXT')
     df = pd.DataFrame([{"PubChem_CID": "2", "MW": "44.10"}])
     monkeypatch.setattr(curation, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(curation.st, "session_state", {"database_id": "test_db", "current_table": "main"})
 
-    assert agregar_df_por_pk(df, "CID", "PubChem_CID") is True
+    assert agregar_df_por_pk(df, "CID", "PubChem_CID", "test_db", "main") is True
 
     cursor = connection.cursor()
     cursor.execute('PRAGMA table_info("main")')
@@ -117,27 +121,19 @@ def test_agregar_df_por_pk_returns_false_when_dataframe_has_no_update_columns(mo
     connection = create_merge_db()
     df = pd.DataFrame([{"PubChem_CID": "1"}])
     monkeypatch.setattr(curation, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(curation.st, "session_state", {"database_id": "test_db", "current_table": "main"})
 
-    assert agregar_df_por_pk(df, "CID", "PubChem_CID") is False
+    assert agregar_df_por_pk(df, "CID", "PubChem_CID", "test_db", "main") is False
 
 
-def test_agregar_df_por_pk_rolls_back_and_returns_false_on_sql_error(monkeypatch):
+def test_agregar_df_por_pk_rolls_back_and_raises_controlled_error(monkeypatch):
     connection = create_merge_db()
     df = pd.DataFrame([{"PubChem_CID": "1", "bad-column": "value"}])
-    errors = []
     monkeypatch.setattr(curation, "get_connection", lambda db_name: connection)
-    monkeypatch.setattr(
-        curation.st,
-        "session_state",
-        {"database_id": "test_db", "current_table": "main"},
-    )
-    monkeypatch.setattr(curation.st, "error", lambda message: errors.append(message))
 
-    assert agregar_df_por_pk(df, "CID", "PubChem_CID") is False
+    with pytest.raises(CurationUpdateError, match="Error updating the database:"):
+        agregar_df_por_pk(df, "CID", "PubChem_CID", "test_db", "main")
 
     cursor = connection.cursor()
     cursor.execute('PRAGMA table_info("main")')
     columns = [row[1] for row in cursor.fetchall()]
     assert columns == ["CID", "existing_col"]
-    assert errors and errors[0].startswith("Error updating the database:")

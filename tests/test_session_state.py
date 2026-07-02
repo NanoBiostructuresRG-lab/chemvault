@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from ui.session_state import initialize_session_state
+from services.database import DatabaseState
+from ui.session_state import apply_database_state, initialize_session_state
 
 
 def test_initialize_session_state_sets_current_defaults_when_database_is_missing():
@@ -52,3 +53,34 @@ def test_initialize_session_state_uses_independent_default_lists():
     first_state["headers"].append("CID")
 
     assert second_state["headers"] == []
+
+
+def test_apply_database_state_updates_streamlit_owned_state():
+    session_state = {
+        "database_id": "old_db",
+        "current_table": "old_table",
+        "headers": ["old_column"],
+        "all_tables": ["old_table"],
+        "selected_headers": ["old_column"],
+        "set_text_input_locked": False,
+    }
+    database_state = DatabaseState(
+        database_id="new_db",
+        current_table="main",
+        headers=("CID", "SMILES"),
+        all_tables=("main",),
+        selected_headers=("CID",),
+        input_locked=True,
+    )
+
+    applied = apply_database_state(session_state, database_state)
+
+    assert applied is True
+    assert session_state == {
+        "database_id": "new_db",
+        "current_table": "main",
+        "headers": ["CID", "SMILES"],
+        "all_tables": ["main"],
+        "selected_headers": ["CID"],
+        "set_text_input_locked": True,
+    }
