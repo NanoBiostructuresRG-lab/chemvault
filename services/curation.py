@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-import streamlit as st
-
 from modules.use_chamanp import use_chamanp
 from modules.use_harmonsmile import use_PubchemIngest
-from services.database import get_connection
-from state_keys import CURRENT_TABLE, DATABASE_ID
+from services.database_core import get_connection
+
+
+class CurationUpdateError(RuntimeError):
+    """Raised when a dataframe cannot be merged into the active table."""
 
 
 def is_cid_header(header):
@@ -20,10 +21,10 @@ def run_chamanp(selected_columns_df, identifier_col, smiles_col, collections_col
     return use_chamanp(selected_columns_df, identifier_col, smiles_col, collections_col)
 
 
-def agregar_df_por_pk(df, pk, fk):
-    conn = get_connection(st.session_state[DATABASE_ID])
+def agregar_df_por_pk(df, pk, fk, database_id, current_table):
+    conn = get_connection(database_id)
     cursor = conn.cursor()
-    table = st.session_state[CURRENT_TABLE]
+    table = current_table
     columnas_a_actualizar = [col for col in df.columns if col != fk]
     if not columnas_a_actualizar:
         return False
@@ -61,5 +62,4 @@ def agregar_df_por_pk(df, pk, fk):
 
     except Exception as e:
         conn.rollback()
-        st.error(f"Error updating the database: {e}")
-        return False
+        raise CurationUpdateError(f"Error updating the database: {e}") from e
