@@ -7,9 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.2.0] - 2026-07-01
 
-_No unreleased changes yet._
+### Changed
+- Decoupled service-layer logic from Streamlit session state.
+- Refactored export, selection, curation, builders, and database services to receive explicit inputs and return explicit results/state.
+- Moved Streamlit session-state mutation, toast messages, and UI feedback responsibility to the UI layer.
+- Added DatabaseState to represent database-related UI state transitions without mutating Streamlit state inside services.
+
+### Validation
+- Full grep over `services/` for Streamlit/session_state references returns no output.
+- Full test suite passed: 235 tests.
+- Manual Streamlit smoke test passed with existing and new databases.
 
 ---
 
