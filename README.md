@@ -51,6 +51,7 @@ cd path/to/your/folder  # e.g. cd Documents/GitHub
 ```bash
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
+git checkout v0.#.#
 ```
 
 3. Create a conda environment:
@@ -84,6 +85,16 @@ streamlit run app.py
 ```
 
 Then open your browser at `http://localhost:8501`.
+
+## FastAPI read-only API
+
+Run the read-only API locally with:
+
+```bash
+python -m uvicorn api.main:app --reload
+```
+
+Open the interactive API documentation at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). See [docs/api.md](docs/api.md) for the current endpoints and limitations.
 
 ---
 
