@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0] - 2026-07-01
+
+### Added
+- Added a minimal read-only FastAPI interface under `api/`.
+- Added `GET /health`.
+- Added `GET /databases/{database_id}/tables`.
+- Added `GET /databases/{database_id}/tables/{table_name}/metrics`.
+- Added `GET /databases/{database_id}/tables/{table_name}/preview`.
+- Added FastAPI `TestClient` coverage for health, table listing, metrics, preview, missing databases, missing tables, and invalid column requests.
+
+### Changed
+- Extended `application/database_use_cases.py` with backend/API-ready read-only helpers for database table listing, table state validation, table metrics, and invalid-column handling.
+- Added FastAPI/runtime test dependencies to `requirements.txt`.
+
+### Notes
+- FastAPI consumes `application/`; it does not depend on Streamlit or `st.session_state`.
+- Streamlit remains the local UI.
+- PubChem API endpoints, authentication, Docker, deployment, and remote workers remain intentionally out of scope for this checkpoint.
+
+---
 ## [0.3.0] - 2026-07-01
 
 ### Added
