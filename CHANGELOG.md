@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.1] - 2026-07-02
+
+### Added
+- Added OpenAPI contract tests for the read-only API surface.
+- Added `uvicorn==0.49.0` as the ASGI server dependency for local FastAPI execution.
+- Added read-only table metadata endpoint `GET /databases/{database_id}/tables/{table_name}/metadata`.
+
+### Changed
+- Documented FastAPI read-only API local execution.
+- Documented current API endpoints, limitations, and the metadata endpoint.
+
+### Notes
+- Scope remains read-only: no PubChem execution, workers, backend runner, or table mutation.
+
+---
+
 ## [0.4.0] - 2026-07-01
 
 ### Added
