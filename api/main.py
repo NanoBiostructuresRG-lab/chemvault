@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Path, Query
 from api.schemas import (
     DatabaseTablesResponse,
     HealthResponse,
+    TableMetadataResponse,
     TableMetricsResponse,
     TablePreviewResponse,
 )
@@ -77,6 +78,29 @@ def table_metrics(
         table=table_name,
         row_count=metrics.row_count,
         group_count=metrics.group_count,
+    )
+
+
+@app.get(
+    "/databases/{database_id}/tables/{table_name}/metadata",
+    response_model=TableMetadataResponse,
+)
+def table_metadata(
+    database_id: DatabaseId,
+    table_name: TableName,
+):
+    state = _table_state_or_404(database_id, table_name)
+    try:
+        metrics = get_table_metrics(database_id, table_name, "")
+    except (DatabaseNotFoundError, TableNotFoundError) as error:
+        raise _not_found(error) from error
+    return TableMetadataResponse(
+        database_id=database_id,
+        table=table_name,
+        columns=list(state.headers),
+        row_count=metrics.row_count,
+        preview_limit=10,
+        read_only=True,
     )
 
 

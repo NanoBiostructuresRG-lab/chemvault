@@ -20,6 +20,15 @@ class TableMetricsResponse(BaseModel):
     group_count: int
 
 
+class TableMetadataResponse(BaseModel):
+    database_id: str
+    table: str
+    columns: list[str]
+    row_count: int
+    preview_limit: int
+    read_only: bool
+
+
 class TablePreviewResponse(BaseModel):
     database_id: str
     table: str

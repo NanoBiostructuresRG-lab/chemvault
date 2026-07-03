@@ -6,3 +6,4 @@ chamanp==0.20.1
 harmonsmile==0.2.4
 fastapi>=0.138.1
 httpx2>=2.5.0
+uvicorn==0.49.0
