@@ -8,6 +8,7 @@ import pandas as pd
 
 from application.database_use_cases import (
     DatabaseMetrics,
+    get_operation_history as get_local_operation_history,
     get_table_metrics as get_local_table_metrics,
     get_table_schema as get_local_table_schema,
     get_table_state,
@@ -34,6 +35,11 @@ class TableMetadata:
 
 class _ReadOnlyBackend(Protocol):
     def list_tables(self, database_id: str) -> tuple[str, ...]: ...
+
+    def get_operation_history(
+        self,
+        database_id: str,
+    ) -> tuple[dict[str, object], ...]: ...
 
     def get_table_metadata(
         self,
@@ -75,6 +81,12 @@ def _validate_preview_limit(limit: int) -> int:
 class _LocalReadOnlyBackend:
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return tuple(refresh_database(database_id).all_tables)
+
+    def get_operation_history(
+        self,
+        database_id: str,
+    ) -> tuple[dict[str, object], ...]:
+        return get_local_operation_history(database_id)
 
     def get_table_metadata(
         self,
@@ -140,6 +152,16 @@ class _HttpReadOnlyBackend:
         except ChemVaultApiError as error:
             self._raise_gateway_error(error)
         return tuple(response.get("tables", []))
+
+    def get_operation_history(
+        self,
+        database_id: str,
+    ) -> tuple[dict[str, object], ...]:
+        try:
+            response = self._client.get_operation_history(database_id)
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return tuple(response.get("operations", []))
 
     def get_table_metadata(
         self,
@@ -228,6 +250,12 @@ class ReadOnlyBackendGateway:
 
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return self._backend.list_tables(database_id)
+
+    def get_operation_history(
+        self,
+        database_id: str,
+    ) -> tuple[dict[str, object], ...]:
+        return self._backend.get_operation_history(database_id)
 
     def get_table_metadata(
         self,

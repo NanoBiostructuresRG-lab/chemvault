@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Path, Query
 from api.schemas import (
     DatabaseTablesResponse,
     HealthResponse,
+    OperationHistoryResponse,
     TableMetadataResponse,
     TableMetricsResponse,
     TablePreviewResponse,
@@ -15,6 +16,7 @@ from application.database_use_cases import (
     InvalidColumnError,
     TableNotFoundError,
     get_table_metrics,
+    get_operation_history,
     get_table_schema,
     get_table_state,
     list_database_tables,
@@ -57,6 +59,21 @@ def database_tables(database_id: DatabaseId):
     except DatabaseNotFoundError as error:
         raise _not_found(error) from error
     return DatabaseTablesResponse(database_id=database_id, tables=tables)
+
+
+@app.get(
+    "/databases/{database_id}/operations",
+    response_model=OperationHistoryResponse,
+)
+def database_operations(database_id: DatabaseId):
+    try:
+        operations = get_operation_history(database_id)
+    except DatabaseNotFoundError as error:
+        raise _not_found(error) from error
+    return OperationHistoryResponse(
+        database_id=database_id,
+        operations=list(operations),
+    )
 
 
 @app.get(

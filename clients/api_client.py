@@ -67,6 +67,10 @@ class ChemVaultApiClient:
         database_id = self._segment(database_id)
         return self._get(f"/databases/{database_id}/tables")
 
+    def get_operation_history(self, database_id: str) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        return self._get(f"/databases/{database_id}/operations")
+
     def get_table_metadata(
         self,
         database_id: str,

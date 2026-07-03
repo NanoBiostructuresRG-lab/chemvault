@@ -31,10 +31,12 @@ $env:CHEMVAULT_API_URL="http://127.0.0.1:8000"
 streamlit run app.py
 ```
 
-The gateway exposes one contract to Streamlit for table listing, metadata,
-metrics, and previews. When `CHEMVAULT_API_URL` is defined, its HTTP backend uses:
+The gateway exposes one contract to Streamlit for table listing, operation
+history, metadata, metrics, and previews. When `CHEMVAULT_API_URL` is defined,
+its HTTP backend uses:
 
 - `GET /databases/{database_id}/tables`
+- `GET /databases/{database_id}/operations`
 - `GET /databases/{database_id}/tables/{table_name}/metadata`
 - `GET /databases/{database_id}/tables/{table_name}/metrics`
 - `GET /databases/{database_id}/tables/{table_name}/preview`
@@ -50,6 +52,7 @@ The API-client scope remains read-only. PubChem, jobs and workers, curation, exp
 
 - `GET /health`
 - `GET /databases/{database_id}/tables`
+- `GET /databases/{database_id}/operations`
 - `GET /databases/{database_id}/tables/{table_name}/metadata`
 - `GET /databases/{database_id}/tables/{table_name}/metrics`
 - `GET /databases/{database_id}/tables/{table_name}/preview`
@@ -84,6 +87,12 @@ Expected response:
 The detailed `schema` field powers the Streamlit active-table schema inspection
 through the same backend gateway. This endpoint is read-only. It does not export
 complete data or run PubChem or HARMONSMILE.
+
+## Operation history
+
+`GET /databases/{database_id}/operations` returns the recorded database
+operations newest first. It powers the Streamlit operation-history inspection
+and does not create, rerun, export, or delete anything.
 
 ## Current limitations
 

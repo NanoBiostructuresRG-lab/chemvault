@@ -23,7 +23,6 @@ from services.activity_enrichment import (
 )
 from services.db_audit import (
     delete_user_table,
-    get_operation_log,
     get_user_table_profiles,
 )
 from services.database import (
@@ -581,11 +580,14 @@ def render_table_manager_actions(database_id, profiles):
                 st.error(str(e))
 
 
-def render_operation_history(db_path):
-    operations = get_operation_log(db_path)
-
+def render_operation_history(database_id):
     st.markdown("#### Operation history")
     st.caption("Review recorded database events such as builds, derived tables, and table cleanup.")
+    try:
+        operations = get_backend_gateway().get_operation_history(database_id)
+    except BackendGatewayError as error:
+        st.error(f"Unable to load operation history: {error}")
+        return
     if len(operations) == 0:
         st.info("No operations have been recorded for this database yet.")
         return
@@ -801,7 +803,7 @@ def render_table_manager_card(container):
             use_container_width=True,
         )
         render_table_manager_actions(database_id, profiles)
-        render_operation_history(db_path)
+        render_operation_history(database_id)
         with sqlite3.connect(db_path) as activity_conn:
             render_activity_enrichment_action(activity_conn)
             render_structured_activity_section(activity_conn)

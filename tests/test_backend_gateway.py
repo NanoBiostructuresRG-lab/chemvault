@@ -97,6 +97,76 @@ def test_table_schema_uses_local_application_backend(monkeypatch):
     assert calls == [("test_db", "main")]
 
 
+def test_operation_history_uses_local_application_backend(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    expected = ({"operation_id": 1, "operation_type": "database_created"},)
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_operation_history",
+        lambda database_id: calls.append(database_id) or expected,
+    )
+
+    result = backend_gateway.get_backend_gateway().get_operation_history(
+        "test_db"
+    )
+
+    assert result is expected
+    assert calls == ["test_db"]
+
+
+def test_operation_history_uses_http_backend(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    calls = []
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def get_operation_history(self, database_id):
+            calls.append(("operations", database_id))
+            return {"operations": [{"operation_id": 2}]}
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+
+    result = backend_gateway.get_backend_gateway().get_operation_history(
+        "test_db"
+    )
+
+    assert result == ({"operation_id": 2},)
+    assert calls == [
+        ("init", "http://api.example"),
+        ("operations", "test_db"),
+    ]
+
+
+def test_operation_history_http_error_does_not_fall_back(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    local_calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_operation_history",
+        lambda database_id: local_calls.append(database_id),
+    )
+
+    class FailingClient:
+        def __init__(self, base_url):
+            pass
+
+        def get_operation_history(self, database_id):
+            raise ChemVaultApiError("request timed out")
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FailingClient)
+
+    with pytest.raises(
+        backend_gateway.BackendGatewayError,
+        match="request timed out",
+    ):
+        backend_gateway.get_backend_gateway().get_operation_history("test_db")
+
+    assert local_calls == []
+
+
 def test_table_schema_uses_existing_metadata_endpoint_in_http_mode(monkeypatch):
     monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
     local_calls = []

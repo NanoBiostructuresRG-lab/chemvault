@@ -33,6 +33,7 @@ def test_openapi_schema_exposes_read_only_contract():
     assert {
         "/health",
         "/databases/{database_id}/tables",
+        "/databases/{database_id}/operations",
         "/databases/{database_id}/tables/{table_name}/metadata",
         "/databases/{database_id}/tables/{table_name}/metrics",
         "/databases/{database_id}/tables/{table_name}/preview",
@@ -73,6 +74,49 @@ def test_database_tables_endpoint_returns_404_for_missing_database(monkeypatch):
     )
 
     response = client.get("/databases/missing/tables")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Database 'missing' was not found."}
+
+
+def test_database_operations_endpoint_uses_application_layer(monkeypatch):
+    operations = (
+        {
+            "operation_type": "table_created",
+            "target_table": "curated",
+            "source_table": "main",
+            "source_columns": '["CID"]',
+            "created_at": "2026-07-03T12:00:00+00:00",
+            "status": "success",
+            "details": None,
+        },
+    )
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "get_operation_history",
+        lambda database_id: calls.append(database_id) or operations,
+    )
+
+    response = client.get("/databases/test_db/operations")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "database_id": "test_db",
+        "operations": [operations[0]],
+    }
+    assert calls == ["test_db"]
+
+
+def test_database_operations_endpoint_returns_404_for_missing_database(monkeypatch):
+    error = DatabaseNotFoundError("Database 'missing' was not found.")
+    monkeypatch.setattr(
+        api_main,
+        "get_operation_history",
+        lambda *args: (_ for _ in ()).throw(error),
+    )
+
+    response = client.get("/databases/missing/operations")
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Database 'missing' was not found."}

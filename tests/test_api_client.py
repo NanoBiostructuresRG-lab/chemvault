@@ -30,6 +30,7 @@ def test_client_builds_urls_for_read_only_endpoints(monkeypatch):
 
     client.health()
     client.list_tables("test_db")
+    client.get_operation_history("test_db")
     client.get_table_metadata("test_db", "main")
     client.get_table_metrics("test_db", "main")
     client.preview_table("test_db", "main")
@@ -37,6 +38,7 @@ def test_client_builds_urls_for_read_only_endpoints(monkeypatch):
     assert [url for url, _ in calls] == [
         "http://api.example/health",
         "http://api.example/databases/test_db/tables",
+        "http://api.example/databases/test_db/operations",
         "http://api.example/databases/test_db/tables/main/metadata",
         "http://api.example/databases/test_db/tables/main/metrics",
         "http://api.example/databases/test_db/tables/main/preview",
