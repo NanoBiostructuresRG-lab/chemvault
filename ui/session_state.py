@@ -69,6 +69,44 @@ def apply_database_state(session_state, database_state):
     return True
 
 
+def load_database_tables(
+    database_id,
+    current_table,
+    selected_headers,
+):
+    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
+    if not api_url:
+        return (
+            refresh_database(
+                database_id,
+                current_table,
+                selected_headers,
+            ),
+            None,
+        )
+
+    try:
+        response = ChemVaultApiClient(base_url=api_url).list_tables(
+            database_id
+        )
+    except ChemVaultApiError as error:
+        return None, (
+            "Unable to load database tables from the "
+            f"CHEMVAULT API: {error}"
+        )
+
+    tables = tuple(response.get("tables", []))
+    if current_table not in tables:
+        current_table = (
+            "main" if "main" in tables else next(iter(tables), "")
+        )
+    return DatabaseState(
+        database_id=database_id,
+        current_table=current_table,
+        all_tables=tables,
+    ), None
+
+
 def load_database_metadata(
     database_id,
     current_table,
@@ -110,12 +148,19 @@ def load_database_metadata(
 
 
 def refresh_database_state(session_state):
-    database_state, error = load_database_metadata(
+    database_state, error = load_database_tables(
         session_state.get(DATABASE_ID, ""),
         session_state.get(CURRENT_TABLE, ""),
         session_state.get(SELECTED_HEADERS, []),
-        session_state.get(ALL_TABLES, []),
     )
+    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
+    if not error and api_url:
+        database_state, error = load_database_metadata(
+            database_state.database_id,
+            database_state.current_table,
+            session_state.get(SELECTED_HEADERS, []),
+            database_state.all_tables,
+        )
     if error:
         return DatabaseState(
             database_id=session_state.get(DATABASE_ID, ""),

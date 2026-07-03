@@ -5,6 +5,7 @@ from ui.session_state import (
     apply_database_state,
     initialize_session_state,
     load_database_metadata,
+    load_database_tables,
 )
 
 
@@ -89,6 +90,96 @@ def test_apply_database_state_updates_streamlit_owned_state():
         "selected_headers": ["CID"],
         "set_text_input_locked": True,
     }
+
+
+def test_database_tables_uses_local_path_by_default(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    expected = DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        all_tables=("main", "curated"),
+    )
+    calls = []
+    monkeypatch.setattr(
+        session_state_module,
+        "refresh_database",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    state, error = load_database_tables(
+        "test_db",
+        "main",
+        ["CID"],
+    )
+
+    assert state is expected
+    assert error is None
+    assert calls == [("test_db", "main", ["CID"])]
+
+
+def test_database_tables_uses_api_when_configured(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    calls = []
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def list_tables(self, database_id):
+            calls.append(("tables", database_id))
+            return {"tables": ["main", "curated"]}
+
+    monkeypatch.setattr(
+        session_state_module,
+        "ChemVaultApiClient",
+        FakeClient,
+    )
+
+    state, error = load_database_tables(
+        "test_db",
+        "missing",
+        ["CID"],
+    )
+
+    assert error is None
+    assert state == DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        all_tables=("main", "curated"),
+    )
+    assert calls == [
+        ("init", "http://api.example"),
+        ("tables", "test_db"),
+    ]
+
+
+def test_database_tables_returns_visible_api_error(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+
+    class FailingClient:
+        def __init__(self, base_url):
+            pass
+
+        def list_tables(self, *args, **kwargs):
+            raise session_state_module.ChemVaultApiError("request timed out")
+
+    monkeypatch.setattr(
+        session_state_module,
+        "ChemVaultApiClient",
+        FailingClient,
+    )
+
+    state, error = load_database_tables(
+        "test_db",
+        "main",
+        ["CID"],
+    )
+
+    assert state is None
+    assert error == (
+        "Unable to load database tables from the "
+        "CHEMVAULT API: request timed out"
+    )
 
 
 def test_database_metadata_uses_local_path_by_default(monkeypatch):
