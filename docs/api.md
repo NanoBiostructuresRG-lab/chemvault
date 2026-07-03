@@ -53,6 +53,11 @@ outside FastAPI in this cycle. This advances Level 2 by moving read-only
 exploration and the minimal table-export surface behind FastAPI, but it does
 not yet replace all local routes or make FastAPI a complete backend.
 
+P23 defines a future generic job-status shape, but no job endpoint exists yet.
+Current job reads can perform migrations and stale-state transitions, so they
+are not suitable for this read-only API boundary. See
+[Future backend job-status contract](job_contract.md).
+
 ## Current endpoints
 
 - `GET /health`
