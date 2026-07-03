@@ -51,7 +51,8 @@ cd path/to/your/folder  # e.g. cd Documents/GitHub
 ```bash
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
-git checkout v0.#.#
+git fetch --tags
+git checkout v0.5.0  # or the latest released tag
 ```
 
 3. Create a conda environment:
@@ -71,6 +72,17 @@ conda activate chemvault_env
 5. Install dependencies:
 
 ```bash
+pip install -r requirements.txt
+```
+
+### Updating an existing clone to a newer release
+
+If you already cloned CHEMVAULT and want to move to a newer released version, go to your local repository and fetch the latest tags:
+
+```bash
+cd path/to/chemvault
+git fetch --tags origin
+git checkout v0.5.0  # or the latest released tag
 pip install -r requirements.txt
 ```
 
