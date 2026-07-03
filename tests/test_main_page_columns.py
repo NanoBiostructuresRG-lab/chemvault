@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
 
+import pandas as pd
+
+from clients.api_client import ChemVaultApiError
+from ui import main_page
 from ui.main_page import (
     ACTIVITY_SUMMARY_COLUMNS,
     _filter_visible_column_options,
     _get_activity_enrichment_job_summary,
     _get_protein_traceability_summary,
+    load_selected_columns_preview,
 )
 
 
@@ -42,6 +47,90 @@ def test_activity_summary_columns_are_exact_legacy_main_columns():
         "Activity_Value",
         "Activity_Enrichment_Status",
     }
+
+
+def test_selected_columns_preview_uses_local_path_by_default(
+    monkeypatch,
+):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    expected = pd.DataFrame([{"CID": "1"}])
+    calls = []
+    monkeypatch.setattr(
+        main_page,
+        "preview_selected_columns",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    preview, error = load_selected_columns_preview(
+        "test_db",
+        "main",
+        ["CID", "SMILES"],
+        ["CID"],
+    )
+
+    assert preview is expected
+    assert error is None
+    assert calls == [("test_db", "main", ["CID", "SMILES"], ["CID"])]
+
+
+def test_selected_columns_preview_uses_api_when_configured(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    calls = []
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def preview_table(self, database_id, table_name, columns=None):
+            calls.append(("preview", database_id, table_name, columns))
+            return {
+                "columns": ["CID", "SMILES"],
+                "rows": [{"CID": "1", "SMILES": "CCO"}],
+            }
+
+    monkeypatch.setattr(main_page, "ChemVaultApiClient", FakeClient)
+
+    preview, error = load_selected_columns_preview(
+        "test_db",
+        "main",
+        ["CID", "SMILES", "Name"],
+        ["CID", "SMILES"],
+    )
+
+    assert error is None
+    assert preview.to_dict(orient="records") == [
+        {"CID": "1", "SMILES": "CCO"}
+    ]
+    assert calls == [
+        ("init", "http://api.example"),
+        ("preview", "test_db", "main", ["CID", "SMILES"]),
+    ]
+
+
+def test_selected_columns_preview_returns_visible_api_error(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+
+    class FailingClient:
+        def __init__(self, base_url):
+            pass
+
+        def preview_table(self, *args, **kwargs):
+            raise ChemVaultApiError("request timed out")
+
+    monkeypatch.setattr(main_page, "ChemVaultApiClient", FailingClient)
+
+    preview, error = load_selected_columns_preview(
+        "test_db",
+        "main",
+        ["CID"],
+        ["CID"],
+    )
+
+    assert preview is None
+    assert error == (
+        "Unable to load the selected columns preview from the "
+        "CHEMVAULT API: request timed out"
+    )
 
 
 def test_activity_enrichment_job_summary_handles_missing_compound_assays():
