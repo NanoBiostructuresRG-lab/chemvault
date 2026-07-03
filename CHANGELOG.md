@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.7.0] - 2026-07-03
+
+### Added
+- Added `ReadOnlyBackendGateway` as a unified backend boundary for Streamlit read-only database exploration.
+- Added local and HTTP backend paths behind the gateway:
+  `Streamlit UI → ReadOnlyBackendGateway → local application/services`
+  or, when `CHEMVAULT_API_URL` is configured:
+  `Streamlit UI → ReadOnlyBackendGateway → HTTP client → FastAPI → application/services`.
+- Added active table schema inspection through the read-only backend gateway.
+- Extended the existing table metadata API response with schema information.
+
+### Changed
+* Routed Streamlit read-only table listing, metadata, metrics, preview, and active table schema inspection through the backend gateway.
+* Concentrated runtime `CHEMVAULT_API_URL` backend selection inside `clients/backend_gateway.py`.
+* Preserved local mode as the default when `CHEMVAULT_API_URL` is not configured.
+* Preserved visible API-mode failures without silent local fallback when `CHEMVAULT_API_URL` is configured.
+* Updated API documentation to describe the unified read-only backend boundary.
+
+### Notes
+- Scope remains read-only.
+- PubChem execution, HARMONSMILE execution, CHAMANP execution, jobs/workers, curation writes, table mutations, auth, deployment, Docker, and frontend replacement remain outside this release.
+- This release does not complete the full Streamlit-to-FastAPI migration, but establishes the backend boundary required to continue that migration without scattered UI-level backend decisions.
+
+### Validation
+- Full suite passed on `main`: `300 passed in 22.60s`.
+
+---
+
 ## [v0.6.0] - 2026-07-03
 
 ### Added
