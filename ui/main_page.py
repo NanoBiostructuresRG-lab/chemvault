@@ -68,7 +68,10 @@ def _load_existing_database_from_selection():
 
 
 def _refresh_database_state():
-    refresh_database_state(st.session_state)
+    database_state = refresh_database_state(st.session_state)
+    if not database_state.success and database_state.message:
+        st.error(database_state.message)
+    return database_state
 
 
 def _filter_visible_column_options(headers, selected_headers):
@@ -857,7 +860,9 @@ def render_database_card(container):
         )
         return
 
-    _refresh_database_state()
+    database_state = _refresh_database_state()
+    if not database_state.success:
+        return
     container.subheader("Database")
     container.caption("Active table and row summary.")
     table_options = st.session_state.get(ALL_TABLES, [])

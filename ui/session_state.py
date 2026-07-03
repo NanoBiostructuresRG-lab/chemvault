@@ -1,9 +1,13 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import os
+
 from application.database_use_cases import (
     create_database,
     open_database,
     refresh_database,
 )
+from clients.api_client import ChemVaultApiClient, ChemVaultApiError
+from services.database import DatabaseState
 from state_keys import (
     ALL_TABLES,
     CUSTOM_QUERY,
@@ -65,12 +69,65 @@ def apply_database_state(session_state, database_state):
     return True
 
 
+def load_database_metadata(
+    database_id,
+    current_table,
+    selected_headers,
+    all_tables,
+):
+    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
+    if not api_url:
+        return (
+            refresh_database(
+                database_id,
+                current_table,
+                selected_headers,
+            ),
+            None,
+        )
+
+    try:
+        response = ChemVaultApiClient(base_url=api_url).get_table_metadata(
+            database_id,
+            current_table,
+        )
+    except ChemVaultApiError as error:
+        return None, (
+            "Unable to load table metadata from the "
+            f"CHEMVAULT API: {error}"
+        )
+
+    headers = tuple(response.get("columns", []))
+    return DatabaseState(
+        database_id=database_id,
+        current_table=current_table,
+        headers=headers,
+        all_tables=tuple(all_tables),
+        selected_headers=tuple(
+            header for header in selected_headers if header in headers
+        ),
+    ), None
+
+
 def refresh_database_state(session_state):
-    database_state = refresh_database(
+    database_state, error = load_database_metadata(
         session_state.get(DATABASE_ID, ""),
         session_state.get(CURRENT_TABLE, ""),
         session_state.get(SELECTED_HEADERS, []),
+        session_state.get(ALL_TABLES, []),
     )
+    if error:
+        return DatabaseState(
+            database_id=session_state.get(DATABASE_ID, ""),
+            current_table=session_state.get(CURRENT_TABLE, ""),
+            headers=tuple(session_state.get(HEADERS, [])),
+            all_tables=tuple(session_state.get(ALL_TABLES, [])),
+            selected_headers=tuple(
+                session_state.get(SELECTED_HEADERS, [])
+            ),
+            message=error,
+            success=False,
+        )
     apply_database_state(session_state, database_state)
     return database_state
 

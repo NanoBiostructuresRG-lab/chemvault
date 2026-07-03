@@ -5,12 +5,14 @@ import pandas as pd
 
 from application.database_use_cases import DatabaseMetrics
 from clients.api_client import ChemVaultApiError
+from services.database import DatabaseState
 from ui import main_page
 from ui.main_page import (
     ACTIVITY_SUMMARY_COLUMNS,
     _filter_visible_column_options,
     _get_activity_enrichment_job_summary,
     _get_protein_traceability_summary,
+    _refresh_database_state,
     load_database_metrics,
     load_selected_columns_preview,
 )
@@ -223,6 +225,27 @@ def test_database_metrics_returns_visible_api_error(monkeypatch):
         "Unable to load the database metrics from the "
         "CHEMVAULT API: request timed out"
     )
+
+
+def test_refresh_database_state_displays_metadata_error(monkeypatch):
+    error_state = DatabaseState(
+        message="Unable to load table metadata from the CHEMVAULT API",
+        success=False,
+    )
+    errors = []
+    monkeypatch.setattr(
+        main_page,
+        "refresh_database_state",
+        lambda session_state: error_state,
+    )
+    monkeypatch.setattr(main_page.st, "error", errors.append)
+
+    result = _refresh_database_state()
+
+    assert result is error_state
+    assert errors == [
+        "Unable to load table metadata from the CHEMVAULT API"
+    ]
 
 
 def test_activity_enrichment_job_summary_handles_missing_compound_assays():
