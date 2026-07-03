@@ -3,13 +3,17 @@ import sqlite3
 
 import pandas as pd
 
+from application.database_use_cases import DatabaseMetrics
 from clients.api_client import ChemVaultApiError
+from services.database import DatabaseState
 from ui import main_page
 from ui.main_page import (
     ACTIVITY_SUMMARY_COLUMNS,
     _filter_visible_column_options,
     _get_activity_enrichment_job_summary,
     _get_protein_traceability_summary,
+    _refresh_database_state,
+    load_database_metrics,
     load_selected_columns_preview,
 )
 
@@ -131,6 +135,117 @@ def test_selected_columns_preview_returns_visible_api_error(monkeypatch):
         "Unable to load the selected columns preview from the "
         "CHEMVAULT API: request timed out"
     )
+
+
+def test_database_metrics_uses_local_path_by_default(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    connection = object()
+    expected = DatabaseMetrics(row_count=10, group_count=2)
+    calls = []
+    monkeypatch.setattr(
+        main_page,
+        "get_database_metrics",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    metrics, error = load_database_metrics(
+        "test_db",
+        "main",
+        "category",
+        ["CID", "category"],
+        connection,
+    )
+
+    assert metrics is expected
+    assert error is None
+    assert calls == [
+        (connection, "main", "category", ["CID", "category"])
+    ]
+
+
+def test_database_metrics_uses_api_when_configured(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    calls = []
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def get_table_metrics(
+            self,
+            database_id,
+            table_name,
+            group_column="",
+        ):
+            calls.append(
+                ("metrics", database_id, table_name, group_column)
+            )
+            return {"row_count": 100, "group_count": 4}
+
+    monkeypatch.setattr(main_page, "ChemVaultApiClient", FakeClient)
+
+    metrics, error = load_database_metrics(
+        "test_db",
+        "main",
+        "category",
+        ["CID", "category"],
+        object(),
+    )
+
+    assert metrics == DatabaseMetrics(row_count=100, group_count=4)
+    assert error is None
+    assert calls == [
+        ("init", "http://api.example"),
+        ("metrics", "test_db", "main", "category"),
+    ]
+
+
+def test_database_metrics_returns_visible_api_error(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+
+    class FailingClient:
+        def __init__(self, base_url):
+            pass
+
+        def get_table_metrics(self, *args, **kwargs):
+            raise ChemVaultApiError("request timed out")
+
+    monkeypatch.setattr(main_page, "ChemVaultApiClient", FailingClient)
+
+    metrics, error = load_database_metrics(
+        "test_db",
+        "main",
+        "category",
+        ["CID", "category"],
+        object(),
+    )
+
+    assert metrics is None
+    assert error == (
+        "Unable to load the database metrics from the "
+        "CHEMVAULT API: request timed out"
+    )
+
+
+def test_refresh_database_state_displays_metadata_error(monkeypatch):
+    error_state = DatabaseState(
+        message="Unable to load table metadata from the CHEMVAULT API",
+        success=False,
+    )
+    errors = []
+    monkeypatch.setattr(
+        main_page,
+        "refresh_database_state",
+        lambda session_state: error_state,
+    )
+    monkeypatch.setattr(main_page.st, "error", errors.append)
+
+    result = _refresh_database_state()
+
+    assert result is error_state
+    assert errors == [
+        "Unable to load table metadata from the CHEMVAULT API"
+    ]
 
 
 def test_activity_enrichment_job_summary_handles_missing_compound_assays():
