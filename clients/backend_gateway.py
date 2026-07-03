@@ -8,12 +8,16 @@ import pandas as pd
 
 from application.database_use_cases import (
     DatabaseMetrics,
+    get_operation_history as get_local_operation_history,
     get_table_metrics as get_local_table_metrics,
     get_table_schema as get_local_table_schema,
     get_table_state,
     refresh_database,
 )
-from application.table_use_cases import preview_selected_columns
+from application.table_use_cases import (
+    export_table_csv,
+    preview_selected_columns,
+)
 from clients.api_client import ChemVaultApiClient, ChemVaultApiError
 
 
@@ -34,6 +38,11 @@ class TableMetadata:
 
 class _ReadOnlyBackend(Protocol):
     def list_tables(self, database_id: str) -> tuple[str, ...]: ...
+
+    def get_operation_history(
+        self,
+        database_id: str,
+    ) -> tuple[dict[str, object], ...]: ...
 
     def get_table_metadata(
         self,
@@ -62,6 +71,13 @@ class _ReadOnlyBackend(Protocol):
         limit: int = DEFAULT_PREVIEW_LIMIT,
     ) -> pd.DataFrame: ...
 
+    def export_table(
+        self,
+        database_id: str,
+        table_name: str,
+        columns: list[str] | None = None,
+    ) -> bytes: ...
+
 
 def _validate_preview_limit(limit: int) -> int:
     limit = int(limit)
@@ -75,6 +91,12 @@ def _validate_preview_limit(limit: int) -> int:
 class _LocalReadOnlyBackend:
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return tuple(refresh_database(database_id).all_tables)
+
+    def get_operation_history(
+        self,
+        database_id: str,
+    ) -> tuple[dict[str, object], ...]:
+        return get_local_operation_history(database_id)
 
     def get_table_metadata(
         self,
@@ -125,6 +147,14 @@ class _LocalReadOnlyBackend:
         )
         return preview.head(limit)
 
+    def export_table(
+        self,
+        database_id: str,
+        table_name: str,
+        columns: list[str] | None = None,
+    ) -> bytes:
+        return export_table_csv(database_id, table_name, columns)
+
 
 class _HttpReadOnlyBackend:
     def __init__(self, base_url: str):
@@ -140,6 +170,16 @@ class _HttpReadOnlyBackend:
         except ChemVaultApiError as error:
             self._raise_gateway_error(error)
         return tuple(response.get("tables", []))
+
+    def get_operation_history(
+        self,
+        database_id: str,
+    ) -> tuple[dict[str, object], ...]:
+        try:
+            response = self._client.get_operation_history(database_id)
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return tuple(response.get("operations", []))
 
     def get_table_metadata(
         self,
@@ -218,6 +258,21 @@ class _HttpReadOnlyBackend:
             columns=response_columns,
         ).head(limit)
 
+    def export_table(
+        self,
+        database_id: str,
+        table_name: str,
+        columns: list[str] | None = None,
+    ) -> bytes:
+        try:
+            return self._client.export_table(
+                database_id,
+                table_name,
+                columns=columns,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+
 
 class ReadOnlyBackendGateway:
     """Facade exposing one stable contract to Streamlit."""
@@ -228,6 +283,12 @@ class ReadOnlyBackendGateway:
 
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return self._backend.list_tables(database_id)
+
+    def get_operation_history(
+        self,
+        database_id: str,
+    ) -> tuple[dict[str, object], ...]:
+        return self._backend.get_operation_history(database_id)
 
     def get_table_metadata(
         self,
@@ -267,6 +328,18 @@ class ReadOnlyBackendGateway:
             table_name,
             columns,
             limit,
+        )
+
+    def export_table(
+        self,
+        database_id: str,
+        table_name: str,
+        columns: list[str] | None = None,
+    ) -> bytes:
+        return self._backend.export_table(
+            database_id,
+            table_name,
+            columns,
         )
 
 

@@ -72,6 +72,25 @@ def list_database_tables(database_id: str) -> list[str]:
     return tables
 
 
+def get_operation_history(database_id: str) -> tuple[dict[str, object], ...]:
+    """Return the read-only operation history for an existing database."""
+    list_database_tables(database_id)
+    operations = db_audit.get_operation_log(Path("SQL") / f"{database_id}.db")
+    fields = (
+        "operation_type",
+        "target_table",
+        "source_table",
+        "source_columns",
+        "created_at",
+        "status",
+        "details",
+    )
+    return tuple(
+        {field: operation.get(field) for field in fields}
+        for operation in operations
+    )
+
+
 def get_table_state(database_id: str, current_table: str) -> DatabaseState:
     tables = list_database_tables(database_id)
     if current_table not in tables:

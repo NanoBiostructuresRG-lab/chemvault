@@ -13,6 +13,21 @@ class DatabaseTablesResponse(BaseModel):
     tables: list[str]
 
 
+class OperationRecord(BaseModel):
+    operation_type: str
+    target_table: str | None
+    source_table: str | None
+    source_columns: str | None
+    created_at: str
+    status: str
+    details: str | None
+
+
+class OperationHistoryResponse(BaseModel):
+    database_id: str
+    operations: list[OperationRecord]
+
+
 class TableMetricsResponse(BaseModel):
     database_id: str
     table: str

@@ -149,6 +149,52 @@ def test_list_database_tables_rejects_missing_database_without_opening_it(
         database_use_cases.list_database_tables("missing")
 
 
+def test_get_operation_history_validates_database_and_delegates_to_audit(
+    monkeypatch,
+):
+    stored = {
+        "operation_id": 2,
+        "operation_type": "table_created",
+        "target_table": "curated",
+        "source_table": "main",
+        "source_columns": '["CID"]',
+        "output_columns": '["CID"]',
+        "created_at": "2026-07-03T12:00:00+00:00",
+        "created_by": "test",
+        "status": "success",
+        "details": None,
+        "query_used": "SELECT CID FROM main",
+    }
+    expected = ({
+        "operation_type": "table_created",
+        "target_table": "curated",
+        "source_table": "main",
+        "source_columns": '["CID"]',
+        "created_at": "2026-07-03T12:00:00+00:00",
+        "status": "success",
+        "details": None,
+    },)
+    calls = []
+    monkeypatch.setattr(
+        database_use_cases,
+        "list_database_tables",
+        lambda database_id: calls.append(("validate", database_id)) or ["main"],
+    )
+    monkeypatch.setattr(
+        database_use_cases.db_audit,
+        "get_operation_log",
+        lambda db_path: calls.append(("history", db_path)) or [stored],
+    )
+
+    result = database_use_cases.get_operation_history("test_db")
+
+    assert result == expected
+    assert calls == [
+        ("validate", "test_db"),
+        ("history", Path("SQL") / "test_db.db"),
+    ]
+
+
 def test_get_table_state_rejects_missing_table(monkeypatch):
     monkeypatch.setattr(
         database_use_cases.database_service,

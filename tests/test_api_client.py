@@ -5,10 +5,11 @@ from clients.api_client import ChemVaultApiClient, ChemVaultApiError
 
 
 class StubResponse:
-    def __init__(self, payload, status_code=200, text=""):
+    def __init__(self, payload, status_code=200, text="", content=b""):
         self.payload = payload
         self.status_code = status_code
         self.text = text
+        self.content = content
 
     def json(self):
         return self.payload
@@ -30,16 +31,20 @@ def test_client_builds_urls_for_read_only_endpoints(monkeypatch):
 
     client.health()
     client.list_tables("test_db")
+    client.get_operation_history("test_db")
     client.get_table_metadata("test_db", "main")
     client.get_table_metrics("test_db", "main")
     client.preview_table("test_db", "main")
+    client.export_table("test_db", "main")
 
     assert [url for url, _ in calls] == [
         "http://api.example/health",
         "http://api.example/databases/test_db/tables",
+        "http://api.example/databases/test_db/operations",
         "http://api.example/databases/test_db/tables/main/metadata",
         "http://api.example/databases/test_db/tables/main/metrics",
         "http://api.example/databases/test_db/tables/main/preview",
+        "http://api.example/databases/test_db/tables/main/export",
     ]
 
 
@@ -68,6 +73,28 @@ def test_preview_sends_columns_as_repeated_query_params(monkeypatch):
         columns=["CID", "SMILES"],
     )
 
+    assert calls[0][1]["params"] == [
+        ("columns", "CID"),
+        ("columns", "SMILES"),
+    ]
+
+
+def test_export_returns_bytes_and_sends_selected_columns(monkeypatch):
+    calls = []
+
+    def fake_get(_session, url, **kwargs):
+        calls.append((url, kwargs))
+        return StubResponse({}, content=b"CID\r\n1\r\n")
+
+    monkeypatch.setattr(requests.Session, "get", fake_get)
+
+    result = ChemVaultApiClient().export_table(
+        "test_db",
+        "main",
+        columns=["CID", "SMILES"],
+    )
+
+    assert result == b"CID\r\n1\r\n"
     assert calls[0][1]["params"] == [
         ("columns", "CID"),
         ("columns", "SMILES"),

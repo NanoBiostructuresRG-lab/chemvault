@@ -2,6 +2,8 @@
 import pytest
 
 from application import table_use_cases
+from application.database_use_cases import InvalidColumnError
+from services.database import DatabaseState
 
 
 def test_resolve_selected_columns_delegates_explicit_selection(monkeypatch):
@@ -70,6 +72,60 @@ def test_export_selected_columns_delegates_explicit_state(monkeypatch):
 
     assert result == expected
     assert calls == [("test_db", "main", ["CID", "SMILES"], ["CID"])]
+
+
+def test_export_table_csv_exports_all_rows_for_selected_columns(monkeypatch):
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        headers=("CID", "SMILES"),
+    )
+    calls = []
+    monkeypatch.setattr(table_use_cases, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        table_use_cases.export_service,
+        "export_table",
+        lambda *args: calls.append(args) or b"CID\n1\n",
+    )
+
+    result = table_use_cases.export_table_csv(
+        "test_db",
+        "main",
+        ["CID"],
+    )
+
+    assert result == b"CID\n1\n"
+    assert calls == [("test_db", "main", ("CID", "SMILES"), ["CID"])]
+
+
+def test_export_table_csv_uses_all_columns_when_columns_are_omitted(monkeypatch):
+    state = DatabaseState(headers=("CID", "SMILES"))
+    calls = []
+    monkeypatch.setattr(table_use_cases, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        table_use_cases.export_service,
+        "export_table",
+        lambda *args: calls.append(args) or b"CID,SMILES\n",
+    )
+
+    table_use_cases.export_table_csv("test_db", "main")
+
+    assert calls == [
+        ("test_db", "main", ("CID", "SMILES"), ["CID", "SMILES"])
+    ]
+
+
+def test_export_table_csv_rejects_unknown_columns(monkeypatch):
+    state = DatabaseState(headers=("CID",))
+    monkeypatch.setattr(table_use_cases, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        table_use_cases.export_service,
+        "export_table",
+        lambda *args: pytest.fail("invalid columns must not be exported"),
+    )
+
+    with pytest.raises(InvalidColumnError, match="Unknown columns: missing"):
+        table_use_cases.export_table_csv("test_db", "main", ["missing"])
 
 
 def test_export_filtered_selection_maps_filter_arguments(monkeypatch):

@@ -92,21 +92,99 @@ pip install -r requirements.txt
 
 > Make sure `chemvault_env` is activated before running the app.
 
+CHEMVAULT can be run in two ways:
+
+1. **Local mode** — default and recommended for normal use.
+2. **API-client mode** — optional mode for testing the Streamlit-to-FastAPI backend path.
+
+### Option 1: Local mode
+
+Use this mode for normal CHEMVAULT usage.
+
 ```bash
 streamlit run app.py
 ```
 
 Then open your browser at `http://localhost:8501`.
 
-## FastAPI read-only API
+In this mode, Streamlit talks directly to the local application/services layer and SQLite database. You do **not** need to start FastAPI.
 
-Run the read-only API locally with:
+```text
+Streamlit UI → local application/services → SQLite
+```
+
+This is the default behavior whenever `CHEMVAULT_API_URL` is not configured.
+
+### Option 2: API-client mode
+
+Use this mode when you want Streamlit to access supported read-only database operations through the FastAPI backend.
+
+Start FastAPI in **one** terminal:
 
 ```bash
 python -m uvicorn api.main:app --reload
 ```
 
+Then start Streamlit in a **second** terminal with `CHEMVAULT_API_URL` configured.
+
+On Windows PowerShell:
+
+```powershell
+$env:CHEMVAULT_API_URL = "http://127.0.0.1:8000"
+streamlit run app.py
+```
+
+On macOS / Linux:
+
+```bash
+export CHEMVAULT_API_URL="http://127.0.0.1:8000"
+streamlit run app.py
+```
+
+Then open your browser at `http://localhost:8501`.
+
+In this mode, supported read-only operations go through FastAPI:
+
+```text
+Streamlit UI → HTTP client → FastAPI → application/services → SQLite
+```
+
 Open the interactive API documentation at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). See [docs/api.md](docs/api.md) for the current endpoints and limitations.
+
+### How the mode is selected
+
+There is no switch inside the Streamlit interface.
+
+CHEMVAULT selects the mode from the environment:
+
+```text
+CHEMVAULT_API_URL not set  → local mode
+CHEMVAULT_API_URL set      → API-client mode
+```
+
+If `CHEMVAULT_API_URL` is set but FastAPI is not running or returns an error, CHEMVAULT shows the API error instead of silently falling back to local mode. This is intentional so API-client mode failures are visible during backend testing.
+
+To return to local mode, unset `CHEMVAULT_API_URL`.
+
+On Windows PowerShell:
+
+```powershell
+Remove-Item Env:CHEMVAULT_API_URL
+streamlit run app.py
+```
+
+On macOS / Linux:
+
+```bash
+unset CHEMVAULT_API_URL
+streamlit run app.py
+```
+
+### Current API-client coverage
+
+API-client mode currently covers selected read-only database operations, including table listing, metadata, metrics, preview, schema inspection, operation history, and current table CSV export.
+
+Long-running execution workflows such as PubChem searches, HARMONSMILE, CHAMANP, enrichment, jobs/workers, curation writes, and table mutations are not yet routed through FastAPI.
 
 ---
 
