@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from application.database_use_cases import get_database_metrics
+from application.database_use_cases import DatabaseMetrics, get_database_metrics
 from application.table_use_cases import preview_selected_columns
 from clients.api_client import ChemVaultApiClient, ChemVaultApiError
 from services.pubchem_protein_search import fetch_pubchem_assay_activity
@@ -117,6 +117,43 @@ def load_selected_columns_preview(
 
     columns = response.get("columns", list(selected_headers))
     return pd.DataFrame(response.get("rows", []), columns=columns), None
+
+
+def load_database_metrics(
+    database_id,
+    table_name,
+    group_column,
+    headers,
+    connection,
+):
+    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
+    if not api_url:
+        return (
+            get_database_metrics(
+                connection,
+                table_name,
+                group_column,
+                headers,
+            ),
+            None,
+        )
+
+    try:
+        response = ChemVaultApiClient(base_url=api_url).get_table_metrics(
+            database_id,
+            table_name,
+            group_column=group_column,
+        )
+    except ChemVaultApiError as error:
+        return None, (
+            "Unable to load the database metrics from the "
+            f"CHEMVAULT API: {error}"
+        )
+
+    return DatabaseMetrics(
+        row_count=response["row_count"],
+        group_count=response["group_count"],
+    ), None
 
 
 def create_main_layout():
@@ -834,12 +871,16 @@ def render_database_card(container):
     if len(st.session_state.get(HEADERS, [])) > 0:
         if st.session_state.get(GROUP_COUNT_COLUMN, "") not in st.session_state[HEADERS]:
             st.session_state[GROUP_COUNT_COLUMN] = st.session_state[HEADERS][0]
-    metrics = get_database_metrics(
-        conn,
+    metrics, metrics_error = load_database_metrics(
+        st.session_state[DATABASE_ID],
         st.session_state[CURRENT_TABLE],
         st.session_state.get(GROUP_COUNT_COLUMN, ""),
         st.session_state.get(HEADERS, []),
+        conn,
     )
+    if metrics_error:
+        container.error(metrics_error)
+        return
     render_database_metrics(
         container,
         st.session_state[DATABASE_ID],
