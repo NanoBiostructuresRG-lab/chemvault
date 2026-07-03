@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.6.0] - 2026-07-03
+
+### Added
+- Expanded the Streamlit API-client mode for read-only database exploration when `CHEMVAULT_API_URL` is configured.
+- Routed database table listing through FastAPI `GET /databases/{database_id}/tables`.
+- Routed table metadata and headers through FastAPI `GET /databases/{database_id}/tables/{table_name}/metadata`.
+- Routed database row/group metrics through FastAPI `GET /databases/{database_id}/tables/{table_name}/metrics`.
+- Kept selected columns preview routed through FastAPI `GET /databases/{database_id}/tables/{table_name}/preview`.
+
+### Changed
+- Streamlit now has a broader read-only API-client path:
+  `Streamlit → API client → FastAPI → application/services`.
+- Local Streamlit behavior remains the default when `CHEMVAULT_API_URL` is not configured.
+- API-mode failures are surfaced visibly instead of silently falling back when API mode is explicitly enabled.
+- Updated API documentation to describe the expanded read-only coverage.
+
+### Notes
+- Scope remains read-only.
+- PubChem execution, HARMONSMILE execution, jobs/workers, curation writes, exports, table mutations, auth, deployment, and frontend replacement remain outside this release.
+- This release advances the Streamlit-to-FastAPI decoupling path, but FastAPI is not yet a complete backend replacement.
+
+---
+
 ## [0.5.0] - 2026-07-02
 
 ### Added
@@ -99,7 +122,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 First formal tagged release of CHEMVAULT as a local Streamlit + SQLite application.
 
 ### Added
-
 - Streamlit-based local interface for building, refining, curating, inspecting, and exporting molecular SQLite datasets.
 - CSV upload and CSV export workflows.
 - PubChem protein-target search using UniProt accessions and BioAssay-derived CIDs.
@@ -113,7 +135,6 @@ First formal tagged release of CHEMVAULT as a local Streamlit + SQLite applicati
 - Local stable validation checklist in the README.
 
 ### Changed
-
 - PubChem protein searches now use the local worker path instead of direct synchronous UI execution.
 - PubChem job lifecycle and launch logic are routed through a reusable service layer.
 - PubChem job state is exposed through a stable job-view contract instead of UI code depending on internal job-store records.
@@ -121,7 +142,6 @@ First formal tagged release of CHEMVAULT as a local Streamlit + SQLite applicati
 - README documentation reflects the current local stable app and English UI labels.
 
 ### Fixed
-
 - Stale PubChem worker jobs are detected and marked failed.
 - Locked PubChem job databases are treated as transient while the worker finishes writing.
 - Cancelled PubChem jobs are not registered as completed.
@@ -129,7 +149,6 @@ First formal tagged release of CHEMVAULT as a local Streamlit + SQLite applicati
 - Release-noise debug prints were removed from normal Streamlit flows.
 
 ### Validation
-
 - Full suite passed with `python -m pytest -q -p no:cacheprovider`.
 - Integration validation passed for:
     - `P34971` complete PubChem smoke test.
