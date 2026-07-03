@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.8.0] - 2026-07-03
+
+### Added
+- Added read-only operation history/provenance access through the backend gateway.
+- Added `GET /databases/{database_id}/operations` for read-only operation history retrieval.
+- Added current table CSV export through the backend gateway.
+- Added `GET /databases/{database_id}/tables/{table_name}/export?columns=...` for CSV export of the current table.
+- Added a typed backend job status contract for future long-running backend execution.
+
+### Changed
+- Extended Streamlit backend-gateway coverage to include operation history/provenance and current table CSV export.
+- Clarified README usage for default local mode and optional API-client mode.
+- Documented how `CHEMVAULT_API_URL` selects API-client mode and how to return to local mode.
+- Updated API documentation to describe the new operation-history and CSV-export endpoints.
+- Documented that job runtime endpoints, workers, cancellation endpoints, and execution migration remain deferred.
+
+### Notes
+- This release further consolidates the Streamlit-to-backend boundary for read-only operations and CSV export.
+- Scope remains limited to read-only inspection/export and backend contract preparation.
+- PubChem execution, HARMONSMILE execution, CHAMANP execution, structured activity export, subgroup export, runtime job endpoints, workers, cancellation mutation endpoints, curation writes, table mutations, auth, deployment, Docker, and frontend replacement remain outside this release.
+- The typed job status contract prepares future backend job execution without changing current runtime behavior.
+
+### Validation
+- Full suite passed on `main`: `325 passed in 22.53s`.
+
+---
+
 ## [v0.7.0] - 2026-07-03
 
 ### Added
