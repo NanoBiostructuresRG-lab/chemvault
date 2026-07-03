@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 from application.database_use_cases import get_database_metrics
 from application.table_use_cases import preview_selected_columns
+from clients.api_client import ChemVaultApiClient, ChemVaultApiError
 from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
@@ -82,6 +83,40 @@ def _filter_visible_column_options(headers, selected_headers):
         if header in options
     ]
     return options, selected
+
+
+def load_selected_columns_preview(
+    database_id,
+    table_name,
+    headers,
+    selected_headers,
+):
+    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
+    if not api_url:
+        return (
+            preview_selected_columns(
+                database_id,
+                table_name,
+                headers,
+                selected_headers,
+            ),
+            None,
+        )
+
+    try:
+        response = ChemVaultApiClient(base_url=api_url).preview_table(
+            database_id,
+            table_name,
+            columns=list(selected_headers),
+        )
+    except ChemVaultApiError as error:
+        return None, (
+            "Unable to load the selected columns preview from the "
+            f"CHEMVAULT API: {error}"
+        )
+
+    columns = response.get("columns", list(selected_headers))
+    return pd.DataFrame(response.get("rows", []), columns=columns), None
 
 
 def create_main_layout():
@@ -859,13 +894,17 @@ def render_columns_card(container):
             f"{selected_columns}"
         )
         st.markdown("#### Selected columns preview")
+        preview, preview_error = load_selected_columns_preview(
+            st.session_state.get(DATABASE_ID, ""),
+            st.session_state.get(CURRENT_TABLE, ""),
+            st.session_state.get(HEADERS, []),
+            st.session_state.get(SELECTED_HEADERS, []),
+        )
+        if preview_error:
+            st.error(preview_error)
+            return
         st.dataframe(
-            preview_selected_columns(
-                st.session_state.get(DATABASE_ID, ""),
-                st.session_state.get(CURRENT_TABLE, ""),
-                st.session_state.get(HEADERS, []),
-                st.session_state.get(SELECTED_HEADERS, []),
-            ),
+            preview,
             hide_index=True,
         )
 
