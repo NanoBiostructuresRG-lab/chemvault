@@ -4,17 +4,17 @@ import os
 
 import streamlit as st
 
-from application.table_use_cases import (
-    export_filtered_selection,
-    export_selected_columns,
-    load_selected_columns,
-    resolve_selected_columns,
-)
 from application.curation_use_cases import (
     is_cid_header,
     run_chamanp,
     run_harmonsmile,
 )
+from application.table_use_cases import (
+    export_filtered_selection,
+    load_selected_columns,
+    resolve_selected_columns,
+)
+from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.builders import build_from_csv
 from services.database import count_rows, get_connection
 from services.db_audit import register_operation, register_table_metadata
@@ -490,18 +490,24 @@ def render_export_card():
                 selected_headers if len(selected_headers) > 0 else st.session_state.get(HEADERS, [])
             )
 
-            st.download_button(
-                label="Download CSV",
-                data=export_selected_columns(
+            try:
+                export_csv = get_backend_gateway().export_table(
                     st.session_state.get(DATABASE_ID, ""),
                     st.session_state.get(CURRENT_TABLE, ""),
-                    st.session_state.get(HEADERS, []),
-                    st.session_state.get(SELECTED_HEADERS, []),
-                ),
+                    selected_headers or None,
+                )
+            except BackendGatewayError as error:
+                st.error(f"Unable to export table: {error}")
+                export_csv = None
+
+            if export_csv is not None:
+                st.download_button(
+                label="Download CSV",
+                data=export_csv,
                 file_name=f"{st.session_state[CURRENT_TABLE]}_export.csv",
                 mime="text/csv",
                 icon=":material/download:",
-            )
+                )
 
             with st.expander("Optional: export a filtered subgroup", expanded=False):
                 st.caption("Use this only when you want to filter rows before exporting a subgroup.")

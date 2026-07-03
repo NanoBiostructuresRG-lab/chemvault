@@ -14,7 +14,10 @@ from application.database_use_cases import (
     get_table_state,
     refresh_database,
 )
-from application.table_use_cases import preview_selected_columns
+from application.table_use_cases import (
+    export_table_csv,
+    preview_selected_columns,
+)
 from clients.api_client import ChemVaultApiClient, ChemVaultApiError
 
 
@@ -67,6 +70,13 @@ class _ReadOnlyBackend(Protocol):
         columns: list[str] | None = None,
         limit: int = DEFAULT_PREVIEW_LIMIT,
     ) -> pd.DataFrame: ...
+
+    def export_table(
+        self,
+        database_id: str,
+        table_name: str,
+        columns: list[str] | None = None,
+    ) -> bytes: ...
 
 
 def _validate_preview_limit(limit: int) -> int:
@@ -136,6 +146,14 @@ class _LocalReadOnlyBackend:
             selected_columns,
         )
         return preview.head(limit)
+
+    def export_table(
+        self,
+        database_id: str,
+        table_name: str,
+        columns: list[str] | None = None,
+    ) -> bytes:
+        return export_table_csv(database_id, table_name, columns)
 
 
 class _HttpReadOnlyBackend:
@@ -240,6 +258,21 @@ class _HttpReadOnlyBackend:
             columns=response_columns,
         ).head(limit)
 
+    def export_table(
+        self,
+        database_id: str,
+        table_name: str,
+        columns: list[str] | None = None,
+    ) -> bytes:
+        try:
+            return self._client.export_table(
+                database_id,
+                table_name,
+                columns=columns,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+
 
 class ReadOnlyBackendGateway:
     """Facade exposing one stable contract to Streamlit."""
@@ -295,6 +328,18 @@ class ReadOnlyBackendGateway:
             table_name,
             columns,
             limit,
+        )
+
+    def export_table(
+        self,
+        database_id: str,
+        table_name: str,
+        columns: list[str] | None = None,
+    ) -> bytes:
+        return self._backend.export_table(
+            database_id,
+            table_name,
+            columns,
         )
 
 

@@ -37,6 +37,7 @@ def test_openapi_schema_exposes_read_only_contract():
         "/databases/{database_id}/tables/{table_name}/metadata",
         "/databases/{database_id}/tables/{table_name}/metrics",
         "/databases/{database_id}/tables/{table_name}/preview",
+        "/databases/{database_id}/tables/{table_name}/export",
     }.issubset(schema["paths"])
 
 
@@ -313,3 +314,46 @@ def test_table_preview_rejects_unknown_columns(monkeypatch):
 
     assert response.status_code == 422
     assert response.json() == {"detail": "Unknown columns: missing"}
+
+
+def test_table_export_returns_selected_columns_as_csv(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "export_table_csv",
+        lambda *args: calls.append(args) or b"CID\r\n1\r\n",
+    )
+
+    response = client.get(
+        "/databases/test_db/tables/main/export",
+        params=[("columns", "CID")],
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"CID\r\n1\r\n"
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="chemvault_table_export.csv"'
+    )
+    assert calls == [("test_db", "main", ["CID"])]
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (DatabaseNotFoundError("Database was not found."), 404),
+        (TableNotFoundError("Table was not found."), 404),
+        (InvalidColumnError("Unknown columns: missing"), 422),
+    ],
+)
+def test_table_export_reports_validation_errors(monkeypatch, error, status_code):
+    monkeypatch.setattr(
+        api_main,
+        "export_table_csv",
+        lambda *args: (_ for _ in ()).throw(error),
+    )
+
+    response = client.get("/databases/test_db/tables/main/export")
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}

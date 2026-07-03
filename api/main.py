@@ -2,6 +2,7 @@
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Path, Query
+from fastapi.responses import Response
 
 from api.schemas import (
     DatabaseTablesResponse,
@@ -21,7 +22,10 @@ from application.database_use_cases import (
     get_table_state,
     list_database_tables,
 )
-from application.table_use_cases import preview_selected_columns
+from application.table_use_cases import (
+    export_table_csv,
+    preview_selected_columns,
+)
 
 
 app = FastAPI(title="ChemVault API", version="0.1.0")
@@ -161,4 +165,31 @@ def table_preview(
         columns=selected_columns,
         rows=records,
         limit=10,
+    )
+
+
+@app.get(
+    "/databases/{database_id}/tables/{table_name}/export",
+    response_class=Response,
+    responses={200: {"content": {"text/csv": {}}}},
+)
+def table_export(
+    database_id: DatabaseId,
+    table_name: TableName,
+    columns: Annotated[list[str] | None, Query()] = None,
+):
+    try:
+        csv_bytes = export_table_csv(database_id, table_name, columns)
+    except (DatabaseNotFoundError, TableNotFoundError) as error:
+        raise _not_found(error) from error
+    except InvalidColumnError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="chemvault_table_export.csv"'
+            )
+        },
     )

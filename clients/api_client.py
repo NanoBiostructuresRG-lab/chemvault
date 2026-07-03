@@ -23,7 +23,7 @@ class ChemVaultApiClient:
         self.timeout = timeout
         self.session = session or requests.Session()
 
-    def _get(self, path: str, params=None) -> dict[str, Any]:
+    def _get_response(self, path: str, params=None) -> requests.Response:
         url = f"{self.base_url}{path}"
         try:
             response = self.session.get(
@@ -49,12 +49,20 @@ class ChemVaultApiClient:
                 message = f"{message}: {detail}"
             raise ChemVaultApiError(message) from error
 
+        return response
+
+    def _get(self, path: str, params=None) -> dict[str, Any]:
+        response = self._get_response(path, params=params)
+
         try:
             return response.json()
         except ValueError as error:
             raise ChemVaultApiError(
                 "CHEMVAULT API returned an invalid JSON response."
             ) from error
+
+    def _get_bytes(self, path: str, params=None) -> bytes:
+        return self._get_response(path, params=params).content
 
     @staticmethod
     def _segment(value: str) -> str:
@@ -106,5 +114,23 @@ class ChemVaultApiClient:
         params = [("columns", column) for column in columns] if columns else None
         return self._get(
             f"/databases/{database_id}/tables/{table_name}/preview",
+            params=params,
+        )
+
+    def export_table(
+        self,
+        database_id: str,
+        table_name: str,
+        columns: list[str] | None = None,
+    ) -> bytes:
+        database_id = self._segment(database_id)
+        table_name = self._segment(table_name)
+        params = (
+            [("columns", column) for column in columns]
+            if columns
+            else None
+        )
+        return self._get_bytes(
+            f"/databases/{database_id}/tables/{table_name}/export",
             params=params,
         )

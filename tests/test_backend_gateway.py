@@ -167,6 +167,79 @@ def test_operation_history_http_error_does_not_fall_back(monkeypatch):
     assert local_calls == []
 
 
+def test_table_export_uses_local_application_backend(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "export_table_csv",
+        lambda *args: calls.append(args) or b"CID\n1\n",
+    )
+
+    result = backend_gateway.get_backend_gateway().export_table(
+        "test_db",
+        "main",
+        ["CID"],
+    )
+
+    assert result == b"CID\n1\n"
+    assert calls == [("test_db", "main", ["CID"])]
+
+
+def test_table_export_uses_http_backend(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    calls = []
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def export_table(self, database_id, table_name, columns=None):
+            calls.append(("export", database_id, table_name, columns))
+            return b"CID\n1\n"
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+
+    result = backend_gateway.get_backend_gateway().export_table(
+        "test_db",
+        "main",
+        ["CID"],
+    )
+
+    assert result == b"CID\n1\n"
+    assert calls == [
+        ("init", "http://api.example"),
+        ("export", "test_db", "main", ["CID"]),
+    ]
+
+
+def test_table_export_http_error_does_not_fall_back(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    local_calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "export_table_csv",
+        lambda *args: local_calls.append(args),
+    )
+
+    class FailingClient:
+        def __init__(self, base_url):
+            pass
+
+        def export_table(self, database_id, table_name, columns=None):
+            raise ChemVaultApiError("request timed out")
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FailingClient)
+
+    with pytest.raises(
+        backend_gateway.BackendGatewayError,
+        match="request timed out",
+    ):
+        backend_gateway.get_backend_gateway().export_table("test_db", "main")
+
+    assert local_calls == []
+
+
 def test_table_schema_uses_existing_metadata_endpoint_in_http_mode(monkeypatch):
     monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
     local_calls = []
@@ -275,7 +348,11 @@ def test_local_backend_preserves_read_only_contract(monkeypatch):
 def test_streamlit_read_only_routes_do_not_branch_on_api_url():
     repository_root = Path(__file__).resolve().parents[1]
 
-    for relative_path in ("ui/session_state.py", "ui/main_page.py"):
+    for relative_path in (
+        "ui/session_state.py",
+        "ui/main_page.py",
+        "ui/sidebar.py",
+    ):
         source = (repository_root / relative_path).read_text(encoding="utf-8")
         assert "CHEMVAULT_API_URL" not in source
         assert "ChemVaultApiClient" not in source

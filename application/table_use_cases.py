@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Application use cases for table selection, preview, and CSV export."""
+from application.database_use_cases import InvalidColumnError, get_table_state
 from services import export as export_service
 from services import selection as selection_service
 
@@ -50,6 +51,29 @@ def export_selected_columns(
         current_table,
         headers,
         selected_headers,
+    )
+
+
+def export_table_csv(
+    database_id: str,
+    table_name: str,
+    columns: list[str] | None = None,
+) -> bytes:
+    """Export all rows and either selected or all table columns as CSV."""
+    state = get_table_state(database_id, table_name)
+    selected_columns = list(state.headers) if columns is None else list(columns)
+    invalid_columns = [
+        column for column in selected_columns if column not in state.headers
+    ]
+    if invalid_columns:
+        raise InvalidColumnError(
+            f"Unknown columns: {', '.join(invalid_columns)}"
+        )
+    return export_service.export_table(
+        database_id,
+        table_name,
+        state.headers,
+        selected_columns,
     )
 
 
