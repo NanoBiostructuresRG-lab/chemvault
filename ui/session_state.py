@@ -1,12 +1,9 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-import os
-
 from application.database_use_cases import (
     create_database,
     open_database,
-    refresh_database,
 )
-from clients.api_client import ChemVaultApiClient, ChemVaultApiError
+from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.database import DatabaseState
 from state_keys import (
     ALL_TABLES,
@@ -74,28 +71,14 @@ def load_database_tables(
     current_table,
     selected_headers,
 ):
-    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
-    if not api_url:
-        return (
-            refresh_database(
-                database_id,
-                current_table,
-                selected_headers,
-            ),
-            None,
-        )
-
     try:
-        response = ChemVaultApiClient(base_url=api_url).list_tables(
-            database_id
-        )
-    except ChemVaultApiError as error:
+        tables = get_backend_gateway().list_tables(database_id)
+    except BackendGatewayError as error:
         return None, (
             "Unable to load database tables from the "
             f"CHEMVAULT API: {error}"
         )
 
-    tables = tuple(response.get("tables", []))
     if current_table not in tables:
         current_table = (
             "main" if "main" in tables else next(iter(tables), "")
@@ -113,29 +96,18 @@ def load_database_metadata(
     selected_headers,
     all_tables,
 ):
-    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
-    if not api_url:
-        return (
-            refresh_database(
-                database_id,
-                current_table,
-                selected_headers,
-            ),
-            None,
-        )
-
     try:
-        response = ChemVaultApiClient(base_url=api_url).get_table_metadata(
+        metadata = get_backend_gateway().get_table_metadata(
             database_id,
             current_table,
         )
-    except ChemVaultApiError as error:
+    except BackendGatewayError as error:
         return None, (
             "Unable to load table metadata from the "
             f"CHEMVAULT API: {error}"
         )
 
-    headers = tuple(response.get("columns", []))
+    headers = metadata.columns
     return DatabaseState(
         database_id=database_id,
         current_table=current_table,
@@ -153,8 +125,7 @@ def refresh_database_state(session_state):
         session_state.get(CURRENT_TABLE, ""),
         session_state.get(SELECTED_HEADERS, []),
     )
-    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
-    if not error and api_url:
+    if not error and database_state.current_table:
         database_state, error = load_database_metadata(
             database_state.database_id,
             database_state.current_table,

@@ -8,9 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from application.database_use_cases import DatabaseMetrics, get_database_metrics
-from application.table_use_cases import preview_selected_columns
-from clients.api_client import ChemVaultApiClient, ChemVaultApiError
+from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
@@ -94,32 +92,20 @@ def load_selected_columns_preview(
     headers,
     selected_headers,
 ):
-    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
-    if not api_url:
-        return (
-            preview_selected_columns(
-                database_id,
-                table_name,
-                headers,
-                selected_headers,
-            ),
-            None,
-        )
-
     try:
-        response = ChemVaultApiClient(base_url=api_url).preview_table(
+        preview = get_backend_gateway().preview_table(
             database_id,
             table_name,
             columns=list(selected_headers),
+            limit=10,
         )
-    except ChemVaultApiError as error:
+    except BackendGatewayError as error:
         return None, (
             "Unable to load the selected columns preview from the "
             f"CHEMVAULT API: {error}"
         )
 
-    columns = response.get("columns", list(selected_headers))
-    return pd.DataFrame(response.get("rows", []), columns=columns), None
+    return preview, None
 
 
 def load_database_metrics(
@@ -129,34 +115,19 @@ def load_database_metrics(
     headers,
     connection,
 ):
-    api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
-    if not api_url:
-        return (
-            get_database_metrics(
-                connection,
-                table_name,
-                group_column,
-                headers,
-            ),
-            None,
-        )
-
     try:
-        response = ChemVaultApiClient(base_url=api_url).get_table_metrics(
+        metrics = get_backend_gateway().get_table_metrics(
             database_id,
             table_name,
             group_column=group_column,
         )
-    except ChemVaultApiError as error:
+    except BackendGatewayError as error:
         return None, (
             "Unable to load the database metrics from the "
             f"CHEMVAULT API: {error}"
         )
 
-    return DatabaseMetrics(
-        row_count=response["row_count"],
-        group_count=response["group_count"],
-    ), None
+    return metrics, None
 
 
 def create_main_layout():
