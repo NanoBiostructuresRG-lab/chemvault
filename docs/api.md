@@ -10,6 +10,29 @@ python -m uvicorn api.main:app --reload
 
 Interactive API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
+## Streamlit API-client pilot
+
+CHEMVAULT can run in an experimental dual mode with FastAPI serving read-only data and Streamlit consuming it over HTTP.
+
+Terminal 1:
+
+```powershell
+conda activate chemvault_env
+python -m uvicorn api.main:app --reload
+```
+
+Terminal 2:
+
+```powershell
+conda activate chemvault_env
+$env:CHEMVAULT_API_URL="http://127.0.0.1:8000"
+streamlit run app.py
+```
+
+When `CHEMVAULT_API_URL` is defined, **Columns → Selected columns preview** uses FastAPI over HTTP. When it is not defined, Streamlit uses the traditional local path.
+
+Only **Selected columns preview** uses FastAPI in this pilot. PubChem, HARMONSMILE, Export, Refine, Table Manager, and workers continue to use their current local paths. This is a step toward using Streamlit as a frontend, not a complete replacement of the local architecture.
+
 ## Current endpoints
 
 - `GET /health`
