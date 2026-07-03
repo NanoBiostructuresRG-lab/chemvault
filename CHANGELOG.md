@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-07-02
+
+### Added
+- Added an internal FastAPI read-only client.
+- Added an opt-in Streamlit API-client pilot using `CHEMVAULT_API_URL`.
+
+### Changed
+- Routed **Columns → Selected columns preview** through the FastAPI client when `CHEMVAULT_API_URL` is configured.
+- Preserved default local Streamlit behavior when `CHEMVAULT_API_URL` is not set.
+- Documented the dual FastAPI + Streamlit API-client mode in `docs/api.md`.
+- Clarified the README release checkout and existing-clone update workflow.
+
+### Notes
+- Scope remains limited: no PubChem execution through FastAPI, HARMONSMILE execution through FastAPI, workers, backend runner, export endpoints, or table mutation.
+
+---
+
 ## [0.4.1] - 2026-07-02
 
 ### Added
