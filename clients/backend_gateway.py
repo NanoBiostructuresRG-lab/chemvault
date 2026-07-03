@@ -9,6 +9,7 @@ import pandas as pd
 from application.database_use_cases import (
     DatabaseMetrics,
     get_table_metrics as get_local_table_metrics,
+    get_table_schema as get_local_table_schema,
     get_table_state,
     refresh_database,
 )
@@ -46,6 +47,12 @@ class _ReadOnlyBackend(Protocol):
         table_name: str,
         group_column: str = "",
     ) -> DatabaseMetrics: ...
+
+    def get_table_schema(
+        self,
+        database_id: str,
+        table_name: str,
+    ) -> tuple[dict[str, object], ...]: ...
 
     def preview_table(
         self,
@@ -92,6 +99,13 @@ class _LocalReadOnlyBackend:
             table_name,
             group_column,
         )
+
+    def get_table_schema(
+        self,
+        database_id: str,
+        table_name: str,
+    ) -> tuple[dict[str, object], ...]:
+        return get_local_table_schema(database_id, table_name)
 
     def preview_table(
         self,
@@ -168,6 +182,20 @@ class _HttpReadOnlyBackend:
             group_count=response["group_count"],
         )
 
+    def get_table_schema(
+        self,
+        database_id: str,
+        table_name: str,
+    ) -> tuple[dict[str, object], ...]:
+        try:
+            response = self._client.get_table_metadata(
+                database_id,
+                table_name,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return tuple(response.get("schema", []))
+
     def preview_table(
         self,
         database_id: str,
@@ -219,6 +247,13 @@ class ReadOnlyBackendGateway:
             table_name,
             group_column,
         )
+
+    def get_table_schema(
+        self,
+        database_id: str,
+        table_name: str,
+    ) -> tuple[dict[str, object], ...]:
+        return self._backend.get_table_schema(database_id, table_name)
 
     def preview_table(
         self,

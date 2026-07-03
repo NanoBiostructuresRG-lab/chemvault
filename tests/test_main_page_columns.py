@@ -15,6 +15,7 @@ from ui.main_page import (
     _refresh_database_state,
     load_database_metrics,
     load_selected_columns_preview,
+    load_table_schema,
 )
 
 
@@ -220,6 +221,48 @@ def test_database_metrics_returns_visible_api_error(monkeypatch):
     assert metrics is None
     assert error == (
         "Unable to load the database metrics from the "
+        "CHEMVAULT API: request timed out"
+    )
+
+
+def test_table_schema_delegates_to_backend_gateway(monkeypatch):
+    expected = ({"name": "CID", "data_type": "TEXT"},)
+    calls = []
+
+    class FakeGateway:
+        def get_table_schema(self, database_id, table_name):
+            calls.append((database_id, table_name))
+            return expected
+
+    monkeypatch.setattr(
+        main_page,
+        "get_backend_gateway",
+        lambda: FakeGateway(),
+    )
+
+    schema, error = load_table_schema("test_db", "main")
+
+    assert schema is expected
+    assert error is None
+    assert calls == [("test_db", "main")]
+
+
+def test_table_schema_returns_visible_http_error(monkeypatch):
+    class FailingGateway:
+        def get_table_schema(self, *args, **kwargs):
+            raise BackendGatewayError("request timed out")
+
+    monkeypatch.setattr(
+        main_page,
+        "get_backend_gateway",
+        lambda: FailingGateway(),
+    )
+
+    schema, error = load_table_schema("test_db", "main")
+
+    assert schema is None
+    assert error == (
+        "Unable to load the active table schema from the "
         "CHEMVAULT API: request timed out"
     )
 

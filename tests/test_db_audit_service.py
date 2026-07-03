@@ -16,6 +16,7 @@ from services.db_audit import (
     get_table_metadata,
     get_table_profiles,
     get_table_row_counts,
+    get_table_schema,
     get_user_table_profiles,
     list_database_files,
     list_tables,
@@ -107,6 +108,35 @@ def test_database_schema_returns_column_metadata(tmp_path):
             "primary_key": False,
         },
     ]
+
+
+def test_table_schema_returns_only_requested_table(tmp_path):
+    db_path = tmp_path / "test.db"
+    create_test_db(db_path)
+
+    schema = get_table_schema(db_path, "derived")
+
+    assert schema == {
+        "table": "derived",
+        "columns": [
+            {
+                "cid": 0,
+                "name": "CID",
+                "data_type": "TEXT",
+                "not_null": False,
+                "default_value": None,
+                "primary_key": False,
+            }
+        ],
+    }
+
+
+def test_table_schema_rejects_missing_table(tmp_path):
+    db_path = tmp_path / "test.db"
+    create_test_db(db_path)
+
+    with pytest.raises(ValueError, match="Table not found: missing"):
+        get_table_schema(db_path, "missing")
 
 
 def test_database_summary_combines_counts_and_schema(tmp_path):

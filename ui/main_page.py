@@ -23,7 +23,6 @@ from services.activity_enrichment import (
 )
 from services.db_audit import (
     delete_user_table,
-    get_database_schema,
     get_operation_log,
     get_user_table_profiles,
 )
@@ -128,6 +127,20 @@ def load_database_metrics(
         )
 
     return metrics, None
+
+
+def load_table_schema(database_id, table_name):
+    try:
+        schema = get_backend_gateway().get_table_schema(
+            database_id,
+            table_name,
+        )
+    except BackendGatewayError as error:
+        return None, (
+            "Unable to load the active table schema from the "
+            f"CHEMVAULT API: {error}"
+        )
+    return schema, None
 
 
 def create_main_layout():
@@ -771,7 +784,6 @@ def render_table_manager_card(container):
 
         try:
             profiles = get_user_table_profiles(db_path)
-            schema = get_database_schema(db_path)
         except FileNotFoundError as e:
             st.warning(str(e))
             return
@@ -794,17 +806,20 @@ def render_table_manager_card(container):
             render_activity_enrichment_action(activity_conn)
             render_structured_activity_section(activity_conn)
 
-        active_schema = next(
-            (table for table in schema if table["table"] == current_table),
-            None,
+        active_schema, schema_error = load_table_schema(
+            database_id,
+            current_table,
         )
-        if active_schema is None or len(active_schema["columns"]) == 0:
+        if schema_error:
+            st.error(schema_error)
+            return
+        if not active_schema:
             st.info("No schema information was found for the active table.")
             return
 
         st.markdown("#### Active table schema")
         st.dataframe(
-            pd.DataFrame(active_schema["columns"])[
+            pd.DataFrame(active_schema)[
                 ["name", "data_type", "primary_key", "not_null", "default_value"]
             ],
             hide_index=True,

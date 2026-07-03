@@ -241,3 +241,31 @@ def test_get_table_metrics_rejects_unknown_group_column_before_query(monkeypatch
         match="Unknown column: missing",
     ):
         database_use_cases.get_table_metrics("test_db", "main", "missing")
+
+
+def test_get_table_schema_validates_table_and_delegates_to_audit_service(
+    monkeypatch,
+):
+    expected = {
+        "table": "main",
+        "columns": ({"name": "CID", "data_type": "TEXT"},),
+    }
+    calls = []
+    monkeypatch.setattr(
+        database_use_cases,
+        "get_table_state",
+        lambda *args: calls.append(("validate", args)) or DatabaseState(),
+    )
+    monkeypatch.setattr(
+        database_use_cases.db_audit,
+        "get_table_schema",
+        lambda *args: calls.append(("schema", args)) or expected,
+    )
+
+    result = database_use_cases.get_table_schema("test_db", "main")
+
+    assert result == expected["columns"]
+    assert calls == [
+        ("validate", ("test_db", "main")),
+        ("schema", (Path("SQL/test_db.db"), "main")),
+    ]

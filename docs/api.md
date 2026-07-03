@@ -67,11 +67,23 @@ Expected response:
   "columns": ["CID", "SMILES"],
   "row_count": 100,
   "preview_limit": 10,
-  "read_only": true
+  "read_only": true,
+  "schema": [
+    {
+      "cid": 0,
+      "name": "CID",
+      "data_type": "TEXT",
+      "not_null": false,
+      "default_value": null,
+      "primary_key": false
+    }
+  ]
 }
 ```
 
-This endpoint is read-only. It does not export complete data or run PubChem or HARMONSMILE.
+The detailed `schema` field powers the Streamlit active-table schema inspection
+through the same backend gateway. This endpoint is read-only. It does not export
+complete data or run PubChem or HARMONSMILE.
 
 ## Current limitations
 

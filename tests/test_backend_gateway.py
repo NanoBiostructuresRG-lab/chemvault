@@ -78,6 +78,88 @@ def test_http_error_does_not_fall_back_to_local_backend(monkeypatch):
     assert local_calls == []
 
 
+def test_table_schema_uses_local_application_backend(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    expected = ({"name": "CID", "data_type": "TEXT"},)
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_schema",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    result = backend_gateway.get_backend_gateway().get_table_schema(
+        "test_db",
+        "main",
+    )
+
+    assert result is expected
+    assert calls == [("test_db", "main")]
+
+
+def test_table_schema_uses_existing_metadata_endpoint_in_http_mode(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    local_calls = []
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_schema",
+        lambda *args: local_calls.append(args),
+    )
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def get_table_metadata(self, database_id, table_name):
+            calls.append(("metadata", database_id, table_name))
+            return {"schema": [{"name": "CID", "data_type": "TEXT"}]}
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+
+    result = backend_gateway.get_backend_gateway().get_table_schema(
+        "test_db",
+        "main",
+    )
+
+    assert result == ({"name": "CID", "data_type": "TEXT"},)
+    assert calls == [
+        ("init", "http://api.example"),
+        ("metadata", "test_db", "main"),
+    ]
+    assert local_calls == []
+
+
+def test_table_schema_http_error_does_not_fall_back(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    local_calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_schema",
+        lambda *args: local_calls.append(args),
+    )
+
+    class FailingClient:
+        def __init__(self, base_url):
+            pass
+
+        def get_table_metadata(self, database_id, table_name):
+            raise ChemVaultApiError("request timed out")
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FailingClient)
+
+    with pytest.raises(
+        backend_gateway.BackendGatewayError,
+        match="request timed out",
+    ):
+        backend_gateway.get_backend_gateway().get_table_schema(
+            "test_db",
+            "main",
+        )
+
+    assert local_calls == []
+
+
 def test_local_backend_preserves_read_only_contract(monkeypatch):
     monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
     state = DatabaseState(
