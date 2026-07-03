@@ -29,9 +29,16 @@ $env:CHEMVAULT_API_URL="http://127.0.0.1:8000"
 streamlit run app.py
 ```
 
-When `CHEMVAULT_API_URL` is defined, **Columns → Selected columns preview** uses FastAPI over HTTP. When it is not defined, Streamlit uses the traditional local path.
+When `CHEMVAULT_API_URL` is defined, Streamlit uses FastAPI over HTTP for the current read-only database exploration flow:
 
-Only **Selected columns preview** uses FastAPI in this pilot. PubChem, HARMONSMILE, Export, Refine, Table Manager, and workers continue to use their current local paths. This is a step toward using Streamlit as a frontend, not a complete replacement of the local architecture.
+- `GET /databases/{database_id}/tables`
+- `GET /databases/{database_id}/tables/{table_name}/metadata`
+- `GET /databases/{database_id}/tables/{table_name}/metrics`
+- `GET /databases/{database_id}/tables/{table_name}/preview`
+
+When `CHEMVAULT_API_URL` is not defined, Streamlit preserves the traditional local path.
+
+The API-client scope remains read-only. PubChem, jobs and workers, curation, exports, and table mutations remain outside FastAPI in this cycle and continue to use their current local paths. This advances Level 2 by moving read-only exploration behind FastAPI, but it does not yet replace all local routes or make FastAPI a complete backend.
 
 ## Current endpoints
 
