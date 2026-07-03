@@ -334,6 +334,32 @@ def get_database_schema(db_path: Path) -> list[dict[str, object]]:
     return schema
 
 
+def get_table_schema(db_path: Path, table: str) -> dict[str, object]:
+    """Return SQLite column metadata for one existing table."""
+    if not db_path.exists():
+        raise FileNotFoundError(f"Database not found: {db_path}")
+
+    with sqlite3.connect(db_path) as con:
+        if not _table_exists(con, table):
+            raise ValueError(f"Table not found: {table}")
+        cur = con.cursor()
+        cur.execute(f"PRAGMA table_info({quote_identifier(table)})")
+        columns = []
+        for column in cur.fetchall():
+            cid, name, data_type, not_null, default_value, primary_key = column
+            columns.append(
+                {
+                    "cid": cid,
+                    "name": name,
+                    "data_type": data_type or "UNKNOWN",
+                    "not_null": bool(not_null),
+                    "default_value": default_value,
+                    "primary_key": bool(primary_key),
+                }
+            )
+    return {"table": table, "columns": columns}
+
+
 def _classify_table_origin(table: str) -> str:
     normalized = table.lower()
     if normalized == "main":

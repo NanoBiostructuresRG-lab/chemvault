@@ -4,7 +4,7 @@ import sqlite3
 import pandas as pd
 
 from application.database_use_cases import DatabaseMetrics
-from clients.api_client import ChemVaultApiError
+from clients.backend_gateway import BackendGatewayError
 from services.database import DatabaseState
 from ui import main_page
 from ui.main_page import (
@@ -15,6 +15,7 @@ from ui.main_page import (
     _refresh_database_state,
     load_database_metrics,
     load_selected_columns_preview,
+    load_table_schema,
 )
 
 
@@ -56,13 +57,18 @@ def test_activity_summary_columns_are_exact_legacy_main_columns():
 def test_selected_columns_preview_uses_local_path_by_default(
     monkeypatch,
 ):
-    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
     expected = pd.DataFrame([{"CID": "1"}])
     calls = []
+
+    class FakeGateway:
+        def preview_table(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return expected
+
     monkeypatch.setattr(
         main_page,
-        "preview_selected_columns",
-        lambda *args: calls.append(args) or expected,
+        "get_backend_gateway",
+        lambda: FakeGateway(),
     )
 
     preview, error = load_selected_columns_preview(
@@ -74,25 +80,20 @@ def test_selected_columns_preview_uses_local_path_by_default(
 
     assert preview is expected
     assert error is None
-    assert calls == [("test_db", "main", ["CID", "SMILES"], ["CID"])]
+    assert calls == [
+        (("test_db", "main"), {"columns": ["CID"], "limit": 10})
+    ]
 
 
 def test_selected_columns_preview_uses_api_when_configured(monkeypatch):
-    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
     calls = []
 
-    class FakeClient:
-        def __init__(self, base_url):
-            calls.append(("init", base_url))
+    class FakeGateway:
+        def preview_table(self, database_id, table_name, columns=None, limit=10):
+            calls.append(("preview", database_id, table_name, columns, limit))
+            return pd.DataFrame([{"CID": "1", "SMILES": "CCO"}])
 
-        def preview_table(self, database_id, table_name, columns=None):
-            calls.append(("preview", database_id, table_name, columns))
-            return {
-                "columns": ["CID", "SMILES"],
-                "rows": [{"CID": "1", "SMILES": "CCO"}],
-            }
-
-    monkeypatch.setattr(main_page, "ChemVaultApiClient", FakeClient)
+    monkeypatch.setattr(main_page, "get_backend_gateway", lambda: FakeGateway())
 
     preview, error = load_selected_columns_preview(
         "test_db",
@@ -106,22 +107,20 @@ def test_selected_columns_preview_uses_api_when_configured(monkeypatch):
         {"CID": "1", "SMILES": "CCO"}
     ]
     assert calls == [
-        ("init", "http://api.example"),
-        ("preview", "test_db", "main", ["CID", "SMILES"]),
+        ("preview", "test_db", "main", ["CID", "SMILES"], 10),
     ]
 
 
 def test_selected_columns_preview_returns_visible_api_error(monkeypatch):
-    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
-
-    class FailingClient:
-        def __init__(self, base_url):
-            pass
-
+    class FailingGateway:
         def preview_table(self, *args, **kwargs):
-            raise ChemVaultApiError("request timed out")
+            raise BackendGatewayError("request timed out")
 
-    monkeypatch.setattr(main_page, "ChemVaultApiClient", FailingClient)
+    monkeypatch.setattr(
+        main_page,
+        "get_backend_gateway",
+        lambda: FailingGateway(),
+    )
 
     preview, error = load_selected_columns_preview(
         "test_db",
@@ -138,14 +137,19 @@ def test_selected_columns_preview_returns_visible_api_error(monkeypatch):
 
 
 def test_database_metrics_uses_local_path_by_default(monkeypatch):
-    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
     connection = object()
     expected = DatabaseMetrics(row_count=10, group_count=2)
     calls = []
+
+    class FakeGateway:
+        def get_table_metrics(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return expected
+
     monkeypatch.setattr(
         main_page,
-        "get_database_metrics",
-        lambda *args: calls.append(args) or expected,
+        "get_backend_gateway",
+        lambda: FakeGateway(),
     )
 
     metrics, error = load_database_metrics(
@@ -159,18 +163,14 @@ def test_database_metrics_uses_local_path_by_default(monkeypatch):
     assert metrics is expected
     assert error is None
     assert calls == [
-        (connection, "main", "category", ["CID", "category"])
+        (("test_db", "main"), {"group_column": "category"})
     ]
 
 
 def test_database_metrics_uses_api_when_configured(monkeypatch):
-    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
     calls = []
 
-    class FakeClient:
-        def __init__(self, base_url):
-            calls.append(("init", base_url))
-
+    class FakeGateway:
         def get_table_metrics(
             self,
             database_id,
@@ -180,9 +180,9 @@ def test_database_metrics_uses_api_when_configured(monkeypatch):
             calls.append(
                 ("metrics", database_id, table_name, group_column)
             )
-            return {"row_count": 100, "group_count": 4}
+            return DatabaseMetrics(row_count=100, group_count=4)
 
-    monkeypatch.setattr(main_page, "ChemVaultApiClient", FakeClient)
+    monkeypatch.setattr(main_page, "get_backend_gateway", lambda: FakeGateway())
 
     metrics, error = load_database_metrics(
         "test_db",
@@ -195,22 +195,20 @@ def test_database_metrics_uses_api_when_configured(monkeypatch):
     assert metrics == DatabaseMetrics(row_count=100, group_count=4)
     assert error is None
     assert calls == [
-        ("init", "http://api.example"),
         ("metrics", "test_db", "main", "category"),
     ]
 
 
 def test_database_metrics_returns_visible_api_error(monkeypatch):
-    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
-
-    class FailingClient:
-        def __init__(self, base_url):
-            pass
-
+    class FailingGateway:
         def get_table_metrics(self, *args, **kwargs):
-            raise ChemVaultApiError("request timed out")
+            raise BackendGatewayError("request timed out")
 
-    monkeypatch.setattr(main_page, "ChemVaultApiClient", FailingClient)
+    monkeypatch.setattr(
+        main_page,
+        "get_backend_gateway",
+        lambda: FailingGateway(),
+    )
 
     metrics, error = load_database_metrics(
         "test_db",
@@ -223,6 +221,48 @@ def test_database_metrics_returns_visible_api_error(monkeypatch):
     assert metrics is None
     assert error == (
         "Unable to load the database metrics from the "
+        "CHEMVAULT API: request timed out"
+    )
+
+
+def test_table_schema_delegates_to_backend_gateway(monkeypatch):
+    expected = ({"name": "CID", "data_type": "TEXT"},)
+    calls = []
+
+    class FakeGateway:
+        def get_table_schema(self, database_id, table_name):
+            calls.append((database_id, table_name))
+            return expected
+
+    monkeypatch.setattr(
+        main_page,
+        "get_backend_gateway",
+        lambda: FakeGateway(),
+    )
+
+    schema, error = load_table_schema("test_db", "main")
+
+    assert schema is expected
+    assert error is None
+    assert calls == [("test_db", "main")]
+
+
+def test_table_schema_returns_visible_http_error(monkeypatch):
+    class FailingGateway:
+        def get_table_schema(self, *args, **kwargs):
+            raise BackendGatewayError("request timed out")
+
+    monkeypatch.setattr(
+        main_page,
+        "get_backend_gateway",
+        lambda: FailingGateway(),
+    )
+
+    schema, error = load_table_schema("test_db", "main")
+
+    assert schema is None
+    assert error == (
+        "Unable to load the active table schema from the "
         "CHEMVAULT API: request timed out"
     )
 

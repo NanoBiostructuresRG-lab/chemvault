@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
@@ -20,6 +20,15 @@ class TableMetricsResponse(BaseModel):
     group_count: int
 
 
+class TableColumnSchema(BaseModel):
+    cid: int
+    name: str
+    data_type: str
+    not_null: bool
+    default_value: Any | None
+    primary_key: bool
+
+
 class TableMetadataResponse(BaseModel):
     database_id: str
     table: str
@@ -27,6 +36,7 @@ class TableMetadataResponse(BaseModel):
     row_count: int
     preview_limit: int
     read_only: bool
+    table_schema: list[TableColumnSchema] = Field(alias="schema")
 
 
 class TablePreviewResponse(BaseModel):

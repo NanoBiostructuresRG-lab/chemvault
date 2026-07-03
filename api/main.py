@@ -15,6 +15,7 @@ from application.database_use_cases import (
     InvalidColumnError,
     TableNotFoundError,
     get_table_metrics,
+    get_table_schema,
     get_table_state,
     list_database_tables,
 )
@@ -92,6 +93,7 @@ def table_metadata(
     state = _table_state_or_404(database_id, table_name)
     try:
         metrics = get_table_metrics(database_id, table_name, "")
+        schema = get_table_schema(database_id, table_name)
     except (DatabaseNotFoundError, TableNotFoundError) as error:
         raise _not_found(error) from error
     return TableMetadataResponse(
@@ -101,6 +103,7 @@ def table_metadata(
         row_count=metrics.row_count,
         preview_limit=10,
         read_only=True,
+        schema=list(schema),
     )
 
 

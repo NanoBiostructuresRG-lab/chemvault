@@ -10,9 +10,11 @@ python -m uvicorn api.main:app --reload
 
 Interactive API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-## Streamlit API-client pilot
+## Streamlit read-only backend gateway
 
-CHEMVAULT can run in an experimental dual mode with FastAPI serving read-only data and Streamlit consuming it over HTTP.
+Streamlit consumes database exploration data through one backend gateway. The
+gateway selects the local application/services backend by default, or the HTTP
+FastAPI backend when `CHEMVAULT_API_URL` is configured.
 
 Terminal 1:
 
@@ -29,14 +31,18 @@ $env:CHEMVAULT_API_URL="http://127.0.0.1:8000"
 streamlit run app.py
 ```
 
-When `CHEMVAULT_API_URL` is defined, Streamlit uses FastAPI over HTTP for the current read-only database exploration flow:
+The gateway exposes one contract to Streamlit for table listing, metadata,
+metrics, and previews. When `CHEMVAULT_API_URL` is defined, its HTTP backend uses:
 
 - `GET /databases/{database_id}/tables`
 - `GET /databases/{database_id}/tables/{table_name}/metadata`
 - `GET /databases/{database_id}/tables/{table_name}/metrics`
 - `GET /databases/{database_id}/tables/{table_name}/preview`
 
-When `CHEMVAULT_API_URL` is not defined, Streamlit preserves the traditional local path.
+When `CHEMVAULT_API_URL` is not defined, the gateway delegates to the existing
+local application use cases and services. Streamlit screens do not select a
+backend themselves. If HTTP mode is selected and a request fails, the error is
+surfaced to Streamlit; the gateway never silently falls back to local access.
 
 The API-client scope remains read-only. PubChem, jobs and workers, curation, exports, and table mutations remain outside FastAPI in this cycle and continue to use their current local paths. This advances Level 2 by moving read-only exploration behind FastAPI, but it does not yet replace all local routes or make FastAPI a complete backend.
 
@@ -61,11 +67,23 @@ Expected response:
   "columns": ["CID", "SMILES"],
   "row_count": 100,
   "preview_limit": 10,
-  "read_only": true
+  "read_only": true,
+  "schema": [
+    {
+      "cid": 0,
+      "name": "CID",
+      "data_type": "TEXT",
+      "not_null": false,
+      "default_value": null,
+      "primary_key": false
+    }
+  ]
 }
 ```
 
-This endpoint is read-only. It does not export complete data or run PubChem or HARMONSMILE.
+The detailed `schema` field powers the Streamlit active-table schema inspection
+through the same backend gateway. This endpoint is read-only. It does not export
+complete data or run PubChem or HARMONSMILE.
 
 ## Current limitations
 

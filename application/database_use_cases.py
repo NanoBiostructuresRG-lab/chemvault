@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Application use cases for database selection and inspection."""
 from dataclasses import dataclass
+from pathlib import Path
 
 from services import database as database_service
+from services import db_audit
 from services.database import DatabaseState
 
 
@@ -94,3 +96,16 @@ def get_table_metrics(
         group_column,
         state.headers,
     )
+
+
+def get_table_schema(
+    database_id: str,
+    current_table: str,
+) -> tuple[dict[str, object], ...]:
+    """Inspect the SQLite schema for a validated user table."""
+    get_table_state(database_id, current_table)
+    schema = db_audit.get_table_schema(
+        Path("SQL") / f"{database_id}.db",
+        current_table,
+    )
+    return tuple(schema["columns"])

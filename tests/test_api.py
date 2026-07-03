@@ -131,6 +131,20 @@ def test_table_metadata_endpoint_uses_application_layer(monkeypatch):
         "get_table_metrics",
         lambda *args: calls.append(args) or DatabaseMetrics(100, 0),
     )
+    monkeypatch.setattr(
+        api_main,
+        "get_table_schema",
+        lambda *args: calls.append(args) or (
+            {
+                "cid": 0,
+                "name": "CID",
+                "data_type": "TEXT",
+                "not_null": False,
+                "default_value": None,
+                "primary_key": False,
+            },
+        ),
+    )
 
     response = client.get("/databases/test_db/tables/main/metadata")
 
@@ -142,8 +156,21 @@ def test_table_metadata_endpoint_uses_application_layer(monkeypatch):
         "row_count": 100,
         "preview_limit": 10,
         "read_only": True,
+        "schema": [
+            {
+                "cid": 0,
+                "name": "CID",
+                "data_type": "TEXT",
+                "not_null": False,
+                "default_value": None,
+                "primary_key": False,
+            }
+        ],
     }
-    assert calls == [("test_db", "main", "")]
+    assert calls == [
+        ("test_db", "main", ""),
+        ("test_db", "main"),
+    ]
 
 
 @pytest.mark.parametrize(
