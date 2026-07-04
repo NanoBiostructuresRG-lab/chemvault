@@ -7,10 +7,17 @@ from fastapi.responses import Response
 from api.schemas import (
     DatabaseTablesResponse,
     HealthResponse,
+    HarmonsmileJobRequest,
+    JobStatusResponse,
     OperationHistoryResponse,
     TableMetadataResponse,
     TableMetricsResponse,
     TablePreviewResponse,
+)
+from application.harmonsmile_jobs import (
+    JobNotFoundError,
+    get_harmonsmile_job_status,
+    launch_harmonsmile_job,
 )
 from application.database_use_cases import (
     DatabaseNotFoundError,
@@ -51,6 +58,38 @@ def _table_state_or_404(database_id, table_name):
 @app.get("/health", response_model=HealthResponse)
 def health():
     return HealthResponse(status="ok")
+
+
+@app.post(
+    "/databases/{database_id}/jobs/harmonsmile",
+    response_model=JobStatusResponse,
+    status_code=201,
+)
+def launch_harmonsmile(
+    database_id: DatabaseId,
+    request: HarmonsmileJobRequest,
+):
+    try:
+        return launch_harmonsmile_job(
+            database_id,
+            request.table_name,
+            request.cid_column,
+        )
+    except (DatabaseNotFoundError, TableNotFoundError) as error:
+        raise _not_found(error) from error
+    except InvalidColumnError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get(
+    "/databases/{database_id}/jobs/{job_id}",
+    response_model=JobStatusResponse,
+)
+def job_status(database_id: DatabaseId, job_id: str):
+    try:
+        return get_harmonsmile_job_status(database_id, job_id)
+    except (DatabaseNotFoundError, JobNotFoundError) as error:
+        raise _not_found(error) from error
 
 
 @app.get(

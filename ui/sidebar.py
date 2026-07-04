@@ -7,7 +7,6 @@ import streamlit as st
 from application.curation_use_cases import (
     is_cid_header,
     run_chamanp,
-    run_harmonsmile,
 )
 from application.table_use_cases import (
     export_filtered_selection,
@@ -18,11 +17,7 @@ from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.builders import build_from_csv
 from services.database import count_rows, get_connection
 from services.db_audit import register_operation, register_table_metadata
-from services.harmonsmile_cache import (
-    merge_harmonsmile_cache_to_table,
-    prepare_harmonsmile_job,
-    run_harmonsmile_chunks,
-)
+from services.job_models import JobStatus
 from services.sql_utils import table_exists
 from state_keys import (
     CODIGO_BUSCAR,
@@ -278,24 +273,6 @@ def _safe_register_curate_operation(
         pass
 
 
-def _render_harmonsmile_progress(snapshot, progress_bar, status_placeholder, stats_placeholder):
-    total_chunks = snapshot["total_chunks"]
-    current_chunk = snapshot["current_chunk"]
-    progress = 1.0 if total_chunks == 0 else current_chunk / total_chunks
-    progress_bar.progress(min(max(progress, 0.0), 1.0))
-    status_placeholder.caption(
-        f"HARMONSMILE {snapshot['status']}: chunk {current_chunk}/{total_chunks}"
-    )
-    stats_placeholder.caption(
-        "Processed: {processed} | Success: {success} | Failed: {failed} | Missing: {missing}".format(
-            processed=snapshot["processed_cids"],
-            success=snapshot["successful_cids"],
-            failed=snapshot["failed_cids"],
-            missing=snapshot["missing_cids"],
-        )
-    )
-
-
 def render_curate_card():
     with st.container(border=True):
         st.subheader("Curate")
@@ -324,104 +301,49 @@ def render_curate_card():
                 if st.button("Run"):
                     target_table = st.session_state[CURRENT_TABLE]
                     cid_column = selected_headers[0]
-                    conn = get_connection(st.session_state[DATABASE_ID])
-                    job = prepare_harmonsmile_job(conn, target_table, cid_column)
-                    st.caption(
-                        "Total: {total} | Cached: {cached} | Pending: {pending} | Invalid: {invalid}".format(
-                            total=job["total_cids"],
-                            cached=len(job["cached_cids"]),
-                            pending=len(job["pending_cids"]),
-                            invalid=len(job["invalid_cids"]),
-                        )
-                    )
-                    progress_bar = st.progress(0)
-                    status_placeholder = st.empty()
-                    stats_placeholder = st.empty()
-
-                    def progress_callback(snapshot):
-                        _render_harmonsmile_progress(
-                            snapshot,
-                            progress_bar,
-                            status_placeholder,
-                            stats_placeholder,
-                        )
-
                     try:
-                        run_result = run_harmonsmile_chunks(
-                            conn,
-                            job["pending_cids"],
-                            run_harmonsmile,
-                            progress_callback=progress_callback,
-                        )
-                    except ValueError as e:
-                        st.toast(str(e))
-                        st.error(str(e))
-                        _safe_register_curate_operation(
-                            "harmonsmile_run",
-                            target_table,
-                            selected_headers,
-                            status="failed",
-                            details=str(e),
-                        )
-                        run_result = None
-                    if run_result is not None:
-                        headers_before_merge = set(st.session_state.get(HEADERS, []))
-                        merged_rows = merge_harmonsmile_cache_to_table(
-                            conn,
-                            target_table,
-                            cid_column,
-                            cids=job["valid_cids"],
-                        )
+                        gateway = get_backend_gateway()
+                        with st.spinner("Running HARMONSMILE..."):
+                            launched = gateway.launch_harmonsmile_job(
+                                st.session_state[DATABASE_ID],
+                                target_table,
+                                cid_column,
+                            )
+                            job_status = gateway.get_job_status(
+                                st.session_state[DATABASE_ID],
+                                launched.job_id,
+                            )
+                    except (BackendGatewayError, LookupError, ValueError) as error:
+                        st.toast(str(error))
+                        st.error(str(error))
+                    else:
                         refresh_database_state(st.session_state)
-                        output_columns = [
-                            header
-                            for header in st.session_state.get(HEADERS, [])
-                            if header not in headers_before_merge
-                        ]
-                        if run_result["status"] == "success":
+                        result = job_status.result or {}
+                        st.caption(
+                            "Total: {total} | Cached: {cached} | Pending: {pending} | Invalid: {invalid}".format(
+                                total=result.get("total_cids", 0),
+                                cached=result.get("cached_cids", 0),
+                                pending=result.get("pending_cids", 0),
+                                invalid=result.get("invalid_cids", 0),
+                            )
+                        )
+                        if job_status.status == JobStatus.COMPLETED:
                             summary_message = (
                                 "HARMONSMILE completed. "
-                                f"Cached: {len(job['cached_cids'])}; "
-                                f"Pending: {len(job['pending_cids'])}; "
-                                f"Merged rows: {merged_rows}; "
-                                f"Failed: {len(run_result['failed_cids'])}; "
-                                f"Missing: {len(run_result.get('missing_cids', []))}."
+                                f"Cached: {result.get('cached_cids', 0)}; "
+                                f"Pending: {result.get('pending_cids', 0)}; "
+                                f"Merged rows: {result.get('merged_rows', 0)}; "
+                                f"Failed: {result.get('failed_cids', 0)}; "
+                                f"Missing: {result.get('missing_cids', 0)}."
                             )
                             st.toast(summary_message)
                             st.success(summary_message)
                             st.caption(
                                 "No new table was created; results were merged into the active table."
                             )
-                            _safe_register_curate_operation(
-                                "harmonsmile_run",
-                                target_table,
-                                selected_headers,
-                                output_columns=output_columns,
-                                details=(
-                                    "Processed HARMONSMILE with cache/chunks. "
-                                    f"Cached: {len(job['cached_cids'])}; "
-                                    f"Pending: {len(job['pending_cids'])}; "
-                                    f"Merged rows: {merged_rows}; "
-                                    f"Failed: {len(run_result['failed_cids'])}; "
-                                    f"Missing: {len(run_result.get('missing_cids', []))}."
-                                ),
-                            )
                         else:
-                            st.toast("HarmonSmile stopped before completing all chunks")
-                            st.error(run_result["error_message"])
-                            _safe_register_curate_operation(
-                                "harmonsmile_run",
-                                target_table,
-                                selected_headers,
-                                status="failed",
-                                details=(
-                                    "HARMONSMILE chunked run stopped. "
-                                    f"Cached: {len(job['cached_cids'])}; "
-                                    f"Pending: {len(job['pending_cids'])}; "
-                                    f"Merged rows: {merged_rows}; "
-                                    f"Error: {run_result['error_message']}."
-                                ),
-                            )
+                            st.toast("HARMONSMILE stopped before completing")
+                            st.error(job_status.error or "HARMONSMILE failed")
                         st.rerun()
 
         if st.session_state[SELECTING_CHAMANP]:

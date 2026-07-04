@@ -1,6 +1,6 @@
-# FastAPI read-only API
+# FastAPI backend API
 
-CHEMVAULT provides a FastAPI read-only API.
+CHEMVAULT provides a FastAPI API for supported database reads and the controlled HARMONSMILE command.
 
 ## Run locally
 
@@ -10,7 +10,7 @@ python -m uvicorn api.main:app --reload
 
 Interactive API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-## Streamlit read-only backend gateway
+## Streamlit backend gateway
 
 Streamlit consumes database exploration data through one backend gateway. The
 gateway selects the local application/services backend by default, or the HTTP
@@ -32,7 +32,7 @@ streamlit run app.py
 ```
 
 The gateway exposes one contract to Streamlit for table listing, operation
-history, metadata, metrics, previews, and table CSV export. When
+history, metadata, metrics, previews, table CSV export, and HARMONSMILE. When
 `CHEMVAULT_API_URL` is defined, its HTTP backend uses:
 
 - `GET /databases/{database_id}/tables`
@@ -41,22 +41,20 @@ history, metadata, metrics, previews, and table CSV export. When
 - `GET /databases/{database_id}/tables/{table_name}/metrics`
 - `GET /databases/{database_id}/tables/{table_name}/preview`
 - `GET /databases/{database_id}/tables/{table_name}/export`
+- `POST /databases/{database_id}/jobs/harmonsmile`
+- `GET /databases/{database_id}/jobs/{job_id}`
 
 When `CHEMVAULT_API_URL` is not defined, the gateway delegates to the existing
 local application use cases and services. Streamlit screens do not select a
 backend themselves. If HTTP mode is selected and a request fails, the error is
 surfaced to Streamlit; the gateway never silently falls back to local access.
 
-The API-client scope remains read-only. PubChem, jobs and workers, curation,
-filtered subgroup and structured-activity exports, and table mutations remain
-outside FastAPI in this cycle. This advances Level 2 by moving read-only
-exploration and the minimal table-export surface behind FastAPI, but it does
-not yet replace all local routes or make FastAPI a complete backend.
-
-P23 defines a future generic job-status shape, but no job endpoint exists yet.
-Current job reads can perform migrations and stale-state transitions, so they
-are not suitable for this read-only API boundary. See
-[Future backend job-status contract](job_contract.md).
+HARMONSMILE uses a minimal synchronous runtime in the FastAPI process. The POST
+request runs preparation, chunk processing, cache merge, and provenance before
+returning; the resulting status remains queryable through the GET endpoint.
+This is not a remote worker. PubChem, CHAMANP, cancellation, filtered subgroup
+and structured-activity exports, and general table mutations remain outside
+FastAPI in this cycle.
 
 ## Current endpoints
 
@@ -67,6 +65,25 @@ are not suitable for this read-only API boundary. See
 - `GET /databases/{database_id}/tables/{table_name}/metrics`
 - `GET /databases/{database_id}/tables/{table_name}/preview`
 - `GET /databases/{database_id}/tables/{table_name}/export`
+- `POST /databases/{database_id}/jobs/harmonsmile`
+- `GET /databases/{database_id}/jobs/{job_id}`
+
+## HARMONSMILE job
+
+Launch a synchronous job with:
+
+```json
+{
+  "table_name": "main",
+  "cid_column": "CID"
+}
+```
+
+The launch and status responses share the typed job contract: `job_id`,
+`job_type`, `status`, `database_id`, `stage`, `progress`, `message`, timestamps,
+`result`, and `error`. Status and provenance are persisted in the same SQLite
+database. Local mode remains the default and invokes the same application use
+case directly through the gateway.
 
 ## Table metadata
 
@@ -118,7 +135,9 @@ part of this endpoint.
 
 ## Current limitations
 
-The API is read-only. It does not create databases, modify tables, run PubChem, run HARMONSMILE, or launch workers.
+The API does not create databases, run PubChem or CHAMANP, expose cancellation,
+or launch remote workers. Only the HARMONSMILE command crosses the mutation
+boundary in this milestone.
 
 ## Architectural rule
 

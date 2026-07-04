@@ -133,3 +133,27 @@ def test_request_exception_is_converted_to_client_error(monkeypatch):
         assert "request timed out" in str(error)
     else:
         raise AssertionError("ChemVaultApiError was not raised")
+
+
+def test_client_posts_harmonsmile_command(monkeypatch):
+    calls = []
+
+    def fake_post(_session, url, **kwargs):
+        calls.append((url, kwargs))
+        return StubResponse({"job_id": "job-1"}, status_code=201)
+
+    monkeypatch.setattr(requests.Session, "post", fake_post)
+
+    result = ChemVaultApiClient("http://api.example/").launch_harmonsmile_job(
+        "test db", "main", "CID"
+    )
+
+    assert result == {"job_id": "job-1"}
+    assert calls[0][0] == (
+        "http://api.example/databases/test%20db/jobs/harmonsmile"
+    )
+    assert calls[0][1]["json"] == {
+        "table_name": "main",
+        "cid_column": "CID",
+    }
+    assert calls[0][1]["timeout"] is None

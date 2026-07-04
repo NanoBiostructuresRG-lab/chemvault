@@ -64,6 +64,37 @@ class ChemVaultApiClient:
     def _get_bytes(self, path: str, params=None) -> bytes:
         return self._get_response(path, params=params).content
 
+    def _post(self, path: str, json=None, timeout=10.0) -> dict[str, Any]:
+        url = f"{self.base_url}{path}"
+        try:
+            response = self.session.post(
+                url,
+                json=json,
+                timeout=timeout,
+            )
+        except requests.RequestException as error:
+            raise ChemVaultApiError(
+                f"CHEMVAULT API request failed: {error}"
+            ) from error
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as error:
+            detail = response.text
+            try:
+                detail = response.json().get("detail", detail)
+            except (ValueError, AttributeError):
+                pass
+            message = f"CHEMVAULT API returned HTTP {response.status_code}"
+            if detail:
+                message = f"{message}: {detail}"
+            raise ChemVaultApiError(message) from error
+        try:
+            return response.json()
+        except ValueError as error:
+            raise ChemVaultApiError(
+                "CHEMVAULT API returned an invalid JSON response."
+            ) from error
+
     @staticmethod
     def _segment(value: str) -> str:
         return quote(value, safe="")
@@ -134,3 +165,25 @@ class ChemVaultApiClient:
             f"/databases/{database_id}/tables/{table_name}/export",
             params=params,
         )
+
+    def launch_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+        cid_column: str,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        return self._post(
+            f"/databases/{database_id}/jobs/harmonsmile",
+            json={"table_name": table_name, "cid_column": cid_column},
+            timeout=None,
+        )
+
+    def get_job_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        job_id = self._segment(job_id)
+        return self._get(f"/databases/{database_id}/jobs/{job_id}")
