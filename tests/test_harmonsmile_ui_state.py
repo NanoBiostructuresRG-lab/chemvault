@@ -6,14 +6,14 @@ from ui import sidebar
 from ui.harmonsmile_state import execute_harmonsmile_command
 
 
-def _job(status=JobStatus.COMPLETED, error=None):
+def _job(status=JobStatus.COMPLETED, error=None, progress=1.0):
     return JobStatusContract(
         job_id="job-1",
         job_type="harmonsmile",
         status=status,
         database_id="test_db",
         stage=status.value,
-        progress=1.0,
+        progress=progress,
         message=None,
         created_at="2026-07-03T10:00:00+00:00",
         started_at="2026-07-03T10:00:00+00:00",
@@ -94,6 +94,77 @@ def test_api_connection_failure_has_no_fallback_and_clears_running_state():
     assert state["harmonsmile_feedback_message"] == (
         "CHEMVAULT backend API is not available: connection refused"
     )
+
+
+def test_api_polling_connection_loss_clears_running_without_fallback():
+    state = {}
+    calls = []
+
+    class Gateway:
+        mode = "http"
+
+        def launch_harmonsmile_job(self, *args):
+            calls.append(("launch", args))
+            return _job(JobStatus.PENDING, progress=0.0)
+
+        def get_job_status(self, *args):
+            calls.append(("status", args))
+            raise BackendGatewayError("connection lost during polling")
+
+    execute_harmonsmile_command(
+        state,
+        Gateway(),
+        "test_db",
+        "main",
+        "CID",
+        lambda *_: None,
+        sleep_callback=lambda *_: None,
+    )
+
+    assert [call[0] for call in calls] == ["launch", "status"]
+    assert state["harmonsmile_running"] is False
+    assert state["harmonsmile_job_id"] == ""
+    assert state["harmonsmile_feedback_kind"] == "error"
+    assert "connection lost during polling" in state[
+        "harmonsmile_feedback_message"
+    ]
+
+
+def test_api_mode_polls_until_terminal_status_and_reports_progress():
+    state = {}
+    statuses = iter([
+        _job(JobStatus.RUNNING, progress=0.4),
+        _job(JobStatus.COMPLETED, progress=1.0),
+    ])
+    observed = []
+
+    class Gateway:
+        mode = "http"
+
+        def launch_harmonsmile_job(self, *args):
+            return _job(JobStatus.PENDING, progress=0.0)
+
+        def get_job_status(self, *args):
+            return next(statuses)
+
+    result = execute_harmonsmile_command(
+        state,
+        Gateway(),
+        "test_db",
+        "main",
+        "CID",
+        lambda *_: None,
+        status_callback=lambda status: observed.append(status.status),
+        sleep_callback=lambda *_: None,
+    )
+
+    assert result.status == JobStatus.COMPLETED
+    assert observed == [
+        JobStatus.PENDING,
+        JobStatus.RUNNING,
+        JobStatus.COMPLETED,
+    ]
+    assert state["harmonsmile_running"] is False
 
 
 def test_workflow_switch_clears_stale_harmonsmile_display(monkeypatch):

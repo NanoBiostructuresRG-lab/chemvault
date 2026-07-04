@@ -184,7 +184,7 @@ streamlit run app.py
 
 API-client mode covers selected read-only database operations, including table listing, metadata, metrics, preview, schema inspection, operation history, and current table CSV export. HARMONSMILE execution also goes through FastAPI and its minimal local job runtime.
 
-The HARMONSMILE runtime executes synchronously in the FastAPI process and persists status in the database; it is not a remote worker. PubChem searches, CHAMANP, enrichment, other curation writes, and general table mutations are not routed through FastAPI.
+In API mode, FastAPI queues HARMONSMILE in a minimal in-process background thread and returns the job ID immediately. Streamlit polls the persisted job status until completion or a bounded connection failure; this is not a remote worker. PubChem searches, CHAMANP, enrichment, other curation writes, and general table mutations are not routed through FastAPI.
 
 ---
 

@@ -49,9 +49,10 @@ local application use cases and services. Streamlit screens do not select a
 backend themselves. If HTTP mode is selected and a request fails, the error is
 surfaced to Streamlit; the gateway never silently falls back to local access.
 
-HARMONSMILE uses a minimal synchronous runtime in the FastAPI process. The POST
-request runs preparation, chunk processing, cache merge, and provenance before
-returning; the resulting status remains queryable through the GET endpoint.
+HARMONSMILE uses a minimal background thread in the FastAPI process. The POST
+creates a queued job and returns its ID immediately; preparation, chunk
+processing, cache merge, and provenance continue outside the HTTP request.
+Streamlit polls the GET endpoint for persisted progress and terminal status.
 This is not a remote worker. PubChem, CHAMANP, cancellation, filtered subgroup
 and structured-activity exports, and general table mutations remain outside
 FastAPI in this cycle.
@@ -70,7 +71,7 @@ FastAPI in this cycle.
 
 ## HARMONSMILE job
 
-Launch a synchronous job with:
+Launch a background job with:
 
 ```json
 {

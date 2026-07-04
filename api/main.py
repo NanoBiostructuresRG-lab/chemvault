@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException, Path, Query
 from fastapi.responses import Response
 
+from api.job_runtime import start_background_job
 from api.schemas import (
     DatabaseTablesResponse,
     HealthResponse,
@@ -16,8 +17,9 @@ from api.schemas import (
 )
 from application.harmonsmile_jobs import (
     JobNotFoundError,
+    create_harmonsmile_job,
+    execute_harmonsmile_job,
     get_harmonsmile_job_status,
-    launch_harmonsmile_job,
 )
 from application.database_use_cases import (
     DatabaseNotFoundError,
@@ -70,11 +72,17 @@ def launch_harmonsmile(
     request: HarmonsmileJobRequest,
 ):
     try:
-        return launch_harmonsmile_job(
+        created = create_harmonsmile_job(
             database_id,
             request.table_name,
             request.cid_column,
         )
+        start_background_job(
+            execute_harmonsmile_job,
+            database_id,
+            created.job_id,
+        )
+        return created
     except (DatabaseNotFoundError, TableNotFoundError) as error:
         raise _not_found(error) from error
     except InvalidColumnError as error:

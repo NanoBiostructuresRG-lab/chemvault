@@ -6,7 +6,6 @@ import requests
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
-HARMONSMILE_REQUEST_TIMEOUT = (5.0, 1800.0)
 
 
 class ChemVaultApiError(RuntimeError):
@@ -177,7 +176,7 @@ class ChemVaultApiClient:
         return self._post(
             f"/databases/{database_id}/jobs/harmonsmile",
             json={"table_name": table_name, "cid_column": cid_column},
-            timeout=HARMONSMILE_REQUEST_TIMEOUT,
+            timeout=self.timeout,
         )
 
     def get_job_status(

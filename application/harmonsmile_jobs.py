@@ -58,25 +58,81 @@ def launch_harmonsmile_job(
     runner: Callable = run_harmonsmile,
     progress_callback: Callable | None = None,
 ) -> JobStatusContract:
-    """Run HARMONSMILE synchronously and persist its queryable job status."""
+    """Run HARMONSMILE synchronously for the local gateway."""
+    created = create_harmonsmile_job(database_id, table_name, cid_column)
+    return execute_harmonsmile_job(
+        database_id,
+        created.job_id,
+        runner=runner,
+        progress_callback=progress_callback,
+    )
+
+
+def create_harmonsmile_job(
+    database_id: str,
+    table_name: str,
+    cid_column: str,
+) -> JobStatusContract:
+    """Validate and persist a queued HARMONSMILE job without executing it."""
     state = get_table_state(database_id, table_name)
     if cid_column not in state.headers:
         raise InvalidColumnError(f"Unknown column: {cid_column}")
 
     connection = get_connection(database_id)
+    try:
+        store = JobStore(connection)
+        request_metadata = {
+            "table_name": table_name,
+            "cid_column": cid_column,
+        }
+        record = store.create_job(
+            job_type=JobType.HARMONSMILE,
+            database_id=database_id,
+            metadata=request_metadata,
+        )
+        record = store.update_progress(
+            record.job_id,
+            "queued",
+            0.0,
+            "HARMONSMILE job queued",
+            request_metadata,
+        )
+        return job_status_from_record(record)
+    finally:
+        connection.close()
+
+
+def execute_harmonsmile_job(
+    database_id: str,
+    job_id: str,
+    *,
+    runner: Callable = run_harmonsmile,
+    progress_callback: Callable | None = None,
+) -> JobStatusContract:
+    """Execute a previously queued HARMONSMILE job."""
+    connection = get_connection(database_id)
     store = JobStore(connection)
-    request_metadata = {"table_name": table_name, "cid_column": cid_column}
-    record = store.create_job(
-        job_type=JobType.HARMONSMILE,
-        database_id=database_id,
-        metadata=request_metadata,
-    )
-    store.start_job(record.job_id)
+    record = store.get_job(job_id)
+    if record is None or record.database_id != database_id:
+        connection.close()
+        raise JobNotFoundError(
+            f"Job '{job_id}' was not found in database '{database_id}'."
+        )
+
+    request_metadata = dict(record.metadata)
+    table_name = request_metadata["table_name"]
+    cid_column = request_metadata["cid_column"]
+    started = store.start_job(job_id)
+    if started is None:
+        current = store.get_job(job_id)
+        connection.close()
+        return job_status_from_record(current)
 
     try:
+        state = get_table_state(database_id, table_name)
         prepared = prepare_harmonsmile_job(connection, table_name, cid_column)
         store.update_progress(
-            record.job_id,
+            job_id,
             "prepared",
             0.05,
             "HARMONSMILE input prepared",
@@ -88,7 +144,7 @@ def launch_harmonsmile_job(
             current = snapshot.get("current_chunk", 0)
             progress = 0.1 if total == 0 else 0.1 + (0.75 * current / total)
             store.update_progress(
-                record.job_id,
+                job_id,
                 snapshot.get("status", "running"),
                 min(progress, 0.85),
                 f"HARMONSMILE chunk {current}/{total}",
@@ -136,7 +192,7 @@ def launch_harmonsmile_job(
                 details=f"{details} Error: {error}",
             )
             final = store.fail_job(
-                record.job_id, error, {**request_metadata, "result": result}
+                job_id, error, {**request_metadata, "result": result}
             )
         else:
             _register_operation_safely(
@@ -148,14 +204,14 @@ def launch_harmonsmile_job(
                 details=details,
             )
             store.update_progress(
-                record.job_id,
+                job_id,
                 "completed",
                 0.95,
                 "HARMONSMILE results merged",
                 {**request_metadata, "result": result},
             )
             final = store.complete_job(
-                record.job_id, {**request_metadata, "result": result}
+                job_id, {**request_metadata, "result": result}
             )
     except Exception as error:
         _register_operation_safely(
@@ -166,9 +222,11 @@ def launch_harmonsmile_job(
             status="failed",
             details=str(error),
         )
-        final = store.fail_job(record.job_id, str(error), request_metadata)
+        final = store.fail_job(job_id, str(error), request_metadata)
 
-    return job_status_from_record(final)
+    result = job_status_from_record(final)
+    connection.close()
+    return result
 
 
 def get_harmonsmile_job_status(
@@ -177,7 +235,11 @@ def get_harmonsmile_job_status(
 ) -> JobStatusContract:
     """Return a job only from the database named in the route."""
     list_database_tables(database_id)
-    record = JobStore(get_connection(database_id)).get_job(job_id)
+    connection = get_connection(database_id)
+    try:
+        record = JobStore(connection).get_job(job_id)
+    finally:
+        connection.close()
     if record is None or record.database_id != database_id:
         raise JobNotFoundError(
             f"Job '{job_id}' was not found in database '{database_id}'."

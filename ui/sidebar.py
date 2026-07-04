@@ -319,6 +319,18 @@ def render_curate_card():
                     target_table = st.session_state[CURRENT_TABLE]
                     cid_column = selected_headers[0]
                     gateway = get_backend_gateway()
+                    progress_bar = st.progress(0.0)
+                    status_placeholder = st.empty()
+
+                    def render_status(status):
+                        progress_bar.progress(
+                            min(max(status.progress, 0.0), 1.0)
+                        )
+                        status_placeholder.caption(
+                            status.message
+                            or f"HARMONSMILE status: {status.status.value}"
+                        )
+
                     with st.spinner(
                         "Running HARMONSMILE through the backend; "
                         "this may take several minutes..."
@@ -330,6 +342,7 @@ def render_curate_card():
                             target_table,
                             cid_column,
                             refresh_database_state,
+                            status_callback=render_status,
                         )
                     st.rerun()
 

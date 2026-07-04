@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import main as api_main
+from application.job_contracts import job_status_from_payload
 from application.database_use_cases import (
     DatabaseMetrics,
     DatabaseNotFoundError,
@@ -35,6 +36,21 @@ def _completed_harmonsmile_job():
     }
 
 
+def _pending_harmonsmile_job():
+    return {
+        **_completed_harmonsmile_job(),
+        "status": "pending",
+        "stage": "queued",
+        "progress": 0.0,
+        "message": "HARMONSMILE job queued",
+        "updated_at": "2026-07-03T10:00:00+00:00",
+        "started_at": None,
+        "finished_at": None,
+        "result": None,
+        "cancellable": True,
+    }
+
+
 def test_docs_endpoint_is_available():
     response = client.get("/docs", follow_redirects=False)
 
@@ -63,12 +79,18 @@ def test_openapi_schema_exposes_read_only_contract():
 
 
 def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
-    expected = _completed_harmonsmile_job()
+    expected = job_status_from_payload(_pending_harmonsmile_job())
     calls = []
     monkeypatch.setattr(
         api_main,
-        "launch_harmonsmile_job",
+        "create_harmonsmile_job",
         lambda *args: calls.append(args) or expected,
+    )
+    background_calls = []
+    monkeypatch.setattr(
+        api_main,
+        "start_background_job",
+        lambda *args: background_calls.append(args),
     )
 
     response = client.post(
@@ -78,8 +100,12 @@ def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
 
     assert response.status_code == 201
     assert response.json()["job_id"] == "job-1"
-    assert response.json()["result"] == {"merged_rows": 2}
+    assert response.json()["status"] == "pending"
+    assert response.json()["result"] is None
     assert calls == [("test_db", "main", "CID")]
+    assert background_calls == [
+        (api_main.execute_harmonsmile_job, "test_db", "job-1")
+    ]
 
 
 def test_job_status_endpoint_uses_application_runtime(monkeypatch):
@@ -96,6 +122,35 @@ def test_job_status_endpoint_uses_application_runtime(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
     assert calls == [("test_db", "job-1")]
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        ("running", None),
+        ("completed", None),
+        ("failed", "HARMONSMILE unavailable"),
+    ],
+)
+def test_job_status_endpoint_reflects_persisted_lifecycle(
+    monkeypatch, status, error
+):
+    payload = {
+        **_completed_harmonsmile_job(),
+        "status": status,
+        "error": error,
+    }
+    monkeypatch.setattr(
+        api_main,
+        "get_harmonsmile_job_status",
+        lambda *_args: payload,
+    )
+
+    response = client.get("/databases/test_db/jobs/job-1")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == status
+    assert response.json()["error"] == error
 
 
 def test_health_endpoint():

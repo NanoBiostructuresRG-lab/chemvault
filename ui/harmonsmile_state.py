@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Streamlit-independent state cycle for the HARMONSMILE command UI."""
+import time
+
 from services.job_models import JobStatus
 from state_keys import (
     HARMONSMILE_FEEDBACK_KIND,
@@ -14,6 +16,8 @@ TERMINAL_JOB_STATUSES = {
     JobStatus.FAILED,
     JobStatus.CANCELLED,
 }
+HARMONSMILE_POLL_INTERVAL_SECONDS = 0.5
+HARMONSMILE_MAX_POLL_ATTEMPTS = 3600
 
 
 def clear_harmonsmile_runtime(session_state, *, clear_feedback=False):
@@ -55,8 +59,10 @@ def execute_harmonsmile_command(
     table_name,
     cid_column,
     refresh_callback,
+    status_callback=None,
+    sleep_callback=time.sleep,
 ):
-    """Execute the synchronous command and always close its UI state cycle."""
+    """Launch, poll HTTP jobs when needed, and always close the UI state."""
     session_state[HARMONSMILE_RUNNING] = True
     session_state[HARMONSMILE_JOB_ID] = ""
     _set_feedback(session_state, "", "")
@@ -68,11 +74,25 @@ def execute_harmonsmile_command(
             cid_column,
         )
         session_state[HARMONSMILE_JOB_ID] = status.job_id
+        if status_callback is not None:
+            status_callback(status)
 
-        if status.status not in TERMINAL_JOB_STATUSES:
+        if getattr(gateway, "mode", "local") == "http":
+            for _attempt in range(HARMONSMILE_MAX_POLL_ATTEMPTS):
+                if status.status in TERMINAL_JOB_STATUSES:
+                    break
+                status = gateway.get_job_status(database_id, status.job_id)
+                if status_callback is not None:
+                    status_callback(status)
+                if status.status not in TERMINAL_JOB_STATUSES:
+                    sleep_callback(HARMONSMILE_POLL_INTERVAL_SECONDS)
+            else:
+                raise TimeoutError(
+                    "HARMONSMILE status polling reached its time limit."
+                )
+        elif status.status not in TERMINAL_JOB_STATUSES:
             raise RuntimeError(
-                "HARMONSMILE backend returned a non-terminal status "
-                f"('{status.status.value}') for a synchronous command."
+                "Local HARMONSMILE execution returned a non-terminal status."
             )
 
         if status.status == JobStatus.COMPLETED:
