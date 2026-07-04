@@ -1,7 +1,11 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import requests
 
-from clients.api_client import ChemVaultApiClient, ChemVaultApiError
+from clients.api_client import (
+    HARMONSMILE_REQUEST_TIMEOUT,
+    ChemVaultApiClient,
+    ChemVaultApiError,
+)
 
 
 class StubResponse:
@@ -156,4 +160,5 @@ def test_client_posts_harmonsmile_command(monkeypatch):
         "table_name": "main",
         "cid_column": "CID",
     }
-    assert calls[0][1]["timeout"] is None
+    assert calls[0][1]["timeout"] == HARMONSMILE_REQUEST_TIMEOUT
+    assert HARMONSMILE_REQUEST_TIMEOUT == (5.0, 1800.0)

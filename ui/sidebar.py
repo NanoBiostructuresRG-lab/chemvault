@@ -17,7 +17,6 @@ from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.builders import build_from_csv
 from services.database import count_rows, get_connection
 from services.db_audit import register_operation, register_table_metadata
-from services.job_models import JobStatus
 from services.sql_utils import table_exists
 from state_keys import (
     CODIGO_BUSCAR,
@@ -28,6 +27,7 @@ from state_keys import (
     DEPURADO_SUCCESS_TABLE,
     GROUP_BY_COLUMN,
     HEADERS,
+    HARMONSMILE_RUNNING,
     NEW_TABLE_NAME,
     ORDER_BY_COLUMN,
     ORDER_DIRECTION,
@@ -43,6 +43,11 @@ from state_keys import (
     SELECTED_SMILES_FOR_EXPORT,
     SELECTING_CHAMANP,
     SELECTING_HARMONSMILE,
+)
+from ui.harmonsmile_state import (
+    clear_harmonsmile_runtime,
+    consume_harmonsmile_feedback,
+    execute_harmonsmile_command,
 )
 from ui.session_state import refresh_database_state
 
@@ -248,6 +253,7 @@ def render_refine_card(clear_preview_callback, build_query_callback):
 def _set_curados_false():
     st.session_state[SELECTING_HARMONSMILE] = False
     st.session_state[SELECTING_CHAMANP] = False
+    clear_harmonsmile_runtime(st.session_state, clear_feedback=True)
 
 
 def _safe_register_curate_operation(
@@ -284,6 +290,14 @@ def render_curate_card():
             _set_curados_false()
             st.session_state[SELECTING_CHAMANP] = True
 
+        feedback_kind, feedback_message = consume_harmonsmile_feedback(
+            st.session_state
+        )
+        if feedback_kind == "success" and feedback_message:
+            st.success(feedback_message)
+        elif feedback_kind == "error" and feedback_message:
+            st.error(feedback_message)
+
         if st.session_state[SELECTING_HARMONSMILE]:
             selected_headers = resolve_selected_columns(
                 st.session_state.get(HEADERS, []),
@@ -298,53 +312,26 @@ def render_curate_card():
                     f"Selected column is '{selected_headers[0]}'. HARMONSMILE requires a valid CID column."
                 )
             else:
-                if st.button("Run"):
+                if st.button(
+                    "Run",
+                    disabled=st.session_state.get(HARMONSMILE_RUNNING, False),
+                ):
                     target_table = st.session_state[CURRENT_TABLE]
                     cid_column = selected_headers[0]
-                    try:
-                        gateway = get_backend_gateway()
-                        with st.spinner("Running HARMONSMILE..."):
-                            launched = gateway.launch_harmonsmile_job(
-                                st.session_state[DATABASE_ID],
-                                target_table,
-                                cid_column,
-                            )
-                            job_status = gateway.get_job_status(
-                                st.session_state[DATABASE_ID],
-                                launched.job_id,
-                            )
-                    except (BackendGatewayError, LookupError, ValueError) as error:
-                        st.toast(str(error))
-                        st.error(str(error))
-                    else:
-                        refresh_database_state(st.session_state)
-                        result = job_status.result or {}
-                        st.caption(
-                            "Total: {total} | Cached: {cached} | Pending: {pending} | Invalid: {invalid}".format(
-                                total=result.get("total_cids", 0),
-                                cached=result.get("cached_cids", 0),
-                                pending=result.get("pending_cids", 0),
-                                invalid=result.get("invalid_cids", 0),
-                            )
+                    gateway = get_backend_gateway()
+                    with st.spinner(
+                        "Running HARMONSMILE through the backend; "
+                        "this may take several minutes..."
+                    ):
+                        execute_harmonsmile_command(
+                            st.session_state,
+                            gateway,
+                            st.session_state[DATABASE_ID],
+                            target_table,
+                            cid_column,
+                            refresh_database_state,
                         )
-                        if job_status.status == JobStatus.COMPLETED:
-                            summary_message = (
-                                "HARMONSMILE completed. "
-                                f"Cached: {result.get('cached_cids', 0)}; "
-                                f"Pending: {result.get('pending_cids', 0)}; "
-                                f"Merged rows: {result.get('merged_rows', 0)}; "
-                                f"Failed: {result.get('failed_cids', 0)}; "
-                                f"Missing: {result.get('missing_cids', 0)}."
-                            )
-                            st.toast(summary_message)
-                            st.success(summary_message)
-                            st.caption(
-                                "No new table was created; results were merged into the active table."
-                            )
-                        else:
-                            st.toast("HARMONSMILE stopped before completing")
-                            st.error(job_status.error or "HARMONSMILE failed")
-                        st.rerun()
+                    st.rerun()
 
         if st.session_state[SELECTING_CHAMANP]:
             st.text("Select the columns to process")
