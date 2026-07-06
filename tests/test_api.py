@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import main as api_main
+from application.job_contracts import job_status_from_payload
 from application.database_use_cases import (
     DatabaseMetrics,
     DatabaseNotFoundError,
@@ -14,6 +15,40 @@ from services.database import DatabaseState
 
 
 client = TestClient(api_main.app)
+
+
+def _completed_harmonsmile_job():
+    return {
+        "job_id": "job-1",
+        "job_type": "harmonsmile",
+        "status": "completed",
+        "database_id": "test_db",
+        "stage": "completed",
+        "progress": 1.0,
+        "message": "done",
+        "created_at": "2026-07-03T10:00:00+00:00",
+        "updated_at": "2026-07-03T10:01:00+00:00",
+        "started_at": "2026-07-03T10:00:00+00:00",
+        "finished_at": "2026-07-03T10:01:00+00:00",
+        "error": None,
+        "result": {"merged_rows": 2},
+        "cancellable": False,
+    }
+
+
+def _pending_harmonsmile_job():
+    return {
+        **_completed_harmonsmile_job(),
+        "status": "pending",
+        "stage": "queued",
+        "progress": 0.0,
+        "message": "HARMONSMILE job queued",
+        "updated_at": "2026-07-03T10:00:00+00:00",
+        "started_at": None,
+        "finished_at": None,
+        "result": None,
+        "cancellable": True,
+    }
 
 
 def test_docs_endpoint_is_available():
@@ -39,6 +74,83 @@ def test_openapi_schema_exposes_read_only_contract():
         "/databases/{database_id}/tables/{table_name}/preview",
         "/databases/{database_id}/tables/{table_name}/export",
     }.issubset(schema["paths"])
+    assert "/databases/{database_id}/jobs/harmonsmile" in schema["paths"]
+    assert "/databases/{database_id}/jobs/{job_id}" in schema["paths"]
+
+
+def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
+    expected = job_status_from_payload(_pending_harmonsmile_job())
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "create_harmonsmile_job",
+        lambda *args: calls.append(args) or expected,
+    )
+    background_calls = []
+    monkeypatch.setattr(
+        api_main,
+        "start_background_job",
+        lambda *args: background_calls.append(args),
+    )
+
+    response = client.post(
+        "/databases/test_db/jobs/harmonsmile",
+        json={"table_name": "main", "cid_column": "CID"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["job_id"] == "job-1"
+    assert response.json()["status"] == "pending"
+    assert response.json()["result"] is None
+    assert calls == [("test_db", "main", "CID")]
+    assert background_calls == [
+        (api_main.execute_harmonsmile_job, "test_db", "job-1")
+    ]
+
+
+def test_job_status_endpoint_uses_application_runtime(monkeypatch):
+    expected = _completed_harmonsmile_job()
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "get_harmonsmile_job_status",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    response = client.get("/databases/test_db/jobs/job-1")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert calls == [("test_db", "job-1")]
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        ("running", None),
+        ("completed", None),
+        ("failed", "HARMONSMILE unavailable"),
+    ],
+)
+def test_job_status_endpoint_reflects_persisted_lifecycle(
+    monkeypatch, status, error
+):
+    payload = {
+        **_completed_harmonsmile_job(),
+        "status": status,
+        "error": error,
+    }
+    monkeypatch.setattr(
+        api_main,
+        "get_harmonsmile_job_status",
+        lambda *_args: payload,
+    )
+
+    response = client.get("/databases/test_db/jobs/job-1")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == status
+    assert response.json()["error"] == error
 
 
 def test_health_endpoint():

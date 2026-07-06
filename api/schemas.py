@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from services.job_models import JobStatus
+
 
 class HealthResponse(BaseModel):
     status: str
@@ -60,3 +62,25 @@ class TablePreviewResponse(BaseModel):
     columns: list[str]
     rows: list[dict[str, Any]]
     limit: int
+
+
+class HarmonsmileJobRequest(BaseModel):
+    table_name: str = Field(min_length=1)
+    cid_column: str = Field(min_length=1)
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    job_type: str
+    status: JobStatus
+    database_id: str
+    stage: str
+    progress: float = Field(ge=0.0, le=1.0)
+    message: str | None
+    created_at: str
+    updated_at: str
+    started_at: str | None
+    finished_at: str | None
+    error: str | None
+    result: dict[str, Any] | None
+    cancellable: bool

@@ -13,6 +13,10 @@ from state_keys import (
     EXISTING_DB_SELECT,
     GROUP_COUNT_COLUMN,
     HEADERS,
+    HARMONSMILE_FEEDBACK_KIND,
+    HARMONSMILE_FEEDBACK_MESSAGE,
+    HARMONSMILE_JOB_ID,
+    HARMONSMILE_RUNNING,
     INPUT_DATABASE_ID,
     PUBCHEM_JOB_COMPLETION_HANDLED,
     PUBCHEM_JOB_DB_PATH,
@@ -45,6 +49,10 @@ def initialize_session_state(session_state, verify_directories_callback):
         CUSTOM_QUERY: "",
         SELECTING_HARMONSMILE: "",
         SELECTING_CHAMANP: "",
+        HARMONSMILE_RUNNING: False,
+        HARMONSMILE_JOB_ID: "",
+        HARMONSMILE_FEEDBACK_KIND: "",
+        HARMONSMILE_FEEDBACK_MESSAGE: "",
     }
 
     for key, value in defaults.items():

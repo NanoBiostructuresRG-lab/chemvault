@@ -13,6 +13,7 @@ class JobStatus(str, Enum):
 
 class JobType(str, Enum):
     PUBCHEM_PROTEIN_SEARCH = "pubchem_protein_search"
+    HARMONSMILE = "harmonsmile"
 
 
 class JobNotActiveError(RuntimeError):

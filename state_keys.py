@@ -25,6 +25,10 @@ EXISTING_DB_SELECT = "existing_db_select"
 
 SELECTING_HARMONSMILE = "selecting_harmonsmile"
 SELECTING_CHAMANP = "selecting_chamanp"
+HARMONSMILE_RUNNING = "harmonsmile_running"
+HARMONSMILE_JOB_ID = "harmonsmile_job_id"
+HARMONSMILE_FEEDBACK_KIND = "harmonsmile_feedback_kind"
+HARMONSMILE_FEEDBACK_MESSAGE = "harmonsmile_feedback_message"
 
 NEW_TABLE_NAME = "new_table_name"
 TYPE_OF_FILTER = "type_of_filter"
@@ -64,6 +68,10 @@ ALL_SESSION_KEYS = (
     EXISTING_DB_SELECT,
     SELECTING_HARMONSMILE,
     SELECTING_CHAMANP,
+    HARMONSMILE_RUNNING,
+    HARMONSMILE_JOB_ID,
+    HARMONSMILE_FEEDBACK_KIND,
+    HARMONSMILE_FEEDBACK_MESSAGE,
     NEW_TABLE_NAME,
     TYPE_OF_FILTER,
     GROUP_BY_COLUMN,

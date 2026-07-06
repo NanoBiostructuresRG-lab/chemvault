@@ -39,6 +39,8 @@ def test_job_status_contract_projects_generic_persisted_fields():
         finished_at=None,
         error=None,
         cancellable=True,
+        updated_at="2026-07-03T10:00:01+00:00",
+        result=None,
     )
     assert not hasattr(status, "metadata")
     assert not hasattr(status, "worker_pid")

@@ -28,6 +28,10 @@ def test_initialize_session_state_sets_current_defaults_when_database_is_missing
     assert session_state["custom_query"] == ""
     assert session_state["selecting_harmonsmile"] == ""
     assert session_state["selecting_chamanp"] == ""
+    assert session_state["harmonsmile_running"] is False
+    assert session_state["harmonsmile_job_id"] == ""
+    assert session_state["harmonsmile_feedback_kind"] == ""
+    assert session_state["harmonsmile_feedback_message"] == ""
 
 
 def test_initialize_session_state_preserves_existing_values():

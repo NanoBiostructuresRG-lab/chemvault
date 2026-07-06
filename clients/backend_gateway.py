@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-"""Single read-only backend boundary for Streamlit database exploration."""
+"""Single backend boundary for Streamlit reads and supported commands."""
 import os
 from dataclasses import dataclass
 from typing import Protocol
@@ -18,6 +18,11 @@ from application.table_use_cases import (
     export_table_csv,
     preview_selected_columns,
 )
+from application.harmonsmile_jobs import (
+    get_harmonsmile_job_status as get_local_harmonsmile_job_status,
+    launch_harmonsmile_job as launch_local_harmonsmile_job,
+)
+from application.job_contracts import JobStatusContract, job_status_from_payload
 from clients.api_client import ChemVaultApiClient, ChemVaultApiError
 
 
@@ -36,7 +41,7 @@ class TableMetadata:
     read_only: bool = True
 
 
-class _ReadOnlyBackend(Protocol):
+class _Backend(Protocol):
     def list_tables(self, database_id: str) -> tuple[str, ...]: ...
 
     def get_operation_history(
@@ -78,6 +83,19 @@ class _ReadOnlyBackend(Protocol):
         columns: list[str] | None = None,
     ) -> bytes: ...
 
+    def launch_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+        cid_column: str,
+    ) -> JobStatusContract: ...
+
+    def get_job_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract: ...
+
 
 def _validate_preview_limit(limit: int) -> int:
     limit = int(limit)
@@ -88,7 +106,7 @@ def _validate_preview_limit(limit: int) -> int:
     return limit
 
 
-class _LocalReadOnlyBackend:
+class _LocalBackend:
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return tuple(refresh_database(database_id).all_tables)
 
@@ -155,8 +173,25 @@ class _LocalReadOnlyBackend:
     ) -> bytes:
         return export_table_csv(database_id, table_name, columns)
 
+    def launch_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+        cid_column: str,
+    ) -> JobStatusContract:
+        return launch_local_harmonsmile_job(
+            database_id, table_name, cid_column
+        )
 
-class _HttpReadOnlyBackend:
+    def get_job_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        return get_local_harmonsmile_job_status(database_id, job_id)
+
+
+class _HttpBackend:
     def __init__(self, base_url: str):
         self._client = ChemVaultApiClient(base_url=base_url)
 
@@ -273,11 +308,36 @@ class _HttpReadOnlyBackend:
         except ChemVaultApiError as error:
             self._raise_gateway_error(error)
 
+    def launch_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+        cid_column: str,
+    ) -> JobStatusContract:
+        try:
+            response = self._client.launch_harmonsmile_job(
+                database_id, table_name, cid_column
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
 
-class ReadOnlyBackendGateway:
+    def get_job_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            response = self._client.get_job_status(database_id, job_id)
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
+
+
+class BackendGateway:
     """Facade exposing one stable contract to Streamlit."""
 
-    def __init__(self, backend: _ReadOnlyBackend, mode: str):
+    def __init__(self, backend: _Backend, mode: str):
         self._backend = backend
         self.mode = mode
 
@@ -342,13 +402,34 @@ class ReadOnlyBackendGateway:
             columns,
         )
 
+    def launch_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+        cid_column: str,
+    ) -> JobStatusContract:
+        return self._backend.launch_harmonsmile_job(
+            database_id, table_name, cid_column
+        )
 
-def get_backend_gateway() -> ReadOnlyBackendGateway:
+    def get_job_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        return self._backend.get_job_status(database_id, job_id)
+
+
+# Compatibility for existing imports while the boundary evolves beyond reads.
+ReadOnlyBackendGateway = BackendGateway
+
+
+def get_backend_gateway() -> BackendGateway:
     """Select the backend once, at the Streamlit boundary."""
     api_url = os.getenv("CHEMVAULT_API_URL", "").strip()
     if api_url:
-        return ReadOnlyBackendGateway(
-            _HttpReadOnlyBackend(api_url),
+        return BackendGateway(
+            _HttpBackend(api_url),
             mode="http",
         )
-    return ReadOnlyBackendGateway(_LocalReadOnlyBackend(), mode="local")
+    return BackendGateway(_LocalBackend(), mode="local")

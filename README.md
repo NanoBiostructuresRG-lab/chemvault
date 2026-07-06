@@ -117,7 +117,7 @@ This is the default behavior whenever `CHEMVAULT_API_URL` is not configured.
 
 ### Option 2: API-client mode
 
-Use this mode when you want Streamlit to access supported read-only database operations through the FastAPI backend.
+Use this mode when you want Streamlit to access supported database operations through the FastAPI backend.
 
 Start FastAPI in **one** terminal:
 
@@ -143,7 +143,7 @@ streamlit run app.py
 
 Then open your browser at `http://localhost:8501`.
 
-In this mode, supported read-only operations go through FastAPI:
+In this mode, supported operations go through FastAPI:
 
 ```text
 Streamlit UI → HTTP client → FastAPI → application/services → SQLite
@@ -182,9 +182,9 @@ streamlit run app.py
 
 ### Current API-client coverage
 
-API-client mode currently covers selected read-only database operations, including table listing, metadata, metrics, preview, schema inspection, operation history, and current table CSV export.
+API-client mode covers selected read-only database operations, including table listing, metadata, metrics, preview, schema inspection, operation history, and current table CSV export. HARMONSMILE execution also goes through FastAPI and its minimal local job runtime.
 
-Long-running execution workflows such as PubChem searches, HARMONSMILE, CHAMANP, enrichment, jobs/workers, curation writes, and table mutations are not yet routed through FastAPI.
+In API mode, FastAPI queues HARMONSMILE in a minimal in-process background thread and returns the job ID immediately. Streamlit polls the persisted job status until completion or a bounded connection failure; this is not a remote worker. PubChem searches, CHAMANP, enrichment, other curation writes, and general table mutations are not routed through FastAPI.
 
 ---
 
