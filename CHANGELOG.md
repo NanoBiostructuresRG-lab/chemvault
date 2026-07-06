@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.9.0] - 2026-07-06
+
+### Added
+- Added HARMONSMILE backend job execution through the backend gateway.
+- Added `POST /databases/{database_id}/jobs/harmonsmile` to launch HARMONSMILE backend jobs.
+- Added `GET /databases/{database_id}/jobs/{job_id}` to inspect HARMONSMILE job status.
+- Added a minimal backend job runtime for asynchronous HARMONSMILE API execution.
+- Added Streamlit polling for HARMONSMILE job progress and terminal status.
+
+### Changed
+- Extended the backend gateway from read-only/export coverage to real scientific workflow execution.
+- Routed Streamlit HARMONSMILE execution through the backend gateway.
+- Preserved local mode as the default execution path.
+- Preserved API mode without silent local fallback when `CHEMVAULT_API_URL` is configured.
+- Replaced long blocking HARMONSMILE API execution with quick launch plus status polling.
+- Improved HARMONSMILE UI execution state handling for success, failure, backend connection loss, and stale workflow state.
+
+### Notes
+- This release is the first backend execution milestone for CHEMVAULT.
+- Scope is limited to HARMONSMILE execution.
+- PubChem execution, PubChem cancellation, CHAMANP execution, remote workers, auth, Docker, deployment, and frontend replacement remain outside this release.
+- Level 2 is advanced but not yet complete.
+
+### Validation
+- Full suite passed on `main`: `344 passed`.
+- Manual API-mode validation passed for normal HARMONSMILE execution and FastAPI shutdown during polling.
+
+---
+
 ## [v0.8.0] - 2026-07-03
 
 ### Added
