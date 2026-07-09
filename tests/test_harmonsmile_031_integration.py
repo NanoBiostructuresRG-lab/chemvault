@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
+import os
 
+from harmonsmile import load_table
 import pandas as pd
 
 from modules import use_harmonsmile
@@ -17,18 +19,28 @@ def test_harmonsmile_031_pubchem_ingest_returns_dataframe_contract(
 ):
     monkeypatch.chdir(tmp_path)
     captured_configs = []
+    loaded_input_columns = []
 
     class FakePubChemConfig:
         def __init__(self, **kwargs):
             captured_configs.append(kwargs)
+            self.input_path = kwargs["input_path"]
+            self.cid_col = kwargs["cid_col"]
+            self.keep_extra_columns = kwargs["keep_extra_columns"]
 
     class FakePubChemIngest:
         def __init__(self, cfg):
             self.cfg = cfg
 
         def run(self):
+            with open(self.cfg.input_path, encoding="utf-8") as handle:
+                assert handle.readline().strip() == "CID,"
+            loaded = load_table(self.cfg.input_path)
+            loaded_input_columns.extend(loaded.columns)
+            assert list(loaded.columns) == ["CID"]
+            assert self.cfg.cid_col in loaded.columns
             return pd.DataFrame({
-                "PubChem CID": ["1", "2"],
+                "CID": ["1", "2"],
                 "SMILES_RDKit": ["CCO", "C1=CC=CC=C1"],
                 "SMILES_Harmonized": ["CCO", "c1ccccc1"],
                 "SMILES_Harmonization_Status": ["ok", "ok_with_warnings"],
@@ -43,9 +55,11 @@ def test_harmonsmile_031_pubchem_ingest_returns_dataframe_contract(
     result = use_harmonsmile.use_PubchemIngest(pd.DataFrame({"CID": [1, 2]}))
 
     assert captured_configs == [{
-        "input_path": "tempFilesHarmonsile\\res_pubchem.csv",
-        "cid_col": "PubChem CID",
+        "input_path": os.path.join("tempFilesHarmonsile", "res_pubchem.csv"),
+        "cid_col": "CID",
+        "keep_extra_columns": True,
     }]
+    assert loaded_input_columns == ["CID"]
     assert list(result.columns) == [
         "PubChem_CID",
         "SMILES_RDKit",
