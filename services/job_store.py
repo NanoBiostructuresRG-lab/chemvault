@@ -9,7 +9,7 @@ from services.runtime_config import JOB_HEARTBEAT_TIMEOUT_SECONDS
 
 JOBS_TABLE = "_chemvault_jobs"
 ACTIVE_JOB_STATUSES = (JobStatus.PENDING.value, JobStatus.RUNNING.value)
-STALE_JOB_ERROR_MESSAGE = "Protein search stopped unexpectedly. Please try again."
+STALE_JOB_ERROR_MESSAGE = "Backend job stopped unexpectedly. Please try again."
 
 
 def _utc_now():

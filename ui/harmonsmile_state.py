@@ -77,22 +77,17 @@ def execute_harmonsmile_command(
         if status_callback is not None:
             status_callback(status)
 
-        if getattr(gateway, "mode", "local") == "http":
-            for _attempt in range(HARMONSMILE_MAX_POLL_ATTEMPTS):
-                if status.status in TERMINAL_JOB_STATUSES:
-                    break
-                status = gateway.get_job_status(database_id, status.job_id)
-                if status_callback is not None:
-                    status_callback(status)
-                if status.status not in TERMINAL_JOB_STATUSES:
-                    sleep_callback(HARMONSMILE_POLL_INTERVAL_SECONDS)
-            else:
-                raise TimeoutError(
-                    "HARMONSMILE status polling reached its time limit."
-                )
-        elif status.status not in TERMINAL_JOB_STATUSES:
-            raise RuntimeError(
-                "Local HARMONSMILE execution returned a non-terminal status."
+        for _attempt in range(HARMONSMILE_MAX_POLL_ATTEMPTS):
+            if status.status in TERMINAL_JOB_STATUSES:
+                break
+            status = gateway.get_job_status(database_id, status.job_id)
+            if status_callback is not None:
+                status_callback(status)
+            if status.status not in TERMINAL_JOB_STATUSES:
+                sleep_callback(HARMONSMILE_POLL_INTERVAL_SECONDS)
+        else:
+            raise TimeoutError(
+                "HARMONSMILE status polling reached its time limit."
             )
 
         if status.status == JobStatus.COMPLETED:

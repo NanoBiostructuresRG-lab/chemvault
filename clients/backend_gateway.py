@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Single backend boundary for Streamlit reads and supported commands."""
 import os
+from threading import Thread
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -18,12 +19,15 @@ from application.table_use_cases import (
     export_table_csv,
     preview_selected_columns,
 )
-from application.harmonsmile_jobs import (
-    get_harmonsmile_job_status as get_local_harmonsmile_job_status,
-    launch_harmonsmile_job as launch_local_harmonsmile_job,
-)
+import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
 from application.job_contracts import JobStatusContract, job_status_from_payload
+from application.scientific_jobs import (
+    create_scientific_job,
+    execute_scientific_job,
+    get_scientific_job_status,
+)
 from clients.api_client import ChemVaultApiClient, ChemVaultApiError
+from services.job_models import JobType
 
 
 DEFAULT_PREVIEW_LIMIT = 10
@@ -88,6 +92,13 @@ class _Backend(Protocol):
         database_id: str,
         table_name: str,
         cid_column: str,
+    ) -> JobStatusContract: ...
+
+    def launch_scientific_job(
+        self,
+        database_id: str,
+        job_type: str,
+        request: dict[str, object],
     ) -> JobStatusContract: ...
 
     def get_job_status(
@@ -179,16 +190,34 @@ class _LocalBackend:
         table_name: str,
         cid_column: str,
     ) -> JobStatusContract:
-        return launch_local_harmonsmile_job(
-            database_id, table_name, cid_column
+        return self.launch_scientific_job(
+            database_id,
+            JobType.HARMONSMILE.value,
+            {"table_name": table_name, "cid_column": cid_column},
         )
+
+    def launch_scientific_job(
+        self,
+        database_id: str,
+        job_type: str,
+        request: dict[str, object],
+    ) -> JobStatusContract:
+        created = create_scientific_job(database_id, job_type, dict(request))
+        thread = Thread(
+            target=execute_scientific_job,
+            args=(database_id, job_type, created.job_id),
+            daemon=True,
+            name=f"chemvault-{job_type}",
+        )
+        thread.start()
+        return created
 
     def get_job_status(
         self,
         database_id: str,
         job_id: str,
     ) -> JobStatusContract:
-        return get_local_harmonsmile_job_status(database_id, job_id)
+        return get_scientific_job_status(database_id, job_id)
 
 
 class _HttpBackend:
@@ -314,9 +343,21 @@ class _HttpBackend:
         table_name: str,
         cid_column: str,
     ) -> JobStatusContract:
+        return self.launch_scientific_job(
+            database_id,
+            JobType.HARMONSMILE.value,
+            {"table_name": table_name, "cid_column": cid_column},
+        )
+
+    def launch_scientific_job(
+        self,
+        database_id: str,
+        job_type: str,
+        request: dict[str, object],
+    ) -> JobStatusContract:
         try:
-            response = self._client.launch_harmonsmile_job(
-                database_id, table_name, cid_column
+            response = self._client.launch_scientific_job(
+                database_id, job_type, dict(request)
             )
         except ChemVaultApiError as error:
             self._raise_gateway_error(error)
@@ -410,6 +451,16 @@ class BackendGateway:
     ) -> JobStatusContract:
         return self._backend.launch_harmonsmile_job(
             database_id, table_name, cid_column
+        )
+
+    def launch_scientific_job(
+        self,
+        database_id: str,
+        job_type: str,
+        request: dict[str, object],
+    ) -> JobStatusContract:
+        return self._backend.launch_scientific_job(
+            database_id, job_type, request
         )
 
     def get_job_status(

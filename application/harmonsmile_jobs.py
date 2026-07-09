@@ -11,6 +11,7 @@ from application.database_use_cases import (
     list_database_tables,
 )
 from application.job_contracts import JobStatusContract, job_status_from_record
+from application.scientific_jobs import JobNotFoundError, register_scientific_job
 from services.database_core import get_connection
 from services.db_audit import register_operation
 from services.harmonsmile_cache import (
@@ -20,10 +21,6 @@ from services.harmonsmile_cache import (
 )
 from services.job_models import JobType
 from services.job_store import JobStore
-
-
-class JobNotFoundError(LookupError):
-    """Raised when a job does not exist in the requested database."""
 
 
 def _register_operation_safely(connection, **kwargs):
@@ -245,3 +242,10 @@ def get_harmonsmile_job_status(
             f"Job '{job_id}' was not found in database '{database_id}'."
         )
     return job_status_from_record(record)
+
+
+register_scientific_job(
+    JobType.HARMONSMILE,
+    create=create_harmonsmile_job,
+    execute=execute_harmonsmile_job,
+)
