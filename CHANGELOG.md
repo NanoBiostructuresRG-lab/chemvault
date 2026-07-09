@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.10.1] - 2026-07-09
+
+### Fixed
+- Fixed a HARMONSMILE 0.3.1 input-column regression where the temporary one-column CSV header `PubChem CID` could be parsed as separate `PubChem` and `CID` columns.
+- Preserved CSV as the temporary HARMONSMILE interchange format while using a safe `CID` input column and normalizing returned CID data back to `PubChem_CID`.
+- Ensured HARMONSMILE execution works from Streamlit when the selected source column is named `CID`.
+
+### Validation
+- Full suite passed on `main`: `346 passed`.
+- Architectural grep over `api`, `application`, and `services` for Streamlit/session-state references returned no matches.
+- Manual Streamlit validation passed on `Dev10_P34971` / `harmin`: HARMONSMILE ran and created the expected output columns.
+
+---
+
 ## [v0.10.0] - 2026-07-09
 
 ### Added
