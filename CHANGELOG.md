@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.10.0] - 2026-07-09
+
+### Added
+- Added a generic scientific backend job boundary for reusable workflow execution.
+- Added `application/scientific_jobs.py` to register, create, execute, and inspect scientific jobs by job type.
+- Added generic backend gateway and API-client methods for launching and querying scientific jobs.
+- Added HARMONSMILE 0.3.1 integration coverage, including status/message/result column handling.
+
+### Changed
+- Consolidated the v0.9.0 HARMONSMILE backend job path into a reusable scientific job contract.
+- Made `GET /databases/{database_id}/jobs/{job_id}` job-type-neutral instead of depending on HARMONSMILE-specific status lookup.
+- Aligned local and API HARMONSMILE execution around the same launch, poll, and terminal-status lifecycle.
+- Separated backend transport failures from persisted workflow failures.
+- Replaced PubChem-specific stale-job wording with generic backend-job wording.
+- Updated CHEMVAULT’s HARMONSMILE dependency from `harmonsmile==0.2.4` to `harmonsmile==0.3.1`.
+- Updated API and job-contract documentation to describe the current scientific backend job contract.
+
+### Notes
+- HARMONSMILE remains the only scientific workflow exposed through the backend job contract in this release.
+- CHAMANP backend execution, PubChem API execution, PubChem cancellation, remote workers, task queues, Docker, auth, deployment, and frontend replacement remain outside this release.
+- `ARCHITECTURE.md` remains an internal untracked file and is not part of this release commit.
+
+### Validation
+- Full suite passed on `main`: `346 passed`.
+- Architectural grep over `api`, `application`, and `services` for Streamlit/session-state references returned no matches.
+- HARMONSMILE 0.3.1 was verified in `chemvault_env`.
+
+---
+
 ## [v0.9.0] - 2026-07-06
 
 ### Added
