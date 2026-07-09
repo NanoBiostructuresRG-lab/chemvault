@@ -83,14 +83,14 @@ def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
     calls = []
     monkeypatch.setattr(
         api_main,
-        "create_harmonsmile_job",
+        "create_scientific_job",
         lambda *args: calls.append(args) or expected,
     )
     background_calls = []
     monkeypatch.setattr(
         api_main,
         "start_background_job",
-        lambda *args: background_calls.append(args),
+        lambda *args, **kwargs: background_calls.append((args, kwargs)),
     )
 
     response = client.post(
@@ -102,9 +102,23 @@ def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
     assert response.json()["job_id"] == "job-1"
     assert response.json()["status"] == "pending"
     assert response.json()["result"] is None
-    assert calls == [("test_db", "main", "CID")]
+    assert calls == [
+        (
+            "test_db",
+            api_main.JobType.HARMONSMILE,
+            {"table_name": "main", "cid_column": "CID"},
+        )
+    ]
     assert background_calls == [
-        (api_main.execute_harmonsmile_job, "test_db", "job-1")
+        (
+            (
+                api_main.execute_scientific_job,
+                "test_db",
+                api_main.JobType.HARMONSMILE,
+                "job-1",
+            ),
+            {"name": "chemvault-harmonsmile"},
+        )
     ]
 
 
@@ -113,7 +127,7 @@ def test_job_status_endpoint_uses_application_runtime(monkeypatch):
     calls = []
     monkeypatch.setattr(
         api_main,
-        "get_harmonsmile_job_status",
+        "get_scientific_job_status",
         lambda *args: calls.append(args) or expected,
     )
 
@@ -142,7 +156,7 @@ def test_job_status_endpoint_reflects_persisted_lifecycle(
     }
     monkeypatch.setattr(
         api_main,
-        "get_harmonsmile_job_status",
+        "get_scientific_job_status",
         lambda *_args: payload,
     )
 

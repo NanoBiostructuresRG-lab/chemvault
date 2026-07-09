@@ -360,41 +360,62 @@ def test_streamlit_read_only_routes_do_not_branch_on_api_url():
         assert "ChemVaultApiClient" not in source
 
 
-def _completed_job(job_id="job-1"):
+def _completed_job(job_id="job-1", status=JobStatus.COMPLETED):
     return JobStatusContract(
         job_id=job_id,
         job_type="harmonsmile",
-        status=JobStatus.COMPLETED,
+        status=status,
         database_id="test_db",
-        stage="completed",
-        progress=1.0,
-        message="done",
+        stage=status.value,
+        progress=1.0 if status == JobStatus.COMPLETED else 0.0,
+        message="done" if status == JobStatus.COMPLETED else "queued",
         created_at="2026-07-03T10:00:00+00:00",
         started_at="2026-07-03T10:00:00+00:00",
-        finished_at="2026-07-03T10:01:00+00:00",
+        finished_at=(
+            "2026-07-03T10:01:00+00:00"
+            if status == JobStatus.COMPLETED
+            else None
+        ),
         error=None,
-        cancellable=False,
+        cancellable=status in {JobStatus.PENDING, JobStatus.RUNNING},
         updated_at="2026-07-03T10:01:00+00:00",
-        result={"merged_rows": 2},
+        result={"merged_rows": 2} if status == JobStatus.COMPLETED else None,
     )
 
 
 def test_harmonsmile_command_uses_local_application_backend(monkeypatch):
     monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
-    expected = _completed_job()
+    expected = _completed_job(status=JobStatus.PENDING)
     calls = []
+    started = []
+
+    class FakeThread:
+        def __init__(self, target, args, daemon, name):
+            calls.append(("thread", target, args, daemon, name))
+
+        def start(self):
+            started.append(True)
+
     monkeypatch.setattr(
         backend_gateway,
-        "launch_local_harmonsmile_job",
-        lambda *args: calls.append(args) or expected,
+        "create_scientific_job",
+        lambda *args: calls.append(("create", *args)) or expected,
     )
+    monkeypatch.setattr(backend_gateway, "Thread", FakeThread)
 
     result = backend_gateway.get_backend_gateway().launch_harmonsmile_job(
         "test_db", "main", "CID"
     )
 
     assert result is expected
-    assert calls == [("test_db", "main", "CID")]
+    assert calls[0] == (
+        "create",
+        "test_db",
+        "harmonsmile",
+        {"table_name": "main", "cid_column": "CID"},
+    )
+    assert calls[1][0] == "thread"
+    assert started == [True]
 
 
 def test_harmonsmile_command_uses_http_backend(monkeypatch):
@@ -407,7 +428,7 @@ def test_harmonsmile_command_uses_http_backend(monkeypatch):
         def __init__(self, base_url):
             calls.append(("init", base_url))
 
-        def launch_harmonsmile_job(self, *args):
+        def launch_scientific_job(self, *args):
             calls.append(("launch", *args))
             return payload
 
@@ -420,7 +441,12 @@ def test_harmonsmile_command_uses_http_backend(monkeypatch):
     assert result == expected
     assert calls == [
         ("init", "http://api.example"),
-        ("launch", "test_db", "main", "CID"),
+        (
+            "launch",
+            "test_db",
+            "harmonsmile",
+            {"table_name": "main", "cid_column": "CID"},
+        ),
     ]
 
 
@@ -429,7 +455,7 @@ def test_harmonsmile_http_failure_never_runs_local_backend(monkeypatch):
     local_calls = []
     monkeypatch.setattr(
         backend_gateway,
-        "launch_local_harmonsmile_job",
+        "create_scientific_job",
         lambda *args: local_calls.append(args),
     )
 
@@ -437,7 +463,7 @@ def test_harmonsmile_http_failure_never_runs_local_backend(monkeypatch):
         def __init__(self, base_url):
             pass
 
-        def launch_harmonsmile_job(self, *args):
+        def launch_scientific_job(self, *args):
             raise ChemVaultApiError("request timed out")
 
     monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FailingClient)

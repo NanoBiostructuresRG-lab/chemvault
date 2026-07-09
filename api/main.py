@@ -15,11 +15,13 @@ from api.schemas import (
     TableMetricsResponse,
     TablePreviewResponse,
 )
-from application.harmonsmile_jobs import (
+import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
+from application.scientific_jobs import (
     JobNotFoundError,
-    create_harmonsmile_job,
-    execute_harmonsmile_job,
-    get_harmonsmile_job_status,
+    UnsupportedJobTypeError,
+    create_scientific_job,
+    execute_scientific_job,
+    get_scientific_job_status,
 )
 from application.database_use_cases import (
     DatabaseNotFoundError,
@@ -35,6 +37,7 @@ from application.table_use_cases import (
     export_table_csv,
     preview_selected_columns,
 )
+from services.job_models import JobType
 
 
 app = FastAPI(title="ChemVault API", version="0.1.0")
@@ -72,20 +75,27 @@ def launch_harmonsmile(
     request: HarmonsmileJobRequest,
 ):
     try:
-        created = create_harmonsmile_job(
+        created = create_scientific_job(
             database_id,
-            request.table_name,
-            request.cid_column,
+            JobType.HARMONSMILE,
+            {
+                "table_name": request.table_name,
+                "cid_column": request.cid_column,
+            },
         )
         start_background_job(
-            execute_harmonsmile_job,
+            execute_scientific_job,
             database_id,
+            JobType.HARMONSMILE,
             created.job_id,
+            name="chemvault-harmonsmile",
         )
         return created
     except (DatabaseNotFoundError, TableNotFoundError) as error:
         raise _not_found(error) from error
     except InvalidColumnError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except UnsupportedJobTypeError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
@@ -95,7 +105,7 @@ def launch_harmonsmile(
 )
 def job_status(database_id: DatabaseId, job_id: str):
     try:
-        return get_harmonsmile_job_status(database_id, job_id)
+        return get_scientific_job_status(database_id, job_id)
     except (DatabaseNotFoundError, JobNotFoundError) as error:
         raise _not_found(error) from error
 

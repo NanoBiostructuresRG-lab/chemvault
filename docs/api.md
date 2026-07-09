@@ -1,6 +1,8 @@
 # FastAPI backend API
 
-CHEMVAULT provides a FastAPI API for supported database reads and the controlled HARMONSMILE command.
+CHEMVAULT provides a FastAPI API for supported database reads and controlled
+scientific backend jobs. HARMONSMILE is the only scientific job exposed in
+v0.10.0.
 
 ## Run locally
 
@@ -32,8 +34,8 @@ streamlit run app.py
 ```
 
 The gateway exposes one contract to Streamlit for table listing, operation
-history, metadata, metrics, previews, table CSV export, and HARMONSMILE. When
-`CHEMVAULT_API_URL` is defined, its HTTP backend uses:
+history, metadata, metrics, previews, table CSV export, and scientific jobs.
+When `CHEMVAULT_API_URL` is defined, its HTTP backend uses:
 
 - `GET /databases/{database_id}/tables`
 - `GET /databases/{database_id}/operations`
@@ -49,13 +51,13 @@ local application use cases and services. Streamlit screens do not select a
 backend themselves. If HTTP mode is selected and a request fails, the error is
 surfaced to Streamlit; the gateway never silently falls back to local access.
 
-HARMONSMILE uses a minimal background thread in the FastAPI process. The POST
-creates a queued job and returns its ID immediately; preparation, chunk
-processing, cache merge, and provenance continue outside the HTTP request.
-Streamlit polls the GET endpoint for persisted progress and terminal status.
-This is not a remote worker. PubChem, CHAMANP, cancellation, filtered subgroup
-and structured-activity exports, and general table mutations remain outside
-FastAPI in this cycle.
+HARMONSMILE uses the generic scientific job contract. The POST creates a queued
+job and returns its ID immediately; preparation, chunk processing, cache merge,
+and provenance continue outside the HTTP request. Streamlit polls the generic
+GET endpoint for persisted progress and terminal status. This is not a remote
+worker. PubChem, CHAMANP, cancellation, filtered subgroup and
+structured-activity exports, and general table mutations remain outside FastAPI
+in this cycle.
 
 ## Current endpoints
 
@@ -82,9 +84,17 @@ Launch a background job with:
 
 The launch and status responses share the typed job contract: `job_id`,
 `job_type`, `status`, `database_id`, `stage`, `progress`, `message`, timestamps,
-`result`, and `error`. Status and provenance are persisted in the same SQLite
-database. Local mode remains the default and invokes the same application use
-case directly through the gateway.
+`result`, `error`, and `cancellable`. Status and provenance are persisted in the
+same SQLite database. Local mode remains the default and uses the same
+launch/poll/terminal semantics as API mode through the backend gateway.
+
+`GET /databases/{database_id}/jobs/{job_id}` is job-type-neutral. It reads the
+persisted job record from the selected database and does not dispatch to a
+HARMONSMILE-specific status function.
+
+Backend transport failures are gateway/API-client errors, not persisted job
+failures. Persisted workflow failures are represented by `status=failed` and
+`error`; stale/lost jobs use generic backend-job wording.
 
 ## Table metadata
 
@@ -137,8 +147,8 @@ part of this endpoint.
 ## Current limitations
 
 The API does not create databases, run PubChem or CHAMANP, expose cancellation,
-or launch remote workers. Only the HARMONSMILE command crosses the mutation
-boundary in this milestone.
+or launch remote workers. Only the HARMONSMILE scientific job crosses the
+mutation boundary in this milestone.
 
 ## Architectural rule
 

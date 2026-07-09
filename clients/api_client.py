@@ -172,10 +172,23 @@ class ChemVaultApiClient:
         table_name: str,
         cid_column: str,
     ) -> dict[str, Any]:
+        return self.launch_scientific_job(
+            database_id,
+            "harmonsmile",
+            {"table_name": table_name, "cid_column": cid_column},
+        )
+
+    def launch_scientific_job(
+        self,
+        database_id: str,
+        job_type: str,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
         database_id = self._segment(database_id)
+        job_type = self._segment(job_type)
         return self._post(
-            f"/databases/{database_id}/jobs/harmonsmile",
-            json={"table_name": table_name, "cid_column": cid_column},
+            f"/databases/{database_id}/jobs/{job_type}",
+            json=request,
             timeout=self.timeout,
         )
 

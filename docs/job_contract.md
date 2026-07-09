@@ -1,69 +1,86 @@
-# Future backend job-status contract
+# Scientific backend job contract
 
-P23 defines a typed read-only status contract; it does not add a runtime job
-endpoint or move any execution into FastAPI.
+CHEMVAULT v0.10.0 treats scientific backend work as a generic persisted job
+contract. HARMONSMILE is the first workflow behind this contract; CHAMANP and
+PubChem API execution are not migrated in this cycle.
 
-## Current architecture
+## Public status shape
 
-Persistent jobs use `JobRecord` and `JobStore` in each ChemVault SQLite
-database. The only current job type is `pubchem_protein_search`. A local worker
-updates status, stage, progress, heartbeat, timestamps, messages, errors, and
-process-specific metadata.
-
-Streamlit stores both `job_id` and the database path in session state. Its
-PubChem polling service checks for stale jobs and can mark them failed before
-returning a view. Cancellation is also performed directly through the local
-service.
-
-This means the current status path is not strictly read-only:
-
-- `JobStore.get_job()` and `list_jobs()` run table creation/migrations through
-  `ensure_jobs_table()`.
-- PubChem polling calls `fail_stale_job()`, which may update job status.
-- `PubChemJobView` includes PubChem proteins and lifecycle flags specific to
-  the current UI.
-
-## Minimal public status shape
-
-`application.job_contracts.JobStatusContract` defines the proposed reusable
-shape:
+`application.job_contracts.JobStatusContract` is the public shape returned by
+the backend gateway and by `GET /databases/{database_id}/jobs/{job_id}`:
 
 ```json
 {
   "job_id": "job-1",
-  "job_type": "pubchem_protein_search",
+  "job_type": "harmonsmile",
   "status": "running",
   "database_id": "example",
-  "stage": "compound_names",
-  "progress": 0.6,
-  "message": "Fetching names",
+  "stage": "running",
+  "progress": 0.4,
+  "message": "HARMONSMILE chunk 1/3",
   "created_at": "2026-07-03T10:00:00+00:00",
+  "updated_at": "2026-07-03T10:00:10+00:00",
   "started_at": "2026-07-03T10:00:01+00:00",
   "finished_at": null,
   "error": null,
+  "result": null,
   "cancellable": true
 }
 ```
 
-Supported lifecycle values are `pending`, `running`, `completed`, `failed`,
-and `cancelled`. `cancellable` is informational: it is true only for pending or
-running jobs and does not imply that a cancellation endpoint exists.
+Supported lifecycle values remain `pending`, `running`, `completed`, `failed`,
+and `cancelled`. `cancellable` is informational: it is true for pending/running
+jobs, but v0.10.0 does not add a public cancellation endpoint.
 
-Execution metadata, proteins, worker PID, heartbeat, and cancellation-request
-timestamps are intentionally internal. There is no `updated_at` yet because
-the current store has no timestamp that reliably represents every state
-change; `last_heartbeat_at` is not an equivalent contract.
+Internal metadata such as workflow request payloads, worker process IDs,
+heartbeats, and cancellation timestamps are not part of the public contract.
+Only the stable `result` summary is exposed.
 
-## Required split before a runtime endpoint
+## Generic application boundary
 
-A future read-only endpoint such as
-`GET /databases/{database_id}/jobs/{job_id}` should wait until:
+`application.scientific_jobs` owns the reusable job boundary:
 
-1. Job-table initialization and migrations are separated from pure reads.
-2. Stale-job transitions run in a worker or maintenance path, never in GET.
-3. Database/job lookup no longer depends on a Streamlit-owned filesystem path.
-4. API failure and not-found behavior can use the existing backend boundary
-   without local fallback.
+- workflow modules register create/execute hooks by `job_type`
+- `create_scientific_job(...)` creates a queued job through the registered hook
+- `execute_scientific_job(...)` runs the queued job through the registered hook
+- `get_scientific_job_status(...)` reads persisted status without importing or
+  dispatching to HARMONSMILE-specific status lookup
 
-No POST, execution, worker-launch, or cancellation endpoint is proposed by
-P23.
+HARMONSMILE-specific validation, preparation, chunk execution, cache merging,
+operation logging, and result summary mapping remain in
+`application.harmonsmile_jobs` and `services.harmonsmile_cache`.
+
+## Local and API semantics
+
+The Streamlit gateway uses the same launch/poll/terminal model in both modes.
+
+Local mode creates a persisted job and starts a daemon thread in the Streamlit
+process. API mode posts to FastAPI, which creates the same persisted job and
+starts a daemon thread in the FastAPI process. In both modes Streamlit polls
+`get_job_status(...)` until a terminal status.
+
+Transport failures are separate from persisted job failures:
+
+- backend unreachable or HTTP/client errors raise `BackendGatewayError`; they
+  do not imply that a job failed unless a persisted job status says so
+- workflow failures are represented as `status=failed` with `error`
+- stale/lost active jobs use generic wording:
+  `Backend job stopped unexpectedly. Please try again.`
+- success is represented as `status=completed`, `progress=1.0`, and a stable
+  workflow result summary
+
+## HARMONSMILE 0.3.1 result contract
+
+CHEMVAULT pins `harmonsmile==0.3.1`. The PubChem integration now consumes
+`PubChemIngest.run()` directly as a DataFrame. Expected output fields include:
+
+- `PubChem_CID`
+- `SMILES_RDKit`
+- `SMILES_Harmonized`
+- `SMILES_Harmonization_Status`
+- `SMILES_Harmonization_Message`
+- `InChI` and `InChIKey` when produced by the PubChem workflow
+
+Known harmonization status values are `ok`, `ok_with_warnings`, `unsupported`,
+and `failed`. CHEMVAULT preserves these values and messages through the
+HARMONSMILE cache and table merge.
