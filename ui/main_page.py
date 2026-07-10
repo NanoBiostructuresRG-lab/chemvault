@@ -51,6 +51,7 @@ ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Value",
     "Activity_Enrichment_Status",
 }
+STRUCTURED_ACTIVITY_PREVIEW_LIMIT = 20
 
 
 def _set_database_id_from_input():
@@ -750,13 +751,15 @@ def render_structured_activity_section(connection):
     preview_rows = get_activity_rows(
         connection,
         **filter_kwargs,
-        limit=100,
+        limit=STRUCTURED_ACTIVITY_PREVIEW_LIMIT,
     )
     preview_df = pd.DataFrame(preview_rows, columns=ACTIVITY_EXPORT_COLUMNS)
     export_csv = get_activity_csv_bytes(connection, **filter_kwargs)
-    if filtered_count > 100:
+    if filtered_count > STRUCTURED_ACTIVITY_PREVIEW_LIMIT:
         st.caption(
-            f"Showing first 100 of {filtered_count} filtered activity rows. "
+            "Showing first "
+            f"{STRUCTURED_ACTIVITY_PREVIEW_LIMIT} of {filtered_count} "
+            "filtered activity rows. "
             "Download CSV to get the full filtered table."
         )
     else:
