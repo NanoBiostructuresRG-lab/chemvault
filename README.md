@@ -40,6 +40,8 @@ Before installing CHEMVAULT, make sure you have the following installed on your 
 > **macOS / Linux users:** Use your system **Terminal**.
 > **Advanced users:** PowerShell or VS Code integrated terminal also work if conda is properly configured.
 
+CHEMVAULT is distributed as a Streamlit application from GitHub release tags. It is not installed from PyPI. Runtime dependencies, including HARMONSMILE, are installed from `requirements.txt` inside the active CHEMVAULT environment.
+
 1. Navigate to the folder where you want to store the project:
 
 ```bash
@@ -52,7 +54,7 @@ cd path/to/your/folder  # e.g. cd Documents/GitHub
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
 git fetch --tags
-git checkout v0.5.0  # or the latest released tag
+git checkout v0.10.2  # or the latest released tag
 ```
 
 3. Create a conda environment:
@@ -69,10 +71,18 @@ conda activate chemvault_env
 
 > You should now see `(chemvault_env)` at the beginning of your prompt.
 
-5. Install dependencies:
+5. Install dependencies inside the active environment:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+```
+
+> Do not install HARMONSMILE separately for normal CHEMVAULT use. CHEMVAULT pins the compatible HARMONSMILE version in requirements.txt.
+
+6. Run CHEMVAULT:
+
+```bash
+streamlit run app.py
 ```
 
 ### Updating an existing clone to a newer release
@@ -82,15 +92,15 @@ If you already cloned CHEMVAULT and want to move to a newer released version, go
 ```bash
 cd path/to/chemvault
 git fetch --tags origin
-git checkout v0.5.0  # or the latest released tag
-pip install -r requirements.txt
+git checkout v0.10.2  # or the latest released tag
+python -m pip install -r requirements.txt
 ```
+
+Make sure (`chemvault_env`) is active before installing dependencies or running the app.
 
 ---
 
 ## Usage
-
-> Make sure `chemvault_env` is activated before running the app.
 
 CHEMVAULT can be run in two ways:
 
