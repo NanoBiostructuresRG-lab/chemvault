@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.10.2] - 2026-07-09
+
+### Changed
+- Updated CHEMVAULT to `harmonsmile==0.3.2`.
+- Removed the v0.10.1 CSV empty-delimiter workaround for HARMONSMILE input.
+- Restored simple CSV-based HARMONSMILE input using a safe `CID` column.
+- Relied on HARMONSMILE 0.3.2 deterministic CSV loading, robust CID aliases, and canonical `PubChem_CID` output.
+- Updated HARMONSMILE job-contract documentation and focused integration tests for the 0.3.2 contract.
+
+### Notes
+- This release does not change the scientific backend job contract.
+- CHAMANP backend execution and PubChem API execution/cancellation remain outside this release.
+
+### Validation
+- Full suite passed on `main`: `346 passed`.
+- HARMONSMILE 0.3.2 was verified in `chemvault_env`.
+- Architectural grep over `api`, `application`, and `services` for Streamlit/session-state references returned no matches.
+
+---
+
 ## [v0.10.1] - 2026-07-09
 
 ### Fixed
