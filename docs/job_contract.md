@@ -69,9 +69,9 @@ Transport failures are separate from persisted job failures:
 - success is represented as `status=completed`, `progress=1.0`, and a stable
   workflow result summary
 
-## HARMONSMILE 0.3.1 result contract
+## HARMONSMILE 0.3.2 result contract
 
-CHEMVAULT pins `harmonsmile==0.3.1`. The PubChem integration now consumes
+CHEMVAULT pins `harmonsmile==0.3.2`. The PubChem integration now consumes
 `PubChemIngest.run()` directly as a DataFrame. Expected output fields include:
 
 - `PubChem_CID`

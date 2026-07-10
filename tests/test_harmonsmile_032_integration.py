@@ -13,7 +13,7 @@ from services.harmonsmile_cache import (
 )
 
 
-def test_harmonsmile_031_pubchem_ingest_returns_dataframe_contract(
+def test_harmonsmile_032_pubchem_ingest_returns_dataframe_contract(
     tmp_path,
     monkeypatch,
 ):
@@ -34,13 +34,13 @@ def test_harmonsmile_031_pubchem_ingest_returns_dataframe_contract(
 
         def run(self):
             with open(self.cfg.input_path, encoding="utf-8") as handle:
-                assert handle.readline().strip() == "CID,"
+                assert handle.read().splitlines() == ["CID", "1", "2"]
             loaded = load_table(self.cfg.input_path)
             loaded_input_columns.extend(loaded.columns)
             assert list(loaded.columns) == ["CID"]
             assert self.cfg.cid_col in loaded.columns
             return pd.DataFrame({
-                "CID": ["1", "2"],
+                "PubChem_CID": ["1", "2"],
                 "SMILES_RDKit": ["CCO", "C1=CC=CC=C1"],
                 "SMILES_Harmonized": ["CCO", "c1ccccc1"],
                 "SMILES_Harmonization_Status": ["ok", "ok_with_warnings"],
@@ -71,7 +71,7 @@ def test_harmonsmile_031_pubchem_ingest_returns_dataframe_contract(
     ]
 
 
-def test_harmonsmile_cache_preserves_031_status_message_and_inchi_fields():
+def test_harmonsmile_cache_preserves_032_status_message_and_inchi_fields():
     connection = sqlite3.connect(":memory:")
     connection.execute('CREATE TABLE "main" (CID TEXT)')
     connection.executemany(
@@ -79,7 +79,7 @@ def test_harmonsmile_cache_preserves_031_status_message_and_inchi_fields():
         [("1",), ("2",), ("3",), ("4",)],
     )
     result = pd.DataFrame({
-        "PubChem CID": ["1", "2", "3", "4"],
+        "PubChem_CID": ["1", "2", "3", "4"],
         "SMILES_RDKit": ["CCO", "C[NH3+]", None, None],
         "SMILES_Harmonized": ["CCO", "CN", None, None],
         "SMILES_Harmonization_Status": [
