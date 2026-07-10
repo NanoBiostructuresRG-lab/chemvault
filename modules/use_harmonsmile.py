@@ -2,7 +2,6 @@
 from harmonsmile import PubChemIngest, PubChemConfig
 import pandas as pd
 import os 
-import csv
 
 HARMONSMILE_INPUT_CID_COLUMN = "CID"
 
@@ -26,12 +25,7 @@ def use_PubchemIngest(df: pd.DataFrame) -> pd.DataFrame:
     input_path = os.path.join(temp_dir, "res_pubchem.csv")
     temp_df = df.copy()
     temp_df.columns = [HARMONSMILE_INPUT_CID_COLUMN]
-    with open(input_path, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle)
-        # Empty second field forces HARMONSMILE's CSV sniffer to choose comma.
-        writer.writerow([HARMONSMILE_INPUT_CID_COLUMN, ""])
-        for cid in temp_df[HARMONSMILE_INPUT_CID_COLUMN]:
-            writer.writerow([cid, ""])
+    temp_df.to_csv(input_path, index=False, sep=",")
     cfg = PubChemConfig(
         input_path=input_path,
         cid_col=HARMONSMILE_INPUT_CID_COLUMN,
@@ -47,9 +41,5 @@ def use_PubchemIngest(df: pd.DataFrame) -> pd.DataFrame:
         .str.replace(" ", "_", regex=False)
         .str.replace(":", "", regex=False)
     )
-    if "PubChem_CID" not in result_df.columns and HARMONSMILE_INPUT_CID_COLUMN in result_df.columns:
-        result_df = result_df.rename(
-            columns={HARMONSMILE_INPUT_CID_COLUMN: "PubChem_CID"}
-        )
 
     return result_df
