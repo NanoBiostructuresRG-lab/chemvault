@@ -12,11 +12,14 @@ from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
+    create_harmonsmile_subset_table,
+    get_activity_cids,
     get_activity_csv_bytes,
     get_activity_row_count,
     get_activity_rows,
     get_activity_summary,
     get_activity_value_stats,
+    unique_harmonsmile_subset_table_name,
 )
 from services.activity_enrichment import (
     run_activity_enrichment_from_compound_assays,
@@ -24,6 +27,8 @@ from services.activity_enrichment import (
 from services.db_audit import (
     delete_user_table,
     get_user_table_profiles,
+    register_operation,
+    register_table_metadata,
 )
 from services.database import (
     get_connection,
@@ -52,6 +57,8 @@ ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Enrichment_Status",
 }
 STRUCTURED_ACTIVITY_PREVIEW_LIMIT = 20
+STRUCTURED_ACTIVITY_SUBSET_SUCCESS = "structured_activity_subset_success"
+STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT = "structured_activity_subset_table_to_select"
 
 
 def _set_database_id_from_input():
@@ -62,6 +69,13 @@ def _set_database_id_from_input():
 
 def _load_existing_database_from_selection():
     load_database_from_selection(st.session_state)
+
+
+def _apply_pending_structured_activity_subset_selection(session_state):
+    table_name = session_state.pop(STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT, "")
+    if table_name:
+        session_state[CURRENT_TABLE] = table_name
+    return table_name
 
 
 def _refresh_database_state():
@@ -609,6 +623,98 @@ def _format_activity_option_list(values):
     return preview
 
 
+def _activity_filter_metadata(
+    *,
+    activity_types,
+    units,
+    outcomes,
+    aids,
+    row_count,
+    unique_cid_count,
+):
+    return {
+        "Activity_Type": list(activity_types),
+        "Unit": list(units),
+        "Outcome": list(outcomes),
+        "AID": list(aids),
+        "row_count": int(row_count),
+        "unique_cid_count": int(unique_cid_count),
+    }
+
+
+def _has_explicit_activity_filter(
+    *,
+    activity_types,
+    units,
+    outcomes,
+    aids,
+    value_range,
+):
+    return any((activity_types, units, outcomes, aids)) or (
+        value_range is not None and any(value is not None for value in value_range)
+    )
+
+
+def _create_filtered_activity_cid_table(
+    connection,
+    *,
+    activity_types,
+    units,
+    outcomes,
+    aids,
+    row_count,
+    cids,
+    table_name=None,
+):
+    if table_name is None:
+        table_name = unique_harmonsmile_subset_table_name(
+            connection,
+            activity_types=activity_types,
+            units=units,
+        )
+    inserted_count = create_harmonsmile_subset_table(
+        connection,
+        table_name,
+        cids,
+    )
+    metadata = _activity_filter_metadata(
+        activity_types=activity_types,
+        units=units,
+        outcomes=outcomes,
+        aids=aids,
+        row_count=row_count,
+        unique_cid_count=inserted_count,
+    )
+    details = json.dumps(metadata, sort_keys=True)
+    register_table_metadata(
+        connection,
+        table_name,
+        role="derived",
+        origin="structured_activity_filtered_cid_subset",
+        source_table="compound_activities",
+        created_by="render_structured_activity_section",
+        notes=details,
+        commit=False,
+    )
+    register_operation(
+        connection,
+        "structured_activity_filtered_cid_table_created",
+        target_table=table_name,
+        source_table="compound_activities",
+        source_columns=["CID", "Activity_Type", "Unit", "Outcome", "AID"],
+        output_columns=["CID"],
+        created_by="render_structured_activity_section",
+        details=details,
+        query_used=(
+            f"CREATE TABLE {quote_identifier(table_name)} "
+            f"({quote_identifier('CID')} TEXT NOT NULL)"
+        ),
+        commit=False,
+    )
+    connection.commit()
+    return table_name
+
+
 def render_structured_activity_section(connection):
     summary = get_activity_summary(connection)
     if summary is None:
@@ -616,6 +722,9 @@ def render_structured_activity_section(connection):
 
     st.markdown("#### Structured activity")
     st.caption("Inspect and export quantitative PubChem activity without changing molecular tables.")
+    subset_success = st.session_state.pop(STRUCTURED_ACTIVITY_SUBSET_SUCCESS, "")
+    if subset_success:
+        st.success(subset_success)
     if summary["total_rows"] == 0:
         st.info("No structured activity rows are available yet.")
         return
@@ -773,6 +882,51 @@ def render_structured_activity_section(connection):
         disabled=filtered_count == 0,
         key="download_structured_activity_csv",
     )
+    has_explicit_filter = _has_explicit_activity_filter(**filter_kwargs)
+    if not has_explicit_filter:
+        st.caption(
+            "Select at least one Structured activity filter to create a "
+            "filtered CID table."
+        )
+        return
+
+    filtered_cids = get_activity_cids(connection, **filter_kwargs)
+    table_name = unique_harmonsmile_subset_table_name(
+        connection,
+        activity_types=selected_types,
+        units=selected_units,
+    )
+    st.caption(
+        f"Filtered CID table input: {len(filtered_cids)} unique filtered CID"
+        f"{'s' if len(filtered_cids) != 1 else ''}. New derived table: "
+        f"`{table_name}`."
+    )
+    if st.button(
+        "Create filtered CID table",
+        disabled=len(filtered_cids) == 0,
+        key="create_filtered_structured_activity_cid_table",
+    ):
+        try:
+            table_name = _create_filtered_activity_cid_table(
+                connection,
+                activity_types=selected_types,
+                units=selected_units,
+                outcomes=selected_outcomes,
+                aids=selected_aids,
+                row_count=filtered_count,
+                cids=filtered_cids,
+                table_name=table_name,
+            )
+        except Exception as error:
+            st.error(f"Could not create filtered CID table: {error}")
+            return
+
+        st.session_state[STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT] = table_name
+        st.session_state[STRUCTURED_ACTIVITY_SUBSET_SUCCESS] = (
+            f"Created filtered CID table '{table_name}' and selected it. "
+            "Run HARMONSMILE from Curate."
+        )
+        st.rerun()
 
 
 def render_table_manager_card(container):
@@ -851,6 +1005,7 @@ def render_database_card(container):
         )
         return
 
+    _apply_pending_structured_activity_subset_selection(st.session_state)
     database_state = _refresh_database_state()
     if not database_state.success:
         return

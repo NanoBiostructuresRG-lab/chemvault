@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import csv
 import io
+import re
 import sqlite3
 
 from services.sql_utils import quote_identifier, table_exists
@@ -209,6 +210,40 @@ def get_activity_rows(
     return [dict(zip(ACTIVITY_EXPORT_COLUMNS, row, strict=True)) for row in rows]
 
 
+def get_activity_cids(
+    connection,
+    activity_types=None,
+    outcomes=None,
+    units=None,
+    aids=None,
+    value_range=None,
+):
+    if not compound_activities_exists(connection):
+        return []
+
+    where_sql, params = _activity_filter_sql(
+        activity_types=activity_types,
+        outcomes=outcomes,
+        units=units,
+        aids=aids,
+        value_range=value_range,
+    )
+    cid_clause = "COALESCE(CID, '') != ''"
+    where_sql = (
+        f"{where_sql} AND {cid_clause}"
+        if where_sql
+        else f"WHERE {cid_clause}"
+    )
+    cursor = connection.cursor()
+    cursor.execute(f"""
+        SELECT DISTINCT CID
+        FROM {quote_identifier(COMPOUND_ACTIVITIES_TABLE)}
+        {where_sql}
+        ORDER BY CID
+    """, params)
+    return [str(row[0]) for row in cursor.fetchall()]
+
+
 def get_activity_csv_bytes(
     connection,
     activity_types=None,
@@ -241,3 +276,72 @@ def get_activity_csv_bytes(
         writer.writerows(rows)
 
     return buffer.getvalue().encode("utf-8")
+
+
+def _sanitize_table_name_part(value):
+    clean = re.sub(r"[^0-9A-Za-z]+", "_", str(value).strip()).strip("_")
+    return clean or "filtered"
+
+
+def build_harmonsmile_subset_base_name(activity_types=None, units=None):
+    clean_activity_types = [
+        value for value in activity_types or [] if value not in (None, "")
+    ]
+    clean_units = [
+        value for value in units or [] if value not in (None, "")
+    ]
+
+    parts = ["harmonsmile", "subset"]
+    if len(clean_activity_types) == 1:
+        parts.append(_sanitize_table_name_part(clean_activity_types[0]))
+        if len(clean_units) == 1:
+            parts.append(_sanitize_table_name_part(clean_units[0]))
+    else:
+        parts.append("filtered_activity")
+    return "_".join(parts)
+
+
+def unique_harmonsmile_subset_table_name(
+    connection,
+    activity_types=None,
+    units=None,
+):
+    base_name = build_harmonsmile_subset_base_name(
+        activity_types=activity_types,
+        units=units,
+    )
+    candidate = base_name
+    suffix = 2
+    while table_exists(connection, candidate):
+        candidate = f"{base_name}_{suffix}"
+        suffix += 1
+    return candidate
+
+
+def create_harmonsmile_subset_table(connection, table_name, cids):
+    clean_cids = []
+    seen = set()
+    for cid in cids:
+        text = str(cid).strip()
+        if text == "" or text in seen:
+            continue
+        clean_cids.append(text)
+        seen.add(text)
+
+    if not clean_cids:
+        raise ValueError("At least one CID is required to create a HARMONSMILE subset.")
+    if table_exists(connection, table_name):
+        raise ValueError(f"Table already exists: {table_name}")
+
+    cursor = connection.cursor()
+    cursor.execute(f"""
+        CREATE TABLE {quote_identifier(table_name)} (
+            CID TEXT NOT NULL
+        )
+    """)
+    cursor.executemany(
+        f"INSERT INTO {quote_identifier(table_name)} (CID) VALUES (?)",
+        [(cid,) for cid in clean_cids],
+    )
+    connection.commit()
+    return len(clean_cids)

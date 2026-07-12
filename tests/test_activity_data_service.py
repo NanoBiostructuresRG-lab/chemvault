@@ -3,12 +3,16 @@ import sqlite3
 
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
+    build_harmonsmile_subset_base_name,
     compound_activities_exists,
+    create_harmonsmile_subset_table,
+    get_activity_cids,
     get_activity_csv_bytes,
     get_activity_row_count,
     get_activity_rows,
     get_activity_summary,
     get_activity_value_stats,
+    unique_harmonsmile_subset_table_name,
 )
 
 
@@ -209,6 +213,53 @@ def test_get_activity_rows_filters_by_aid():
     assert [row["CID"] for row in rows] == ["100"]
 
 
+def test_get_activity_cids_uses_structured_activity_filters_and_deduplicates():
+    connection = create_activity_connection()
+    connection.execute(
+        """
+        INSERT INTO compound_activities (
+            CID,
+            AID,
+            Protein,
+            Activity_Type,
+            Relation,
+            Activity_Value,
+            Activity_Value_Raw,
+            Unit,
+            Outcome,
+            Source_Column,
+            Activity_Status,
+            Result_Tag
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "102",
+            "13",
+            "P34971",
+            "IC50",
+            "",
+            42.0,
+            "42",
+            "MICROMOLAR",
+            "Active",
+            "PubChem Standard Value",
+            "enriched",
+            "3",
+        ),
+    )
+
+    cids = get_activity_cids(
+        connection,
+        activity_types=["IC50"],
+        outcomes=["Active"],
+        units=["MICROMOLAR"],
+        value_range=(30.0, 45.0),
+    )
+
+    assert cids == ["102"]
+
+
 def test_get_activity_rows_uses_expected_export_columns():
     connection = create_activity_connection()
 
@@ -240,3 +291,56 @@ def test_get_activity_csv_bytes_fetches_rows_in_chunks():
     result = get_activity_csv_bytes(connection, fetch_size=2)
 
     assert csv_text(result).count("\n") == 4
+
+
+def test_harmonsmile_subset_base_name_uses_exact_activity_type_and_unit():
+    assert build_harmonsmile_subset_base_name(
+        activity_types=["EC50"],
+        units=["MICROMOLAR"],
+    ) == "harmonsmile_subset_EC50_MICROMOLAR"
+    assert build_harmonsmile_subset_base_name(
+        activity_types=["IC50 (%)"],
+        units=[],
+    ) == "harmonsmile_subset_IC50"
+    assert build_harmonsmile_subset_base_name(
+        activity_types=["EC50", "IC50"],
+        units=["MICROMOLAR"],
+    ) == "harmonsmile_subset_filtered_activity"
+
+
+def test_unique_harmonsmile_subset_table_name_appends_numeric_suffix():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "harmonsmile_subset_EC50" (CID TEXT)')
+    connection.execute('CREATE TABLE "harmonsmile_subset_EC50_2" (CID TEXT)')
+
+    table_name = unique_harmonsmile_subset_table_name(
+        connection,
+        activity_types=["EC50"],
+        units=[],
+    )
+
+    assert table_name == "harmonsmile_subset_EC50_3"
+
+
+def test_create_harmonsmile_subset_table_creates_only_cid_column():
+    connection = sqlite3.connect(":memory:")
+
+    inserted = create_harmonsmile_subset_table(
+        connection,
+        "harmonsmile_subset_EC50",
+        ["100", "100", "101"],
+    )
+
+    columns = [
+        row[1]
+        for row in connection.execute(
+            'PRAGMA table_info("harmonsmile_subset_EC50")'
+        )
+    ]
+    rows = connection.execute(
+        'SELECT CID FROM "harmonsmile_subset_EC50" ORDER BY CID'
+    ).fetchall()
+
+    assert inserted == 2
+    assert columns == ["CID"]
+    assert rows == [("100",), ("101",)]

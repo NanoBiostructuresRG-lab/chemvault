@@ -9,9 +9,12 @@ from services.database import DatabaseState
 from ui import main_page
 from ui.main_page import (
     ACTIVITY_SUMMARY_COLUMNS,
+    STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT,
+    _apply_pending_structured_activity_subset_selection,
     _filter_visible_column_options,
     _get_activity_enrichment_job_summary,
     _get_protein_traceability_summary,
+    _has_explicit_activity_filter,
     _refresh_database_state,
     load_database_metrics,
     load_selected_columns_preview,
@@ -52,6 +55,50 @@ def test_activity_summary_columns_are_exact_legacy_main_columns():
         "Activity_Value",
         "Activity_Enrichment_Status",
     }
+
+
+def test_harmonsmile_subset_requires_an_explicit_structured_activity_filter():
+    assert _has_explicit_activity_filter(
+        activity_types=[],
+        units=[],
+        outcomes=[],
+        aids=[],
+        value_range=None,
+    ) is False
+    assert _has_explicit_activity_filter(
+        activity_types=["EC50"],
+        units=[],
+        outcomes=[],
+        aids=[],
+        value_range=None,
+    ) is True
+    assert _has_explicit_activity_filter(
+        activity_types=[],
+        units=[],
+        outcomes=[],
+        aids=["123"],
+        value_range=None,
+    ) is True
+    assert _has_explicit_activity_filter(
+        activity_types=[],
+        units=[],
+        outcomes=[],
+        aids=[],
+        value_range=(1.0, 2.0),
+    ) is True
+
+
+def test_pending_structured_activity_subset_selection_updates_current_table():
+    session_state = {
+        "current_table": "main",
+        STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT: "harmonsmile_subset_EC50",
+    }
+
+    selected_table = _apply_pending_structured_activity_subset_selection(session_state)
+
+    assert selected_table == "harmonsmile_subset_EC50"
+    assert session_state["current_table"] == "harmonsmile_subset_EC50"
+    assert STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT not in session_state
 
 
 def test_selected_columns_preview_uses_local_path_by_default(
