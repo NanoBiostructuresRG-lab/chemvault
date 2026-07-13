@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.10.3] - 2026-07-12
+
+### Changed
+- Refined the Streamlit table and curation workflow layout.
+- Grouped Curate actions into clearer HARMONSMILE and CHAMANP workflow cards.
+- Reduced Structured activity previews and improved the Structured activity filter flow.
+- Added filtered Structured activity table creation from explicit activity filters.
+- Kept activity subset tables as full filtered Structured activity tables, preserving activity columns instead of reducing them to CID-only inputs.
+- Clarified manual structured activity backfill as a maintenance/recovery action.
+- Reordered table workflow sections and removed redundant active-schema display.
+
+---
+
 ## [v0.10.2] - 2026-07-09
 
 ### Changed
