@@ -283,118 +283,162 @@ def render_curate_card():
     with st.container(border=True):
         st.subheader("Curate")
         st.caption("Run chemistry workflows on selected columns.")
-        if st.button("HARMONSMILE"):
-            _set_curados_false()
-            st.session_state[SELECTING_HARMONSMILE] = True
-        if st.button("CHAMANP"):
-            _set_curados_false()
-            st.session_state[SELECTING_CHAMANP] = True
 
-        feedback_kind, feedback_message = consume_harmonsmile_feedback(
-            st.session_state
+        selected_headers = resolve_selected_columns(
+            st.session_state.get(HEADERS, []),
+            st.session_state.get(SELECTED_HEADERS, []),
         )
-        if feedback_kind == "success" and feedback_message:
-            st.success(feedback_message)
-        elif feedback_kind == "error" and feedback_message:
-            st.error(feedback_message)
+        has_active_database = st.session_state.get(DATABASE_ID, "") != ""
+        has_active_table = st.session_state.get(CURRENT_TABLE, "") != ""
+        harmonsmile_has_valid_cid = (
+            len(selected_headers) == 1 and is_cid_header(selected_headers[0])
+        )
+        harmonsmile_is_ready = (
+            has_active_database
+            and has_active_table
+            and harmonsmile_has_valid_cid
+        )
+        if not harmonsmile_is_ready:
+            st.session_state[SELECTING_HARMONSMILE] = False
+        harmonsmile_is_selected = (
+            st.session_state[SELECTING_HARMONSMILE] and harmonsmile_is_ready
+        )
 
-        if st.session_state[SELECTING_HARMONSMILE]:
-            selected_headers = resolve_selected_columns(
-                st.session_state.get(HEADERS, []),
-                st.session_state.get(SELECTED_HEADERS, []),
-            )
-            if len(selected_headers) == 0:
-                st.warning("Select the CID column before running HARMONSMILE.")
-            elif len(selected_headers) > 1:
-                st.warning("HARMONSMILE requires exactly one column: CID.")
-            elif not is_cid_header(selected_headers[0]):
-                st.warning(
-                    f"Selected column is '{selected_headers[0]}'. HARMONSMILE requires a valid CID column."
-                )
-            else:
+        with st.container(border=True):
+            st.markdown("**HARMONSMILE**")
+            select_column, run_column = st.columns(2)
+            with select_column:
                 if st.button(
-                    "Run",
-                    disabled=st.session_state.get(HARMONSMILE_RUNNING, False),
-                ):
-                    target_table = st.session_state[CURRENT_TABLE]
-                    cid_column = selected_headers[0]
-                    gateway = get_backend_gateway()
-                    progress_bar = st.progress(0.0)
-                    status_placeholder = st.empty()
-
-                    def render_status(status):
-                        progress_bar.progress(
-                            min(max(status.progress, 0.0), 1.0)
-                        )
-                        status_placeholder.caption(
-                            status.message
-                            or f"HARMONSMILE status: {status.status.value}"
-                        )
-
-                    with st.spinner(
-                        "Running HARMONSMILE through the backend; "
-                        "this may take several minutes..."
-                    ):
-                        execute_harmonsmile_command(
-                            st.session_state,
-                            gateway,
-                            st.session_state[DATABASE_ID],
-                            target_table,
-                            cid_column,
-                            refresh_database_state,
-                            status_callback=render_status,
-                        )
-                    st.rerun()
-
-        if st.session_state[SELECTING_CHAMANP]:
-            st.text("Select the columns to process")
-            st.text(f"Selected columns: {st.session_state[SELECTED_HEADERS]}")
-            st.selectbox("Select identifier", st.session_state[SELECTED_HEADERS], key=SELECTED_IDENTIFIER)
-            st.selectbox("Select canonical_smiles", st.session_state[SELECTED_HEADERS], key=SELECTED_SMILES)
-            st.selectbox("Select collections", st.session_state[SELECTED_HEADERS], key=SELECTED_COLLECTIONS)
-
-            if st.button("Run"):
-                source_columns = [
-                    st.session_state[SELECTED_IDENTIFIER],
-                    st.session_state[SELECTED_SMILES],
-                    st.session_state[SELECTED_COLLECTIONS],
-                ]
-                run_chamanp(
-                    load_selected_columns(
-                        st.session_state.get(DATABASE_ID, ""),
-                        st.session_state.get(CURRENT_TABLE, ""),
-                        st.session_state.get(HEADERS, []),
-                        st.session_state.get(SELECTED_HEADERS, []),
+                    "Selected" if harmonsmile_is_selected else "Select",
+                    key="curate_select_harmonsmile",
+                    disabled=(
+                        st.session_state.get(HARMONSMILE_RUNNING, False)
+                        or not harmonsmile_is_ready
                     ),
-                    st.session_state[SELECTED_IDENTIFIER],
-                    st.session_state[SELECTED_SMILES],
-                    st.session_state[SELECTED_COLLECTIONS],
+                ):
+                    _set_curados_false()
+                    st.session_state[SELECTING_HARMONSMILE] = True
+                    harmonsmile_is_selected = True
+            with run_column:
+                run_harmonsmile = st.button(
+                    "Run",
+                    key="curate_run_harmonsmile",
+                    disabled=(
+                        st.session_state.get(HARMONSMILE_RUNNING, False)
+                        or not harmonsmile_is_selected
+                        or not harmonsmile_is_ready
+                    ),
                 )
-                _safe_register_curate_operation(
-                    "chamanp_run",
-                    st.session_state[CURRENT_TABLE],
-                    source_columns,
-                    details="Ran CHAMANP and generated downloadable artifacts.",
-                )
-                st.text("Chamanp completed successfully")
-                st.text("Downloading files")
-            folder_path = "artifacts"
-            files = os.listdir(folder_path)
 
-            for file_name in files:
-                file_path = os.path.join(folder_path, file_name)
-                if file_name != "notes.txt":
-                    with open(file_path, "rb") as f:
-                        downloaded = st.download_button(
-                            label=f"Download {file_name}",
-                            data=f,
-                            file_name=file_name,
-                            mime="application/octet-stream",
-                            key=file_name,
-                        )
-                    if downloaded:
-                        os.remove(file_path)
-                        st.success(f"{file_name} removed from the server")
+            feedback_kind, feedback_message = consume_harmonsmile_feedback(
+                st.session_state
+            )
+            if feedback_kind == "success" and feedback_message:
+                st.success(feedback_message)
+            elif feedback_kind == "error" and feedback_message:
+                st.error(feedback_message)
+
+            if not has_active_database:
+                st.caption("Load or select a database to enable HARMONSMILE.")
+            elif not has_active_table:
+                st.caption("Select an active table to enable HARMONSMILE.")
+            elif len(selected_headers) == 0:
+                st.caption("Select one CID column to enable HARMONSMILE.")
+            elif len(selected_headers) > 1:
+                st.caption("Select exactly one CID column to enable HARMONSMILE.")
+            elif not is_cid_header(selected_headers[0]):
+                st.caption(
+                    "Select a valid CID column to enable HARMONSMILE."
+                )
+            elif not harmonsmile_is_selected:
+                st.caption("Select HARMONSMILE, then run it for the active CID column.")
+
+            if run_harmonsmile:
+                target_table = st.session_state[CURRENT_TABLE]
+                cid_column = selected_headers[0]
+                gateway = get_backend_gateway()
+                progress_bar = st.progress(0.0)
+                status_placeholder = st.empty()
+
+                def render_status(status):
+                    progress_bar.progress(
+                        min(max(status.progress, 0.0), 1.0)
+                    )
+                    status_placeholder.caption(
+                        status.message
+                        or f"HARMONSMILE status: {status.status.value}"
+                    )
+
+                with st.spinner(
+                    "Running HARMONSMILE through the backend; "
+                    "this may take several minutes..."
+                ):
+                    execute_harmonsmile_command(
+                        st.session_state,
+                        gateway,
+                        st.session_state[DATABASE_ID],
+                        target_table,
+                        cid_column,
+                        refresh_database_state,
+                        status_callback=render_status,
+                    )
+                st.rerun()
+
+        with st.container(border=True):
+            st.markdown("**CHAMANP**")
+            if st.button("CHAMANP"):
+                _set_curados_false()
+                st.session_state[SELECTING_CHAMANP] = True
+
+            if st.session_state[SELECTING_CHAMANP]:
+                st.text("Select the columns to process")
+                st.text(f"Selected columns: {st.session_state[SELECTED_HEADERS]}")
+                st.selectbox("Select identifier", st.session_state[SELECTED_HEADERS], key=SELECTED_IDENTIFIER)
+                st.selectbox("Select canonical_smiles", st.session_state[SELECTED_HEADERS], key=SELECTED_SMILES)
+                st.selectbox("Select collections", st.session_state[SELECTED_HEADERS], key=SELECTED_COLLECTIONS)
+
+                if st.button("Run", key="curate_run_chamanp"):
+                    source_columns = [
+                        st.session_state[SELECTED_IDENTIFIER],
+                        st.session_state[SELECTED_SMILES],
+                        st.session_state[SELECTED_COLLECTIONS],
+                    ]
+                    run_chamanp(
+                        load_selected_columns(
+                            st.session_state.get(DATABASE_ID, ""),
+                            st.session_state.get(CURRENT_TABLE, ""),
+                            st.session_state.get(HEADERS, []),
+                            st.session_state.get(SELECTED_HEADERS, []),
+                        ),
+                        st.session_state[SELECTED_IDENTIFIER],
+                        st.session_state[SELECTED_SMILES],
+                        st.session_state[SELECTED_COLLECTIONS],
+                    )
+                    _safe_register_curate_operation(
+                        "chamanp_run",
+                        st.session_state[CURRENT_TABLE],
+                        source_columns,
+                        details="Ran CHAMANP and generated downloadable artifacts.",
+                    )
+                    st.text("Chamanp completed successfully")
+                    st.text("Downloading files")
+                folder_path = "artifacts"
+                files = os.listdir(folder_path)
+
+                for file_name in files:
+                    file_path = os.path.join(folder_path, file_name)
+                    if file_name != "notes.txt":
+                        with open(file_path, "rb") as f:
+                            downloaded = st.download_button(
+                                label=f"Download {file_name}",
+                                data=f,
+                                file_name=file_name,
+                                mime="application/octet-stream",
+                                key=file_name,
+                            )
+                        if downloaded:
+                            os.remove(file_path)
+                            st.success(f"{file_name} removed from the server")
 
 
 def render_export_card():

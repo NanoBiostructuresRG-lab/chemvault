@@ -12,11 +12,14 @@ from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
+    create_activity_subset_table,
+    get_activity_cids,
     get_activity_csv_bytes,
     get_activity_row_count,
     get_activity_rows,
     get_activity_summary,
     get_activity_value_stats,
+    unique_activity_subset_table_name,
 )
 from services.activity_enrichment import (
     run_activity_enrichment_from_compound_assays,
@@ -24,11 +27,13 @@ from services.activity_enrichment import (
 from services.db_audit import (
     delete_user_table,
     get_user_table_profiles,
+    register_operation,
+    register_table_metadata,
 )
 from services.database import (
     get_connection,
 )
-from services.sql_utils import quote_identifier
+from services.sql_utils import quote_identifier, table_exists
 from state_keys import (
     ALL_TABLES,
     CURRENT_TABLE,
@@ -51,6 +56,9 @@ ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Value",
     "Activity_Enrichment_Status",
 }
+STRUCTURED_ACTIVITY_PREVIEW_LIMIT = 10
+STRUCTURED_ACTIVITY_SUBSET_SUCCESS = "structured_activity_subset_success"
+STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT = "structured_activity_subset_table_to_select"
 
 
 def _set_database_id_from_input():
@@ -63,6 +71,13 @@ def _load_existing_database_from_selection():
     load_database_from_selection(st.session_state)
 
 
+def _apply_pending_structured_activity_subset_selection(session_state):
+    table_name = session_state.pop(STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT, "")
+    if table_name:
+        session_state[CURRENT_TABLE] = table_name
+    return table_name
+
+
 def _refresh_database_state():
     database_state = refresh_database_state(st.session_state)
     if not database_state.success and database_state.message:
@@ -70,11 +85,16 @@ def _refresh_database_state():
     return database_state
 
 
-def _filter_visible_column_options(headers, selected_headers):
+def _filter_visible_column_options(headers, selected_headers, table_name=""):
+    hidden_columns = (
+        ACTIVITY_SUMMARY_COLUMNS
+        if str(table_name) == "main"
+        else set()
+    )
     options = [
         header
         for header in headers
-        if header not in ACTIVITY_SUMMARY_COLUMNS
+        if header not in hidden_columns
     ]
     selected = [
         header
@@ -183,7 +203,16 @@ def create_main_layout():
         ">
         """)
     container4 = st.container(horizontal=False, horizontal_alignment="left", border=True)
-    return container0, container1, container2, container3, container4
+    st.html("""
+        <hr style="
+            border: none;
+            height: 2px;
+            background-color: var(--cv-border);
+            margin: 32px 0 24px 0;
+        ">
+        """)
+    container5 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+    return container0, container1, container2, container3, container4, container5
 
 
 def render_app_identity(container):
@@ -393,7 +422,7 @@ def _render_activity_enrichment_progress(snapshot, progress_bar, status_placehol
     progress = 1.0 if total_chunks == 0 else current_chunk / total_chunks
     progress_bar.progress(min(max(progress, 0.0), 1.0))
     status_placeholder.caption(
-        f"PubChem activity {snapshot.get('status', 'running')}: "
+        f"Structured activity backfill {snapshot.get('status', 'running')}: "
         f"chunk {current_chunk}/{total_chunks}"
     )
     stats_placeholder.caption(
@@ -412,56 +441,61 @@ def render_activity_enrichment_action(connection):
         return
 
     protein_text = ", ".join(summary["proteins"]) if summary["proteins"] else "None"
-    st.markdown("#### Activity enrichment")
-    st.caption("Complete structured PubChem activity from existing assay links.")
-    st.caption(
-        "Reconstructible AIDs: {aids}; CID-AID links: {links}; Proteins: {proteins}".format(
-            aids=summary["total_aids"],
-            links=summary["cid_aid_links"],
-            proteins=protein_text,
+    with st.expander("Maintenance: structured activity backfill", expanded=False):
+        st.caption(
+            "This reads existing compound_assays links and inserts missing normalized "
+            "rows into compound_activities. It does not modify main or the selected "
+            "table. PubChem protein searches already run this enrichment automatically; "
+            "use this action to retry or backfill existing assay links."
         )
-    )
-
-    if st.button(
-        "Enrich structured activity from assay links",
-        key="enrich_structured_activity_from_assay_links",
-    ):
-        progress_bar = st.progress(0)
-        status_placeholder = st.empty()
-        stats_placeholder = st.empty()
-
-        def progress_callback(snapshot):
-            _render_activity_enrichment_progress(
-                snapshot,
-                progress_bar,
-                status_placeholder,
-                stats_placeholder,
+        st.caption(
+            "Reconstructible AIDs: {aids}; CID-AID links: {links}; Proteins: {proteins}".format(
+                aids=summary["total_aids"],
+                links=summary["cid_aid_links"],
+                proteins=protein_text,
             )
+        )
 
-        result = run_activity_enrichment_from_compound_assays(
-            connection,
-            fetch_pubchem_assay_activity,
-            progress_callback=progress_callback,
-            continue_on_error=True,
-            max_workers=4,
-            rate_limit_per_second=4,
-            max_retries=3,
-            retry_initial_delay=1.0,
-            retry_backoff_multiplier=2.0,
-            retry_max_delay=8.0,
-        )
-        message = (
-            "PubChem activity enrichment completed. "
-            f"Total AIDs: {result['total_aids']}; "
-            f"Processed: {result['processed_aids']}; "
-            f"Successful: {result['successful_aids']}; "
-            f"Failed: {result['failed_aids']}; "
-            f"Inserted rows: {result['inserted_rows']}."
-        )
-        if result["failed_aids"] > 0:
-            st.warning(message)
-        else:
-            st.success(message)
+        if st.button(
+            "Retry/backfill structured activity from assay links",
+            key="enrich_structured_activity_from_assay_links",
+        ):
+            progress_bar = st.progress(0)
+            status_placeholder = st.empty()
+            stats_placeholder = st.empty()
+
+            def progress_callback(snapshot):
+                _render_activity_enrichment_progress(
+                    snapshot,
+                    progress_bar,
+                    status_placeholder,
+                    stats_placeholder,
+                )
+
+            result = run_activity_enrichment_from_compound_assays(
+                connection,
+                fetch_pubchem_assay_activity,
+                progress_callback=progress_callback,
+                continue_on_error=True,
+                max_workers=4,
+                rate_limit_per_second=4,
+                max_retries=3,
+                retry_initial_delay=1.0,
+                retry_backoff_multiplier=2.0,
+                retry_max_delay=8.0,
+            )
+            message = (
+                "Structured activity backfill completed. "
+                f"Total AIDs: {result['total_aids']}; "
+                f"Processed: {result['processed_aids']}; "
+                f"Successful: {result['successful_aids']}; "
+                f"Failed: {result['failed_aids']}; "
+                f"Inserted rows: {result['inserted_rows']}."
+            )
+            if result["failed_aids"] > 0:
+                st.warning(message)
+            else:
+                st.success(message)
 
 
 def _format_audit_label(value):
@@ -599,6 +633,19 @@ def render_operation_history(database_id):
     )
 
 
+def render_operation_history_card(container):
+    with container:
+        if st.session_state[DATABASE_ID] == "":
+            st.markdown("#### Operation history")
+            st.caption(
+                "Review recorded database events such as builds, derived tables, "
+                "and table cleanup."
+            )
+            st.info("Select or create a database to review its operation history.")
+            return
+        render_operation_history(st.session_state[DATABASE_ID])
+
+
 def _format_activity_option_list(values):
     if not values:
         return "-"
@@ -606,6 +653,133 @@ def _format_activity_option_list(values):
     if len(values) > 8:
         preview = f"{preview}, +{len(values) - 8} more"
     return preview
+
+
+def _activity_filter_metadata(
+    *,
+    activity_types,
+    units,
+    outcomes,
+    aids,
+    value_range,
+    row_count,
+    unique_cid_count,
+):
+    return {
+        "Activity_Type": list(activity_types),
+        "Unit": list(units),
+        "Outcome": list(outcomes),
+        "AID": list(aids),
+        "value_range": list(value_range) if value_range is not None else None,
+        "row_count": int(row_count),
+        "unique_cid_count": int(unique_cid_count),
+    }
+
+
+def _has_explicit_activity_filter(
+    *,
+    activity_types,
+    units,
+    outcomes,
+    aids,
+    value_range,
+):
+    return any((activity_types, units, outcomes, aids)) or (
+        value_range is not None and any(value is not None for value in value_range)
+    )
+
+
+def _structured_activity_filter_signature(database_id, filter_kwargs):
+    def normalized_values(key):
+        return tuple(sorted(str(value) for value in filter_kwargs.get(key) or []))
+
+    value_range = filter_kwargs.get("value_range")
+    return (
+        str(database_id),
+        normalized_values("activity_types"),
+        normalized_values("outcomes"),
+        normalized_values("units"),
+        normalized_values("aids"),
+        tuple(value_range) if value_range is not None else None,
+    )
+
+
+def _created_filtered_activity_table(session_state, connection, filter_signature):
+    created_state = session_state.get(STRUCTURED_ACTIVITY_SUBSET_SUCCESS, {})
+    if not isinstance(created_state, dict):
+        return ""
+    if created_state.get("filter_signature") != filter_signature:
+        return ""
+    table_name = str(created_state.get("table_name", ""))
+    if table_name == "" or not table_exists(connection, table_name):
+        return ""
+    return table_name
+
+
+def _create_filtered_activity_table(
+    connection,
+    *,
+    activity_types,
+    units,
+    outcomes,
+    aids,
+    value_range,
+    unique_cid_count,
+    table_name=None,
+):
+    if table_name is None:
+        table_name = unique_activity_subset_table_name(
+            connection,
+            activity_types=activity_types,
+            units=units,
+        )
+    created_row_count = create_activity_subset_table(
+        connection,
+        table_name,
+        activity_types=activity_types,
+        outcomes=outcomes,
+        units=units,
+        aids=aids,
+        value_range=value_range,
+    )
+    metadata = _activity_filter_metadata(
+        activity_types=activity_types,
+        units=units,
+        outcomes=outcomes,
+        aids=aids,
+        value_range=value_range,
+        row_count=created_row_count,
+        unique_cid_count=unique_cid_count,
+    )
+    details = json.dumps(metadata, sort_keys=True)
+    register_table_metadata(
+        connection,
+        table_name,
+        role="derived",
+        origin="structured_activity_filtered_subset",
+        source_table="compound_activities",
+        created_by="render_structured_activity_section",
+        notes=details,
+        commit=False,
+    )
+    register_operation(
+        connection,
+        "structured_activity_filtered_table_created",
+        target_table=table_name,
+        source_table="compound_activities",
+        source_columns=ACTIVITY_EXPORT_COLUMNS,
+        output_columns=ACTIVITY_EXPORT_COLUMNS,
+        created_by="render_structured_activity_section",
+        details=details,
+        query_used=(
+            f"CREATE TABLE {quote_identifier(table_name)} "
+            "AS SELECT filtered Structured activity export columns "
+            f"FROM {quote_identifier('compound_activities')}"
+        ),
+        commit=False,
+    )
+    connection.commit()
+    return table_name
 
 
 def render_structured_activity_section(connection):
@@ -671,6 +845,35 @@ def render_structured_activity_section(connection):
         unsafe_allow_html=True,
     )
 
+    activity_count = get_activity_row_count(connection)
+    preview_rows = get_activity_rows(
+        connection,
+        limit=STRUCTURED_ACTIVITY_PREVIEW_LIMIT,
+    )
+    preview_df = pd.DataFrame(preview_rows, columns=ACTIVITY_EXPORT_COLUMNS)
+    if activity_count > STRUCTURED_ACTIVITY_PREVIEW_LIMIT:
+        st.caption(
+            "Showing first "
+            f"{STRUCTURED_ACTIVITY_PREVIEW_LIMIT} of {activity_count} "
+            "structured activity rows. "
+            "Download CSV to get the full table."
+        )
+    else:
+        st.caption(
+            f"Showing {activity_count} structured activity "
+            f"row{'s' if activity_count != 1 else ''}."
+        )
+    st.dataframe(preview_df, hide_index=True, use_container_width=True)
+    st.download_button(
+        "Download structured activity CSV",
+        data=get_activity_csv_bytes(connection),
+        file_name="chemvault_structured_activity.csv",
+        mime="text/csv",
+        disabled=activity_count == 0,
+        key="download_structured_activity_csv",
+    )
+
+    st.markdown("##### Filter")
     with st.expander("Filter structured activity", expanded=False):
         col_a, col_b = st.columns(2)
         with col_a:
@@ -746,42 +949,114 @@ def render_structured_activity_section(connection):
         "aids": selected_aids,
         "value_range": value_range,
     }
+    has_explicit_filter = _has_explicit_activity_filter(**filter_kwargs)
+    if not has_explicit_filter:
+        st.caption(
+            "Select at least one Structured activity filter to create a "
+            "filtered activity table."
+        )
+        return
+
     filtered_count = get_activity_row_count(connection, **filter_kwargs)
-    preview_rows = get_activity_rows(
+    filtered_preview_rows = get_activity_rows(
         connection,
         **filter_kwargs,
-        limit=100,
+        limit=STRUCTURED_ACTIVITY_PREVIEW_LIMIT,
     )
-    preview_df = pd.DataFrame(preview_rows, columns=ACTIVITY_EXPORT_COLUMNS)
-    export_csv = get_activity_csv_bytes(connection, **filter_kwargs)
-    if filtered_count > 100:
+    filtered_preview_df = pd.DataFrame(
+        filtered_preview_rows,
+        columns=ACTIVITY_EXPORT_COLUMNS,
+    )
+    if filtered_count > STRUCTURED_ACTIVITY_PREVIEW_LIMIT:
         st.caption(
-            f"Showing first 100 of {filtered_count} filtered activity rows. "
-            "Download CSV to get the full filtered table."
+            "Showing first "
+            f"{STRUCTURED_ACTIVITY_PREVIEW_LIMIT} of {filtered_count} "
+            "filtered activity rows."
         )
     else:
-        st.caption(f"Showing {filtered_count} filtered activity row{'s' if filtered_count != 1 else ''}.")
-    st.dataframe(preview_df, hide_index=True, use_container_width=True)
-    st.download_button(
-        "Download structured activity CSV",
-        data=export_csv,
-        file_name="chemvault_structured_activity.csv",
-        mime="text/csv",
-        disabled=filtered_count == 0,
-        key="download_structured_activity_csv",
+        st.caption(
+            f"Showing {filtered_count} filtered activity "
+            f"row{'s' if filtered_count != 1 else ''}."
+        )
+    st.dataframe(filtered_preview_df, hide_index=True, use_container_width=True)
+
+    filtered_cids = get_activity_cids(connection, **filter_kwargs)
+    filter_signature = _structured_activity_filter_signature(
+        st.session_state.get(DATABASE_ID, ""),
+        filter_kwargs,
     )
+    created_table = _created_filtered_activity_table(
+        st.session_state,
+        connection,
+        filter_signature,
+    )
+    if created_table:
+        st.caption(
+            f"Filtered activity table input: {filtered_count} rows. "
+            f"Created table: `{created_table}`."
+        )
+        if st.session_state.get(CURRENT_TABLE, "") == created_table:
+            st.success(
+                f"Created and selected filtered activity table '{created_table}'."
+            )
+        else:
+            st.success(
+                f"Filtered activity table '{created_table}' already exists for this "
+                "filter. Select it in Table controls."
+            )
+        st.button(
+            "Create filtered activity table",
+            disabled=True,
+            key="create_filtered_structured_activity_cid_table",
+        )
+        return
+
+    table_name = unique_activity_subset_table_name(
+        connection,
+        activity_types=selected_types,
+        units=selected_units,
+    )
+    st.caption(
+        f"Filtered activity table input: {filtered_count} rows. "
+        f"Planned table name: `{table_name}`."
+    )
+    if st.button(
+        "Create filtered activity table",
+        disabled=filtered_count == 0,
+        key="create_filtered_structured_activity_cid_table",
+    ):
+        try:
+            table_name = _create_filtered_activity_table(
+                connection,
+                activity_types=selected_types,
+                units=selected_units,
+                outcomes=selected_outcomes,
+                aids=selected_aids,
+                value_range=value_range,
+                unique_cid_count=len(filtered_cids),
+                table_name=table_name,
+            )
+        except Exception as error:
+            st.error(f"Could not create filtered activity table: {error}")
+            return
+
+        st.session_state[STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT] = table_name
+        st.session_state[STRUCTURED_ACTIVITY_SUBSET_SUCCESS] = {
+            "filter_signature": filter_signature,
+            "table_name": table_name,
+        }
+        st.rerun()
 
 
 def render_table_manager_card(container):
     with container:
         st.subheader("Table Manager")
-        st.caption("Review tables, provenance, operation history, and cleanup options.")
+        st.caption("Review tables, provenance, and cleanup options.")
         if st.session_state[DATABASE_ID] == "":
             st.info("Select or create a database to review its tables.")
             return
 
         database_id = st.session_state[DATABASE_ID]
-        current_table = st.session_state.get(CURRENT_TABLE, "")
         db_path = Path("SQL") / f"{database_id}.db"
 
         try:
@@ -803,29 +1078,9 @@ def render_table_manager_card(container):
             use_container_width=True,
         )
         render_table_manager_actions(database_id, profiles)
-        render_operation_history(database_id)
         with sqlite3.connect(db_path) as activity_conn:
-            render_activity_enrichment_action(activity_conn)
             render_structured_activity_section(activity_conn)
-
-        active_schema, schema_error = load_table_schema(
-            database_id,
-            current_table,
-        )
-        if schema_error:
-            st.error(schema_error)
-            return
-        if not active_schema:
-            st.info("No schema information was found for the active table.")
-            return
-
-        st.markdown("#### Active table schema")
-        st.dataframe(
-            pd.DataFrame(active_schema)[
-                ["name", "data_type", "primary_key", "not_null", "default_value"]
-            ],
-            hide_index=True,
-        )
+            render_activity_enrichment_action(activity_conn)
 
 
 def render_database_card(container):
@@ -848,6 +1103,7 @@ def render_database_card(container):
         )
         return
 
+    _apply_pending_structured_activity_subset_selection(st.session_state)
     database_state = _refresh_database_state()
     if not database_state.success:
         return
@@ -904,6 +1160,7 @@ def render_columns_card(container):
         options, st.session_state[SELECTED_HEADERS] = _filter_visible_column_options(
             st.session_state[HEADERS],
             st.session_state[SELECTED_HEADERS],
+            st.session_state.get(CURRENT_TABLE, ""),
         )
         if len(options) == 0:
             st.info("No columns are available in the current table.")
@@ -1021,12 +1278,21 @@ def render_table_maintenance_card(container):
             st.markdown("No column type information was found.")
             return
 
-        headers_types_df = pd.DataFrame(
-            [(col[1], col[2]) for col in columns_info],
-            columns=["Column", "Data type"],
+        schema_df = pd.DataFrame(
+            [
+                (col[1], col[2], bool(col[5]), bool(col[3]), col[4])
+                for col in columns_info
+            ],
+            columns=[
+                "Column",
+                "Data type",
+                "Primary key",
+                "Not null",
+                "Default value",
+            ],
         )
         st.markdown("Current schema for the active table.")
-        st.dataframe(headers_types_df, hide_index=True)
+        st.dataframe(schema_df, hide_index=True)
 
         with st.expander("Advanced: change column type", expanded=False):
             st.caption("This updates the SQLite column type for the selected column.")
