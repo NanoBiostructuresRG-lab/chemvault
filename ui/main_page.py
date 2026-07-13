@@ -408,7 +408,7 @@ def _render_activity_enrichment_progress(snapshot, progress_bar, status_placehol
     progress = 1.0 if total_chunks == 0 else current_chunk / total_chunks
     progress_bar.progress(min(max(progress, 0.0), 1.0))
     status_placeholder.caption(
-        f"PubChem activity {snapshot.get('status', 'running')}: "
+        f"Structured activity backfill {snapshot.get('status', 'running')}: "
         f"chunk {current_chunk}/{total_chunks}"
     )
     stats_placeholder.caption(
@@ -427,56 +427,61 @@ def render_activity_enrichment_action(connection):
         return
 
     protein_text = ", ".join(summary["proteins"]) if summary["proteins"] else "None"
-    st.markdown("#### Activity enrichment")
-    st.caption("Complete structured PubChem activity from existing assay links.")
-    st.caption(
-        "Reconstructible AIDs: {aids}; CID-AID links: {links}; Proteins: {proteins}".format(
-            aids=summary["total_aids"],
-            links=summary["cid_aid_links"],
-            proteins=protein_text,
+    with st.expander("Maintenance: structured activity backfill", expanded=False):
+        st.caption(
+            "This reads existing compound_assays links and inserts missing normalized "
+            "rows into compound_activities. It does not modify main or the selected "
+            "table. PubChem protein searches already run this enrichment automatically; "
+            "use this action to retry or backfill existing assay links."
         )
-    )
-
-    if st.button(
-        "Enrich structured activity from assay links",
-        key="enrich_structured_activity_from_assay_links",
-    ):
-        progress_bar = st.progress(0)
-        status_placeholder = st.empty()
-        stats_placeholder = st.empty()
-
-        def progress_callback(snapshot):
-            _render_activity_enrichment_progress(
-                snapshot,
-                progress_bar,
-                status_placeholder,
-                stats_placeholder,
+        st.caption(
+            "Reconstructible AIDs: {aids}; CID-AID links: {links}; Proteins: {proteins}".format(
+                aids=summary["total_aids"],
+                links=summary["cid_aid_links"],
+                proteins=protein_text,
             )
+        )
 
-        result = run_activity_enrichment_from_compound_assays(
-            connection,
-            fetch_pubchem_assay_activity,
-            progress_callback=progress_callback,
-            continue_on_error=True,
-            max_workers=4,
-            rate_limit_per_second=4,
-            max_retries=3,
-            retry_initial_delay=1.0,
-            retry_backoff_multiplier=2.0,
-            retry_max_delay=8.0,
-        )
-        message = (
-            "PubChem activity enrichment completed. "
-            f"Total AIDs: {result['total_aids']}; "
-            f"Processed: {result['processed_aids']}; "
-            f"Successful: {result['successful_aids']}; "
-            f"Failed: {result['failed_aids']}; "
-            f"Inserted rows: {result['inserted_rows']}."
-        )
-        if result["failed_aids"] > 0:
-            st.warning(message)
-        else:
-            st.success(message)
+        if st.button(
+            "Retry/backfill structured activity from assay links",
+            key="enrich_structured_activity_from_assay_links",
+        ):
+            progress_bar = st.progress(0)
+            status_placeholder = st.empty()
+            stats_placeholder = st.empty()
+
+            def progress_callback(snapshot):
+                _render_activity_enrichment_progress(
+                    snapshot,
+                    progress_bar,
+                    status_placeholder,
+                    stats_placeholder,
+                )
+
+            result = run_activity_enrichment_from_compound_assays(
+                connection,
+                fetch_pubchem_assay_activity,
+                progress_callback=progress_callback,
+                continue_on_error=True,
+                max_workers=4,
+                rate_limit_per_second=4,
+                max_retries=3,
+                retry_initial_delay=1.0,
+                retry_backoff_multiplier=2.0,
+                retry_max_delay=8.0,
+            )
+            message = (
+                "Structured activity backfill completed. "
+                f"Total AIDs: {result['total_aids']}; "
+                f"Processed: {result['processed_aids']}; "
+                f"Successful: {result['successful_aids']}; "
+                f"Failed: {result['failed_aids']}; "
+                f"Inserted rows: {result['inserted_rows']}."
+            )
+            if result["failed_aids"] > 0:
+                st.warning(message)
+            else:
+                st.success(message)
 
 
 def _format_audit_label(value):
