@@ -283,7 +283,7 @@ def _sanitize_table_name_part(value):
     return clean or "filtered"
 
 
-def build_harmonsmile_subset_base_name(activity_types=None, units=None):
+def build_activity_subset_base_name(activity_types=None, units=None):
     clean_activity_types = [
         value for value in activity_types or [] if value not in (None, "")
     ]
@@ -291,7 +291,7 @@ def build_harmonsmile_subset_base_name(activity_types=None, units=None):
         value for value in units or [] if value not in (None, "")
     ]
 
-    parts = ["harmonsmile", "subset"]
+    parts = ["activity", "subset"]
     if len(clean_activity_types) == 1:
         parts.append(_sanitize_table_name_part(clean_activity_types[0]))
         if len(clean_units) == 1:
@@ -301,12 +301,12 @@ def build_harmonsmile_subset_base_name(activity_types=None, units=None):
     return "_".join(parts)
 
 
-def unique_harmonsmile_subset_table_name(
+def unique_activity_subset_table_name(
     connection,
     activity_types=None,
     units=None,
 ):
-    base_name = build_harmonsmile_subset_base_name(
+    base_name = build_activity_subset_base_name(
         activity_types=activity_types,
         units=units,
     )
@@ -318,30 +318,34 @@ def unique_harmonsmile_subset_table_name(
     return candidate
 
 
-def create_harmonsmile_subset_table(connection, table_name, cids):
-    clean_cids = []
-    seen = set()
-    for cid in cids:
-        text = str(cid).strip()
-        if text == "" or text in seen:
-            continue
-        clean_cids.append(text)
-        seen.add(text)
-
-    if not clean_cids:
-        raise ValueError("At least one CID is required to create a HARMONSMILE subset.")
+def create_activity_subset_table(
+    connection,
+    table_name,
+    activity_types=None,
+    outcomes=None,
+    units=None,
+    aids=None,
+    value_range=None,
+):
+    if not compound_activities_exists(connection):
+        raise ValueError("Structured activity data is not available.")
     if table_exists(connection, table_name):
         raise ValueError(f"Table already exists: {table_name}")
 
-    cursor = connection.cursor()
-    cursor.execute(f"""
-        CREATE TABLE {quote_identifier(table_name)} (
-            CID TEXT NOT NULL
-        )
-    """)
-    cursor.executemany(
-        f"INSERT INTO {quote_identifier(table_name)} (CID) VALUES (?)",
-        [(cid,) for cid in clean_cids],
+    where_sql, params = _activity_filter_sql(
+        activity_types=activity_types,
+        outcomes=outcomes,
+        units=units,
+        aids=aids,
+        value_range=value_range,
     )
+    cursor = connection.cursor()
+    cursor.execute(
+        f"CREATE TABLE {quote_identifier(table_name)} AS "
+        f"{_activity_rows_query(where_sql)}",
+        params,
+    )
+    cursor.execute(f"SELECT COUNT(*) FROM {quote_identifier(table_name)}")
+    row_count = int(cursor.fetchone()[0])
     connection.commit()
-    return len(clean_cids)
+    return row_count

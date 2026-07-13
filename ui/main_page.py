@@ -12,14 +12,14 @@ from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
-    create_harmonsmile_subset_table,
+    create_activity_subset_table,
     get_activity_cids,
     get_activity_csv_bytes,
     get_activity_row_count,
     get_activity_rows,
     get_activity_summary,
     get_activity_value_stats,
-    unique_harmonsmile_subset_table_name,
+    unique_activity_subset_table_name,
 )
 from services.activity_enrichment import (
     run_activity_enrichment_from_compound_assays,
@@ -33,7 +33,7 @@ from services.db_audit import (
 from services.database import (
     get_connection,
 )
-from services.sql_utils import quote_identifier
+from services.sql_utils import quote_identifier, table_exists
 from state_keys import (
     ALL_TABLES,
     CURRENT_TABLE,
@@ -56,7 +56,7 @@ ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Value",
     "Activity_Enrichment_Status",
 }
-STRUCTURED_ACTIVITY_PREVIEW_LIMIT = 20
+STRUCTURED_ACTIVITY_PREVIEW_LIMIT = 10
 STRUCTURED_ACTIVITY_SUBSET_SUCCESS = "structured_activity_subset_success"
 STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT = "structured_activity_subset_table_to_select"
 
@@ -85,11 +85,16 @@ def _refresh_database_state():
     return database_state
 
 
-def _filter_visible_column_options(headers, selected_headers):
+def _filter_visible_column_options(headers, selected_headers, table_name=""):
+    hidden_columns = (
+        ACTIVITY_SUMMARY_COLUMNS
+        if str(table_name) == "main"
+        else set()
+    )
     options = [
         header
         for header in headers
-        if header not in ACTIVITY_SUMMARY_COLUMNS
+        if header not in hidden_columns
     ]
     selected = [
         header
@@ -198,7 +203,16 @@ def create_main_layout():
         ">
         """)
     container4 = st.container(horizontal=False, horizontal_alignment="left", border=True)
-    return container0, container1, container2, container3, container4
+    st.html("""
+        <hr style="
+            border: none;
+            height: 2px;
+            background-color: var(--cv-border);
+            margin: 32px 0 24px 0;
+        ">
+        """)
+    container5 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+    return container0, container1, container2, container3, container4, container5
 
 
 def render_app_identity(container):
@@ -619,6 +633,19 @@ def render_operation_history(database_id):
     )
 
 
+def render_operation_history_card(container):
+    with container:
+        if st.session_state[DATABASE_ID] == "":
+            st.markdown("#### Operation history")
+            st.caption(
+                "Review recorded database events such as builds, derived tables, "
+                "and table cleanup."
+            )
+            st.info("Select or create a database to review its operation history.")
+            return
+        render_operation_history(st.session_state[DATABASE_ID])
+
+
 def _format_activity_option_list(values):
     if not values:
         return "-"
@@ -634,6 +661,7 @@ def _activity_filter_metadata(
     units,
     outcomes,
     aids,
+    value_range,
     row_count,
     unique_cid_count,
 ):
@@ -642,6 +670,7 @@ def _activity_filter_metadata(
         "Unit": list(units),
         "Outcome": list(outcomes),
         "AID": list(aids),
+        "value_range": list(value_range) if value_range is not None else None,
         "row_count": int(row_count),
         "unique_cid_count": int(unique_cid_count),
     }
@@ -660,42 +689,74 @@ def _has_explicit_activity_filter(
     )
 
 
-def _create_filtered_activity_cid_table(
+def _structured_activity_filter_signature(database_id, filter_kwargs):
+    def normalized_values(key):
+        return tuple(sorted(str(value) for value in filter_kwargs.get(key) or []))
+
+    value_range = filter_kwargs.get("value_range")
+    return (
+        str(database_id),
+        normalized_values("activity_types"),
+        normalized_values("outcomes"),
+        normalized_values("units"),
+        normalized_values("aids"),
+        tuple(value_range) if value_range is not None else None,
+    )
+
+
+def _created_filtered_activity_table(session_state, connection, filter_signature):
+    created_state = session_state.get(STRUCTURED_ACTIVITY_SUBSET_SUCCESS, {})
+    if not isinstance(created_state, dict):
+        return ""
+    if created_state.get("filter_signature") != filter_signature:
+        return ""
+    table_name = str(created_state.get("table_name", ""))
+    if table_name == "" or not table_exists(connection, table_name):
+        return ""
+    return table_name
+
+
+def _create_filtered_activity_table(
     connection,
     *,
     activity_types,
     units,
     outcomes,
     aids,
-    row_count,
-    cids,
+    value_range,
+    unique_cid_count,
     table_name=None,
 ):
     if table_name is None:
-        table_name = unique_harmonsmile_subset_table_name(
+        table_name = unique_activity_subset_table_name(
             connection,
             activity_types=activity_types,
             units=units,
         )
-    inserted_count = create_harmonsmile_subset_table(
+    created_row_count = create_activity_subset_table(
         connection,
         table_name,
-        cids,
+        activity_types=activity_types,
+        outcomes=outcomes,
+        units=units,
+        aids=aids,
+        value_range=value_range,
     )
     metadata = _activity_filter_metadata(
         activity_types=activity_types,
         units=units,
         outcomes=outcomes,
         aids=aids,
-        row_count=row_count,
-        unique_cid_count=inserted_count,
+        value_range=value_range,
+        row_count=created_row_count,
+        unique_cid_count=unique_cid_count,
     )
     details = json.dumps(metadata, sort_keys=True)
     register_table_metadata(
         connection,
         table_name,
         role="derived",
-        origin="structured_activity_filtered_cid_subset",
+        origin="structured_activity_filtered_subset",
         source_table="compound_activities",
         created_by="render_structured_activity_section",
         notes=details,
@@ -703,16 +764,17 @@ def _create_filtered_activity_cid_table(
     )
     register_operation(
         connection,
-        "structured_activity_filtered_cid_table_created",
+        "structured_activity_filtered_table_created",
         target_table=table_name,
         source_table="compound_activities",
-        source_columns=["CID", "Activity_Type", "Unit", "Outcome", "AID"],
-        output_columns=["CID"],
+        source_columns=ACTIVITY_EXPORT_COLUMNS,
+        output_columns=ACTIVITY_EXPORT_COLUMNS,
         created_by="render_structured_activity_section",
         details=details,
         query_used=(
             f"CREATE TABLE {quote_identifier(table_name)} "
-            f"({quote_identifier('CID')} TEXT NOT NULL)"
+            "AS SELECT filtered Structured activity export columns "
+            f"FROM {quote_identifier('compound_activities')}"
         ),
         commit=False,
     )
@@ -727,9 +789,6 @@ def render_structured_activity_section(connection):
 
     st.markdown("#### Structured activity")
     st.caption("Inspect and export quantitative PubChem activity without changing molecular tables.")
-    subset_success = st.session_state.pop(STRUCTURED_ACTIVITY_SUBSET_SUCCESS, "")
-    if subset_success:
-        st.success(subset_success)
     if summary["total_rows"] == 0:
         st.info("No structured activity rows are available yet.")
         return
@@ -786,6 +845,35 @@ def render_structured_activity_section(connection):
         unsafe_allow_html=True,
     )
 
+    activity_count = get_activity_row_count(connection)
+    preview_rows = get_activity_rows(
+        connection,
+        limit=STRUCTURED_ACTIVITY_PREVIEW_LIMIT,
+    )
+    preview_df = pd.DataFrame(preview_rows, columns=ACTIVITY_EXPORT_COLUMNS)
+    if activity_count > STRUCTURED_ACTIVITY_PREVIEW_LIMIT:
+        st.caption(
+            "Showing first "
+            f"{STRUCTURED_ACTIVITY_PREVIEW_LIMIT} of {activity_count} "
+            "structured activity rows. "
+            "Download CSV to get the full table."
+        )
+    else:
+        st.caption(
+            f"Showing {activity_count} structured activity "
+            f"row{'s' if activity_count != 1 else ''}."
+        )
+    st.dataframe(preview_df, hide_index=True, use_container_width=True)
+    st.download_button(
+        "Download structured activity CSV",
+        data=get_activity_csv_bytes(connection),
+        file_name="chemvault_structured_activity.csv",
+        mime="text/csv",
+        disabled=activity_count == 0,
+        key="download_structured_activity_csv",
+    )
+
+    st.markdown("##### Filter")
     with st.expander("Filter structured activity", expanded=False):
         col_a, col_b = st.columns(2)
         with col_a:
@@ -861,89 +949,114 @@ def render_structured_activity_section(connection):
         "aids": selected_aids,
         "value_range": value_range,
     }
-    filtered_count = get_activity_row_count(connection, **filter_kwargs)
-    preview_rows = get_activity_rows(
-        connection,
-        **filter_kwargs,
-        limit=STRUCTURED_ACTIVITY_PREVIEW_LIMIT,
-    )
-    preview_df = pd.DataFrame(preview_rows, columns=ACTIVITY_EXPORT_COLUMNS)
-    export_csv = get_activity_csv_bytes(connection, **filter_kwargs)
-    if filtered_count > STRUCTURED_ACTIVITY_PREVIEW_LIMIT:
-        st.caption(
-            "Showing first "
-            f"{STRUCTURED_ACTIVITY_PREVIEW_LIMIT} of {filtered_count} "
-            "filtered activity rows. "
-            "Download CSV to get the full filtered table."
-        )
-    else:
-        st.caption(f"Showing {filtered_count} filtered activity row{'s' if filtered_count != 1 else ''}.")
-    st.dataframe(preview_df, hide_index=True, use_container_width=True)
-    st.download_button(
-        "Download structured activity CSV",
-        data=export_csv,
-        file_name="chemvault_structured_activity.csv",
-        mime="text/csv",
-        disabled=filtered_count == 0,
-        key="download_structured_activity_csv",
-    )
     has_explicit_filter = _has_explicit_activity_filter(**filter_kwargs)
     if not has_explicit_filter:
         st.caption(
             "Select at least one Structured activity filter to create a "
-            "filtered CID table."
+            "filtered activity table."
         )
         return
 
+    filtered_count = get_activity_row_count(connection, **filter_kwargs)
+    filtered_preview_rows = get_activity_rows(
+        connection,
+        **filter_kwargs,
+        limit=STRUCTURED_ACTIVITY_PREVIEW_LIMIT,
+    )
+    filtered_preview_df = pd.DataFrame(
+        filtered_preview_rows,
+        columns=ACTIVITY_EXPORT_COLUMNS,
+    )
+    if filtered_count > STRUCTURED_ACTIVITY_PREVIEW_LIMIT:
+        st.caption(
+            "Showing first "
+            f"{STRUCTURED_ACTIVITY_PREVIEW_LIMIT} of {filtered_count} "
+            "filtered activity rows."
+        )
+    else:
+        st.caption(
+            f"Showing {filtered_count} filtered activity "
+            f"row{'s' if filtered_count != 1 else ''}."
+        )
+    st.dataframe(filtered_preview_df, hide_index=True, use_container_width=True)
+
     filtered_cids = get_activity_cids(connection, **filter_kwargs)
-    table_name = unique_harmonsmile_subset_table_name(
+    filter_signature = _structured_activity_filter_signature(
+        st.session_state.get(DATABASE_ID, ""),
+        filter_kwargs,
+    )
+    created_table = _created_filtered_activity_table(
+        st.session_state,
+        connection,
+        filter_signature,
+    )
+    if created_table:
+        st.caption(
+            f"Filtered activity table input: {filtered_count} rows. "
+            f"Created table: `{created_table}`."
+        )
+        if st.session_state.get(CURRENT_TABLE, "") == created_table:
+            st.success(
+                f"Created and selected filtered activity table '{created_table}'."
+            )
+        else:
+            st.success(
+                f"Filtered activity table '{created_table}' already exists for this "
+                "filter. Select it in Table controls."
+            )
+        st.button(
+            "Create filtered activity table",
+            disabled=True,
+            key="create_filtered_structured_activity_cid_table",
+        )
+        return
+
+    table_name = unique_activity_subset_table_name(
         connection,
         activity_types=selected_types,
         units=selected_units,
     )
     st.caption(
-        f"Filtered CID table input: {len(filtered_cids)} unique filtered CID"
-        f"{'s' if len(filtered_cids) != 1 else ''}. New derived table: "
-        f"`{table_name}`."
+        f"Filtered activity table input: {filtered_count} rows. "
+        f"Planned table name: `{table_name}`."
     )
     if st.button(
-        "Create filtered CID table",
-        disabled=len(filtered_cids) == 0,
+        "Create filtered activity table",
+        disabled=filtered_count == 0,
         key="create_filtered_structured_activity_cid_table",
     ):
         try:
-            table_name = _create_filtered_activity_cid_table(
+            table_name = _create_filtered_activity_table(
                 connection,
                 activity_types=selected_types,
                 units=selected_units,
                 outcomes=selected_outcomes,
                 aids=selected_aids,
-                row_count=filtered_count,
-                cids=filtered_cids,
+                value_range=value_range,
+                unique_cid_count=len(filtered_cids),
                 table_name=table_name,
             )
         except Exception as error:
-            st.error(f"Could not create filtered CID table: {error}")
+            st.error(f"Could not create filtered activity table: {error}")
             return
 
         st.session_state[STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT] = table_name
-        st.session_state[STRUCTURED_ACTIVITY_SUBSET_SUCCESS] = (
-            f"Created filtered CID table '{table_name}' and selected it. "
-            "Run HARMONSMILE from Curate."
-        )
+        st.session_state[STRUCTURED_ACTIVITY_SUBSET_SUCCESS] = {
+            "filter_signature": filter_signature,
+            "table_name": table_name,
+        }
         st.rerun()
 
 
 def render_table_manager_card(container):
     with container:
         st.subheader("Table Manager")
-        st.caption("Review tables, provenance, operation history, and cleanup options.")
+        st.caption("Review tables, provenance, and cleanup options.")
         if st.session_state[DATABASE_ID] == "":
             st.info("Select or create a database to review its tables.")
             return
 
         database_id = st.session_state[DATABASE_ID]
-        current_table = st.session_state.get(CURRENT_TABLE, "")
         db_path = Path("SQL") / f"{database_id}.db"
 
         try:
@@ -965,29 +1078,9 @@ def render_table_manager_card(container):
             use_container_width=True,
         )
         render_table_manager_actions(database_id, profiles)
-        render_operation_history(database_id)
         with sqlite3.connect(db_path) as activity_conn:
-            render_activity_enrichment_action(activity_conn)
             render_structured_activity_section(activity_conn)
-
-        active_schema, schema_error = load_table_schema(
-            database_id,
-            current_table,
-        )
-        if schema_error:
-            st.error(schema_error)
-            return
-        if not active_schema:
-            st.info("No schema information was found for the active table.")
-            return
-
-        st.markdown("#### Active table schema")
-        st.dataframe(
-            pd.DataFrame(active_schema)[
-                ["name", "data_type", "primary_key", "not_null", "default_value"]
-            ],
-            hide_index=True,
-        )
+            render_activity_enrichment_action(activity_conn)
 
 
 def render_database_card(container):
@@ -1067,6 +1160,7 @@ def render_columns_card(container):
         options, st.session_state[SELECTED_HEADERS] = _filter_visible_column_options(
             st.session_state[HEADERS],
             st.session_state[SELECTED_HEADERS],
+            st.session_state.get(CURRENT_TABLE, ""),
         )
         if len(options) == 0:
             st.info("No columns are available in the current table.")
@@ -1184,12 +1278,21 @@ def render_table_maintenance_card(container):
             st.markdown("No column type information was found.")
             return
 
-        headers_types_df = pd.DataFrame(
-            [(col[1], col[2]) for col in columns_info],
-            columns=["Column", "Data type"],
+        schema_df = pd.DataFrame(
+            [
+                (col[1], col[2], bool(col[5]), bool(col[3]), col[4])
+                for col in columns_info
+            ],
+            columns=[
+                "Column",
+                "Data type",
+                "Primary key",
+                "Not null",
+                "Default value",
+            ],
         )
         st.markdown("Current schema for the active table.")
-        st.dataframe(headers_types_df, hide_index=True)
+        st.dataframe(schema_df, hide_index=True)
 
         with st.expander("Advanced: change column type", expanded=False):
             st.caption("This updates the SQLite column type for the selected column.")

@@ -9,20 +9,23 @@ from services.database import DatabaseState
 from ui import main_page
 from ui.main_page import (
     ACTIVITY_SUMMARY_COLUMNS,
+    STRUCTURED_ACTIVITY_SUBSET_SUCCESS,
     STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT,
     _apply_pending_structured_activity_subset_selection,
+    _created_filtered_activity_table,
     _filter_visible_column_options,
     _get_activity_enrichment_job_summary,
     _get_protein_traceability_summary,
     _has_explicit_activity_filter,
     _refresh_database_state,
+    _structured_activity_filter_signature,
     load_database_metrics,
     load_selected_columns_preview,
     load_table_schema,
 )
 
 
-def test_filter_visible_column_options_hides_only_activity_summary_columns():
+def test_main_column_options_hide_only_legacy_activity_summary_columns():
     headers = [
         "primary_id",
         "CID",
@@ -36,7 +39,11 @@ def test_filter_visible_column_options_hides_only_activity_summary_columns():
     ]
     selected_headers = ["CID", "Activity_Type", "Activity_Value", "Activity_Value_Raw"]
 
-    options, selected = _filter_visible_column_options(headers, selected_headers)
+    options, selected = _filter_visible_column_options(
+        headers,
+        selected_headers,
+        "main",
+    )
 
     assert options == [
         "primary_id",
@@ -49,6 +56,19 @@ def test_filter_visible_column_options_hides_only_activity_summary_columns():
     assert selected == ["CID", "Activity_Value_Raw"]
 
 
+def test_non_main_column_options_preserve_real_activity_columns():
+    headers = ["CID", "AID", "Activity_Type", "Activity_Value", "Unit"]
+
+    options, selected = _filter_visible_column_options(
+        headers,
+        ["CID", "Activity_Type", "Activity_Value"],
+        "user_created_activity_results",
+    )
+
+    assert options == headers
+    assert selected == ["CID", "Activity_Type", "Activity_Value"]
+
+
 def test_activity_summary_columns_are_exact_legacy_main_columns():
     assert ACTIVITY_SUMMARY_COLUMNS == {
         "Activity_Type",
@@ -57,7 +77,7 @@ def test_activity_summary_columns_are_exact_legacy_main_columns():
     }
 
 
-def test_harmonsmile_subset_requires_an_explicit_structured_activity_filter():
+def test_activity_subset_requires_an_explicit_structured_activity_filter():
     assert _has_explicit_activity_filter(
         activity_types=[],
         units=[],
@@ -91,14 +111,77 @@ def test_harmonsmile_subset_requires_an_explicit_structured_activity_filter():
 def test_pending_structured_activity_subset_selection_updates_current_table():
     session_state = {
         "current_table": "main",
-        STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT: "harmonsmile_subset_EC50",
+        STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT: "activity_subset_EC50",
     }
 
     selected_table = _apply_pending_structured_activity_subset_selection(session_state)
 
-    assert selected_table == "harmonsmile_subset_EC50"
-    assert session_state["current_table"] == "harmonsmile_subset_EC50"
+    assert selected_table == "activity_subset_EC50"
+    assert session_state["current_table"] == "activity_subset_EC50"
     assert STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT not in session_state
+
+
+def test_created_filtered_activity_table_matches_only_same_filter_and_database():
+    connection = sqlite3.connect(":memory:")
+    connection.execute('CREATE TABLE "activity_subset_EC50" (CID TEXT)')
+    filter_kwargs = {
+        "activity_types": ["EC50"],
+        "outcomes": ["Active"],
+        "units": ["MICROMOLAR"],
+        "aids": ["123"],
+        "value_range": (1.0, 2.0),
+    }
+    signature = _structured_activity_filter_signature("test_db", filter_kwargs)
+    session_state = {
+        STRUCTURED_ACTIVITY_SUBSET_SUCCESS: {
+            "filter_signature": signature,
+            "table_name": "activity_subset_EC50",
+        }
+    }
+
+    assert _created_filtered_activity_table(
+        session_state,
+        connection,
+        signature,
+    ) == "activity_subset_EC50"
+    assert _created_filtered_activity_table(
+        session_state,
+        connection,
+        _structured_activity_filter_signature(
+            "test_db",
+            {**filter_kwargs, "outcomes": ["Inactive"]},
+        ),
+    ) == ""
+    assert _created_filtered_activity_table(
+        session_state,
+        connection,
+        _structured_activity_filter_signature("other_db", filter_kwargs),
+    ) == ""
+
+
+def test_structured_activity_filter_signature_ignores_multiselect_order():
+    first = _structured_activity_filter_signature(
+        "test_db",
+        {
+            "activity_types": ["EC50", "IC50"],
+            "outcomes": ["Active", "Inactive"],
+            "units": [],
+            "aids": ["2", "1"],
+            "value_range": None,
+        },
+    )
+    second = _structured_activity_filter_signature(
+        "test_db",
+        {
+            "activity_types": ["IC50", "EC50"],
+            "outcomes": ["Inactive", "Active"],
+            "units": [],
+            "aids": ["1", "2"],
+            "value_range": None,
+        },
+    )
+
+    assert first == second
 
 
 def test_selected_columns_preview_uses_local_path_by_default(
