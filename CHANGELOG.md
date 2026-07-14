@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.10.4] - 2026-07-13
+
+### Added
+- Added explicit per-database scientific runtime activation through the local and HTTP backend gateways.
+- Added automatic recovery of interrupted HARMONSMILE jobs using the persisted SQLite job state and successful cache checkpoints.
+- Added visible notification when an interrupted HARMONSMILE job is recovered for the selected database.
+
+### Changed
+- Made HARMONSMILE submission non-blocking in Streamlit.
+- Replaced the long in-command polling loop with periodic persisted-status refresh using Streamlit fragments.
+- Scoped scientific-job recovery to the explicitly selected database instead of scanning every database at application startup.
+- Isolated temporary HARMONSMILE input files per invocation.
+
+### Fixed
+- Fixed valid long-running HARMONSMILE jobs being reported as failed after the previous 30-minute monitoring window.
+- Prevented equivalent pending or running HARMONSMILE jobs from being launched more than once.
+- Prevented unselected databases from being opened, migrated, locked, or recovered merely because Streamlit or FastAPI started.
+- Preserved the original job ID and reused committed HARMONSMILE cache chunks when recovering interrupted work.
+
+### Notes
+- HARMONSMILE chemistry, dependency version, and SQLite cache schema are unchanged.
+- CHAMANP and PubChem execution remain outside the scientific-job recovery scope of this release.
+
+### Validation
+- Full suite passed on `main`: `385 passed`.
+- `git diff --check` passed.
+- Manual local-mode validation completed a 3,293-row HARMONSMILE workflow in approximately 32 minutes, beyond the previous monitoring limit.
+- The run processed 2,319 unique CIDs and merged the expected HARMONSMILE columns into all 3,293 target rows.
+- Same-job recovery, cache checkpoint reuse, duplicate prevention, per-database isolation, and non-blocking monitoring were covered by automated tests.
+
+---
+
 ## [v0.10.3] - 2026-07-12
 
 ### Changed
