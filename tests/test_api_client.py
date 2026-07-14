@@ -58,6 +58,29 @@ def test_health_returns_api_status(monkeypatch):
     assert ChemVaultApiClient().health() == {"status": "ok"}
 
 
+def test_client_posts_explicit_database_activation(monkeypatch):
+    calls = []
+
+    def fake_post(_session, url, **kwargs):
+        calls.append((url, kwargs))
+        return StubResponse({"database_id": "test db", "recovered_jobs": []})
+
+    monkeypatch.setattr(requests.Session, "post", fake_post)
+
+    result = ChemVaultApiClient(
+        "http://api.example/"
+    ).activate_scientific_runtime("test db")
+
+    assert result == {"database_id": "test db", "recovered_jobs": []}
+    assert calls == [
+        (
+            "http://api.example/databases/test%20db/"
+            "scientific-runtime/activate",
+            {"json": None, "timeout": 10.0},
+        )
+    ]
+
+
 def test_preview_sends_columns_as_repeated_query_params(monkeypatch):
     calls = []
 
@@ -157,3 +180,24 @@ def test_client_posts_harmonsmile_command(monkeypatch):
         "cid_column": "CID",
     }
     assert calls[0][1]["timeout"] == 10.0
+
+
+def test_client_gets_active_harmonsmile_job(monkeypatch):
+    calls = []
+
+    def fake_get(_session, url, **kwargs):
+        calls.append((url, kwargs))
+        return StubResponse(None)
+
+    monkeypatch.setattr(requests.Session, "get", fake_get)
+    result = ChemVaultApiClient(
+        "http://api.example/"
+    ).find_active_harmonsmile_job("test db", "active table")
+
+    assert result is None
+    assert calls == [
+        (
+            "http://api.example/databases/test%20db/jobs/harmonsmile/active",
+            {"params": {"table_name": "active table"}, "timeout": 10.0},
+        )
+    ]

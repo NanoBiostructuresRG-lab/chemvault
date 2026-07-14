@@ -29,6 +29,7 @@ HARMONSMILE_RUNNING = "harmonsmile_running"
 HARMONSMILE_JOB_ID = "harmonsmile_job_id"
 HARMONSMILE_FEEDBACK_KIND = "harmonsmile_feedback_kind"
 HARMONSMILE_FEEDBACK_MESSAGE = "harmonsmile_feedback_message"
+SCIENTIFIC_RECOVERY_NOTICE = "scientific_recovery_notice"
 
 NEW_TABLE_NAME = "new_table_name"
 TYPE_OF_FILTER = "type_of_filter"
@@ -72,6 +73,7 @@ ALL_SESSION_KEYS = (
     HARMONSMILE_JOB_ID,
     HARMONSMILE_FEEDBACK_KIND,
     HARMONSMILE_FEEDBACK_MESSAGE,
+    SCIENTIFIC_RECOVERY_NOTICE,
     NEW_TABLE_NAME,
     TYPE_OF_FILTER,
     GROUP_BY_COLUMN,

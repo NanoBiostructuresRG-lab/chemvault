@@ -32,6 +32,14 @@ class JobStatusContract:
     result: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class RecoveredJobContract:
+    """Persisted job snapshot returned by explicit database activation."""
+
+    job: JobStatusContract
+    table_name: str
+
+
 def job_status_from_record(record: JobRecord) -> JobStatusContract:
     """Project an internal persisted record onto the future public contract."""
     status = JobStatus(record.status)
@@ -75,4 +83,12 @@ def job_status_from_payload(payload: dict[str, Any]) -> JobStatusContract:
         error=payload.get("error"),
         result=payload.get("result"),
         cancellable=bool(payload.get("cancellable", False)),
+    )
+
+
+def recovered_job_from_payload(payload: dict[str, Any]) -> RecoveredJobContract:
+    """Build a recovered-job contract returned by the HTTP backend."""
+    return RecoveredJobContract(
+        job=job_status_from_payload(payload),
+        table_name=payload.get("table_name", ""),
     )

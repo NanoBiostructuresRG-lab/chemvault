@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Streamlit-independent state cycle for the HARMONSMILE command UI."""
-import time
 
 from services.job_models import JobStatus
 from state_keys import (
@@ -16,8 +15,6 @@ TERMINAL_JOB_STATUSES = {
     JobStatus.FAILED,
     JobStatus.CANCELLED,
 }
-HARMONSMILE_POLL_INTERVAL_SECONDS = 0.5
-HARMONSMILE_MAX_POLL_ATTEMPTS = 3600
 
 
 def clear_harmonsmile_runtime(session_state, *, clear_feedback=False):
@@ -52,6 +49,80 @@ def _success_message(table_name, result):
     )
 
 
+def _apply_terminal_status(
+    session_state,
+    status,
+    table_name,
+    refresh_callback,
+):
+    if status.status == JobStatus.COMPLETED:
+        refresh_callback(session_state)
+        _set_feedback(
+            session_state,
+            "success",
+            _success_message(table_name, status.result or {}),
+        )
+    elif status.status == JobStatus.CANCELLED:
+        _set_feedback(
+            session_state,
+            "warning",
+            status.message or "HARMONSMILE was cancelled.",
+        )
+    else:
+        _set_feedback(
+            session_state,
+            "error",
+            status.error or status.message or "HARMONSMILE failed.",
+        )
+    clear_harmonsmile_runtime(session_state)
+
+
+def sync_harmonsmile_runtime(
+    session_state,
+    gateway,
+    database_id,
+    table_name,
+    refresh_callback,
+    status_callback=None,
+):
+    """Reattach to an active job or consume its persisted terminal status."""
+    job_id = session_state.get(HARMONSMILE_JOB_ID, "")
+    try:
+        if job_id:
+            status = gateway.get_job_status(database_id, job_id)
+        else:
+            status = gateway.find_active_harmonsmile_job(
+                database_id,
+                table_name,
+            )
+        if status is None:
+            clear_harmonsmile_runtime(session_state)
+            return None
+
+        session_state[HARMONSMILE_JOB_ID] = status.job_id
+        if status_callback is not None:
+            status_callback(status)
+        if status.status in TERMINAL_JOB_STATUSES:
+            _apply_terminal_status(
+                session_state,
+                status,
+                table_name,
+                refresh_callback,
+            )
+        else:
+            session_state[HARMONSMILE_RUNNING] = True
+        return status
+    except Exception as error:
+        if job_id:
+            session_state[HARMONSMILE_RUNNING] = True
+            _set_feedback(
+                session_state,
+                "warning",
+                f"HARMONSMILE monitoring is temporarily unavailable: {error}",
+            )
+        return None
+
+
 def execute_harmonsmile_command(
     session_state,
     gateway,
@@ -59,57 +130,54 @@ def execute_harmonsmile_command(
     table_name,
     cid_column,
     refresh_callback,
-    status_callback=None,
-    sleep_callback=time.sleep,
 ):
-    """Launch, poll HTTP jobs when needed, and always close the UI state."""
+    """Launch or reattach and return without monitoring backend execution."""
     session_state[HARMONSMILE_RUNNING] = True
-    session_state[HARMONSMILE_JOB_ID] = ""
     _set_feedback(session_state, "", "")
+    status = None
 
     try:
-        status = gateway.launch_harmonsmile_job(
-            database_id,
-            table_name,
-            cid_column,
-        )
+        job_id = session_state.get(HARMONSMILE_JOB_ID, "")
+        if job_id:
+            status = gateway.get_job_status(database_id, job_id)
+        else:
+            status = gateway.find_active_harmonsmile_job(
+                database_id,
+                table_name,
+            )
+            if status is None:
+                status = gateway.launch_harmonsmile_job(
+                    database_id,
+                    table_name,
+                    cid_column,
+                )
         session_state[HARMONSMILE_JOB_ID] = status.job_id
-        if status_callback is not None:
-            status_callback(status)
-
-        for _attempt in range(HARMONSMILE_MAX_POLL_ATTEMPTS):
-            if status.status in TERMINAL_JOB_STATUSES:
-                break
-            status = gateway.get_job_status(database_id, status.job_id)
-            if status_callback is not None:
-                status_callback(status)
-            if status.status not in TERMINAL_JOB_STATUSES:
-                sleep_callback(HARMONSMILE_POLL_INTERVAL_SECONDS)
-        else:
-            raise TimeoutError(
-                "HARMONSMILE status polling reached its time limit."
-            )
-
-        if status.status == JobStatus.COMPLETED:
-            refresh_callback(session_state)
-            _set_feedback(
+        if status.status in TERMINAL_JOB_STATUSES:
+            _apply_terminal_status(
                 session_state,
-                "success",
-                _success_message(table_name, status.result or {}),
+                status,
+                table_name,
+                refresh_callback,
             )
         else:
-            _set_feedback(
-                session_state,
-                "error",
-                status.error or status.message or "HARMONSMILE failed.",
-            )
+            session_state[HARMONSMILE_RUNNING] = True
         return status
     except Exception as error:
-        if getattr(gateway, "mode", "local") == "http":
+        if session_state.get(HARMONSMILE_JOB_ID, ""):
+            session_state[HARMONSMILE_RUNNING] = True
+            message = (
+                "HARMONSMILE monitoring is temporarily unavailable; "
+                f"the backend job may still be running: {error}"
+            )
+            kind = "warning"
+        elif getattr(gateway, "mode", "local") == "http":
             message = f"CHEMVAULT backend API is not available: {error}"
+            kind = "error"
         else:
             message = f"HARMONSMILE could not be completed: {error}"
-        _set_feedback(session_state, "error", message)
+            kind = "error"
+        _set_feedback(session_state, kind, message)
         return None
     finally:
-        clear_harmonsmile_runtime(session_state)
+        if status is None and not session_state.get(HARMONSMILE_JOB_ID, ""):
+            clear_harmonsmile_runtime(session_state)

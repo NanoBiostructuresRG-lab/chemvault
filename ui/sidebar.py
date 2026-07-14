@@ -45,9 +45,11 @@ from state_keys import (
     SELECTING_HARMONSMILE,
 )
 from ui.harmonsmile_state import (
+    TERMINAL_JOB_STATUSES,
     clear_harmonsmile_runtime,
     consume_harmonsmile_feedback,
     execute_harmonsmile_command,
+    sync_harmonsmile_runtime,
 )
 from ui.session_state import refresh_database_state
 
@@ -279,6 +281,36 @@ def _safe_register_curate_operation(
         pass
 
 
+def refresh_harmonsmile_status_once(database_id, table_name, gateway=None):
+    """Read and render one persisted HARMONSMILE status snapshot."""
+    gateway = gateway or get_backend_gateway()
+    status = sync_harmonsmile_runtime(
+        st.session_state,
+        gateway,
+        database_id,
+        table_name,
+        refresh_database_state,
+    )
+    if status is not None and status.status not in TERMINAL_JOB_STATUSES:
+        st.progress(min(max(status.progress, 0.0), 1.0))
+        st.caption(
+            status.message or "HARMONSMILE is running in the backend."
+        )
+    elif st.session_state.get(HARMONSMILE_RUNNING, False):
+        st.caption(
+            "HARMONSMILE status is temporarily unavailable; retrying."
+        )
+    return status
+
+
+@st.fragment(run_every="2s")
+def render_harmonsmile_job_status(database_id, table_name):
+    """Refresh only the active HARMONSMILE status area."""
+    status = refresh_harmonsmile_status_once(database_id, table_name)
+    if status is not None and status.status in TERMINAL_JOB_STATUSES:
+        st.rerun()
+
+
 def render_curate_card():
     with st.container(border=True):
         st.subheader("Curate")
@@ -298,6 +330,17 @@ def render_curate_card():
             and has_active_table
             and harmonsmile_has_valid_cid
         )
+        harmonsmile_gateway = None
+        attached_harmonsmile_status = None
+        if has_active_database and has_active_table:
+            harmonsmile_gateway = get_backend_gateway()
+            attached_harmonsmile_status = sync_harmonsmile_runtime(
+                st.session_state,
+                harmonsmile_gateway,
+                st.session_state[DATABASE_ID],
+                st.session_state[CURRENT_TABLE],
+                refresh_database_state,
+            )
         if not harmonsmile_is_ready:
             st.session_state[SELECTING_HARMONSMILE] = False
         harmonsmile_is_selected = (
@@ -337,6 +380,18 @@ def render_curate_card():
                 st.success(feedback_message)
             elif feedback_kind == "error" and feedback_message:
                 st.error(feedback_message)
+            elif feedback_kind == "warning" and feedback_message:
+                st.warning(feedback_message)
+
+            if (
+                attached_harmonsmile_status is not None
+                and attached_harmonsmile_status.status
+                not in TERMINAL_JOB_STATUSES
+            ):
+                render_harmonsmile_job_status(
+                    st.session_state[DATABASE_ID],
+                    st.session_state[CURRENT_TABLE],
+                )
 
             if not has_active_database:
                 st.caption("Load or select a database to enable HARMONSMILE.")
@@ -356,22 +411,9 @@ def render_curate_card():
             if run_harmonsmile:
                 target_table = st.session_state[CURRENT_TABLE]
                 cid_column = selected_headers[0]
-                gateway = get_backend_gateway()
-                progress_bar = st.progress(0.0)
-                status_placeholder = st.empty()
-
-                def render_status(status):
-                    progress_bar.progress(
-                        min(max(status.progress, 0.0), 1.0)
-                    )
-                    status_placeholder.caption(
-                        status.message
-                        or f"HARMONSMILE status: {status.status.value}"
-                    )
-
+                gateway = harmonsmile_gateway or get_backend_gateway()
                 with st.spinner(
-                    "Running HARMONSMILE through the backend; "
-                    "this may take several minutes..."
+                    "Starting HARMONSMILE through the backend..."
                 ):
                     execute_harmonsmile_command(
                         st.session_state,
@@ -380,7 +422,6 @@ def render_curate_card():
                         target_table,
                         cid_column,
                         refresh_database_state,
-                        status_callback=render_status,
                     )
                 st.rerun()
 

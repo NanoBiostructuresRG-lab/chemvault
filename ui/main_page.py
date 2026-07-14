@@ -43,6 +43,7 @@ from state_keys import (
     HEADERS,
     INPUT_DATABASE_ID,
     SELECTED_HEADERS,
+    SCIENTIFIC_RECOVERY_NOTICE,
     SET_TEXT_INPUT_LOCKED,
 )
 from ui.session_state import (
@@ -1107,6 +1108,9 @@ def render_database_card(container):
     database_state = _refresh_database_state()
     if not database_state.success:
         return
+    recovery_notice = st.session_state.get(SCIENTIFIC_RECOVERY_NOTICE, "")
+    if recovery_notice:
+        container.warning(recovery_notice)
     container.subheader("Database")
     container.caption("Active table and row summary.")
     table_options = st.session_state.get(ALL_TABLES, [])

@@ -7,7 +7,7 @@ import pytest
 from application.database_use_cases import DatabaseMetrics
 from clients import backend_gateway
 from clients.api_client import ChemVaultApiError
-from application.job_contracts import JobStatusContract
+from application.job_contracts import JobStatusContract, RecoveredJobContract
 from services.job_models import JobStatus
 from services.database import DatabaseState
 
@@ -387,21 +387,16 @@ def test_harmonsmile_command_uses_local_application_backend(monkeypatch):
     monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
     expected = _completed_job(status=JobStatus.PENDING)
     calls = []
-    started = []
-
-    class FakeThread:
-        def __init__(self, target, args, daemon, name):
-            calls.append(("thread", target, args, daemon, name))
-
-        def start(self):
-            started.append(True)
-
     monkeypatch.setattr(
         backend_gateway,
         "create_scientific_job",
         lambda *args: calls.append(("create", *args)) or expected,
     )
-    monkeypatch.setattr(backend_gateway, "Thread", FakeThread)
+    monkeypatch.setattr(
+        backend_gateway,
+        "start_scientific_job_executor",
+        lambda *args, **kwargs: calls.append(("executor", args, kwargs)),
+    )
 
     result = backend_gateway.get_backend_gateway().launch_harmonsmile_job(
         "test_db", "main", "CID"
@@ -414,8 +409,7 @@ def test_harmonsmile_command_uses_local_application_backend(monkeypatch):
         "harmonsmile",
         {"table_name": "main", "cid_column": "CID"},
     )
-    assert calls[1][0] == "thread"
-    assert started == [True]
+    assert calls[1][0] == "executor"
 
 
 def test_harmonsmile_command_uses_http_backend(monkeypatch):
@@ -473,3 +467,100 @@ def test_harmonsmile_http_failure_never_runs_local_backend(monkeypatch):
             "test_db", "main", "CID"
         )
     assert local_calls == []
+
+
+def test_active_harmonsmile_lookup_uses_local_application_backend(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    expected = _completed_job(status=JobStatus.RUNNING)
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "find_active_scientific_job",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    result = backend_gateway.get_backend_gateway().find_active_harmonsmile_job(
+        "test_db", "main"
+    )
+
+    assert result is expected
+    assert calls == [
+        ("test_db", backend_gateway.JobType.HARMONSMILE, "main")
+    ]
+
+
+def test_database_activation_uses_local_application_runtime(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    recovered = RecoveredJobContract(
+        job=_completed_job(status=JobStatus.PENDING),
+        table_name="archived_table",
+    )
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "activate_scientific_runtime",
+        lambda database_id: calls.append(database_id) or (recovered,),
+    )
+
+    result = backend_gateway.get_backend_gateway().activate_scientific_runtime(
+        "test_db"
+    )
+
+    assert result == (recovered,)
+    assert calls == ["test_db"]
+
+
+def test_database_activation_uses_http_backend_without_local_fallback(
+    monkeypatch,
+):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    local_calls = []
+    payload = {
+        **_completed_job(status=JobStatus.PENDING).__dict__,
+        "status": JobStatus.PENDING.value,
+        "table_name": "archived_table",
+    }
+
+    class FakeClient:
+        def __init__(self, base_url):
+            self.base_url = base_url
+
+        def activate_scientific_runtime(self, database_id):
+            assert database_id == "test_db"
+            return {"database_id": database_id, "recovered_jobs": [payload]}
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+    monkeypatch.setattr(
+        backend_gateway,
+        "activate_scientific_runtime",
+        lambda database_id: local_calls.append(database_id),
+    )
+
+    result = backend_gateway.get_backend_gateway().activate_scientific_runtime(
+        "test_db"
+    )
+
+    assert result[0].job.job_id == "job-1"
+    assert result[0].table_name == "archived_table"
+    assert local_calls == []
+
+
+def test_active_harmonsmile_lookup_uses_http_backend(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    expected = _completed_job(status=JobStatus.RUNNING)
+    payload = {**expected.__dict__, "status": expected.status.value}
+
+    class FakeClient:
+        def __init__(self, base_url):
+            self.base_url = base_url
+
+        def find_active_harmonsmile_job(self, database_id, table_name):
+            assert (database_id, table_name) == ("test_db", "main")
+            return payload
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+    result = backend_gateway.get_backend_gateway().find_active_harmonsmile_job(
+        "test_db", "main"
+    )
+
+    assert result == expected

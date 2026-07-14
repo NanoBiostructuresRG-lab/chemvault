@@ -4,7 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import main as api_main
-from application.job_contracts import job_status_from_payload
+from application.job_contracts import (
+    RecoveredJobContract,
+    job_status_from_payload,
+)
 from application.database_use_cases import (
     DatabaseMetrics,
     DatabaseNotFoundError,
@@ -76,6 +79,10 @@ def test_openapi_schema_exposes_read_only_contract():
     }.issubset(schema["paths"])
     assert "/databases/{database_id}/jobs/harmonsmile" in schema["paths"]
     assert "/databases/{database_id}/jobs/{job_id}" in schema["paths"]
+    assert (
+        "/databases/{database_id}/scientific-runtime/activate"
+        in schema["paths"]
+    )
 
 
 def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
@@ -89,7 +96,7 @@ def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
     background_calls = []
     monkeypatch.setattr(
         api_main,
-        "start_background_job",
+        "start_scientific_background_job",
         lambda *args, **kwargs: background_calls.append((args, kwargs)),
     )
 
@@ -112,7 +119,6 @@ def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
     assert background_calls == [
         (
             (
-                api_main.execute_scientific_job,
                 "test_db",
                 api_main.JobType.HARMONSMILE,
                 "job-1",
@@ -120,6 +126,25 @@ def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
             {"name": "chemvault-harmonsmile"},
         )
     ]
+
+
+def test_active_harmonsmile_endpoint_uses_application_runtime(monkeypatch):
+    expected = job_status_from_payload(_pending_harmonsmile_job())
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "find_active_scientific_job",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    response = client.get(
+        "/databases/test_db/jobs/harmonsmile/active",
+        params={"table_name": "main"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["job_id"] == "job-1"
+    assert calls == [("test_db", api_main.JobType.HARMONSMILE, "main")]
 
 
 def test_job_status_endpoint_uses_application_runtime(monkeypatch):
@@ -172,6 +197,46 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_api_startup_does_not_activate_or_enumerate_databases(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "activate_scientific_runtime",
+        lambda database_id: calls.append(database_id),
+    )
+
+    with TestClient(api_main.app) as startup_client:
+        assert startup_client.get("/health").status_code == 200
+
+    assert calls == []
+
+
+def test_database_activation_returns_recovered_job_snapshots(monkeypatch):
+    recovered_job = RecoveredJobContract(
+        job=job_status_from_payload(_pending_harmonsmile_job()),
+        table_name="archived_table",
+    )
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "activate_scientific_runtime",
+        lambda database_id: calls.append(database_id) or (recovered_job,),
+    )
+
+    response = client.post(
+        "/databases/test_db/scientific-runtime/activate"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["database_id"] == "test_db"
+    assert response.json()["recovered_jobs"][0]["job_id"] == "job-1"
+    assert response.json()["recovered_jobs"][0]["table_name"] == (
+        "archived_table"
+    )
+    assert response.json()["recovered_jobs"][0]["status"] == "pending"
+    assert calls == ["test_db"]
 
 
 def test_database_tables_endpoint_uses_application_layer(monkeypatch):

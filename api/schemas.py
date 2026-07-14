@@ -84,3 +84,12 @@ class JobStatusResponse(BaseModel):
     error: str | None
     result: dict[str, Any] | None
     cancellable: bool
+
+
+class RecoveredJobResponse(JobStatusResponse):
+    table_name: str
+
+
+class ScientificRuntimeActivationResponse(BaseModel):
+    database_id: str
+    recovered_jobs: list[RecoveredJobResponse]

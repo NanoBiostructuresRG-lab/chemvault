@@ -102,6 +102,13 @@ class ChemVaultApiClient:
     def health(self) -> dict[str, Any]:
         return self._get("/health")
 
+    def activate_scientific_runtime(self, database_id: str) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        return self._post(
+            f"/databases/{database_id}/scientific-runtime/activate",
+            timeout=self.timeout,
+        )
+
     def list_tables(self, database_id: str) -> dict[str, Any]:
         database_id = self._segment(database_id)
         return self._get(f"/databases/{database_id}/tables")
@@ -200,3 +207,14 @@ class ChemVaultApiClient:
         database_id = self._segment(database_id)
         job_id = self._segment(job_id)
         return self._get(f"/databases/{database_id}/jobs/{job_id}")
+
+    def find_active_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+    ) -> dict[str, Any] | None:
+        database_id = self._segment(database_id)
+        return self._get(
+            f"/databases/{database_id}/jobs/harmonsmile/active",
+            params={"table_name": table_name},
+        )

@@ -26,6 +26,18 @@ class InvalidColumnError(ValueError):
     """Raised when a requested column is unavailable."""
 
 
+def resolve_database_path(database_id: str, db_dir="SQL") -> Path:
+    """Resolve one explicitly named database without leaving its root."""
+    database_id = str(database_id).strip()
+    root = Path(db_dir).resolve()
+    db_path = (root / f"{database_id}.db").resolve()
+    if not database_id or db_path.parent != root or not db_path.is_file():
+        raise DatabaseNotFoundError(
+            f"Database '{database_id}' was not found."
+        )
+    return db_path
+
+
 def create_database(input_database_id: str) -> DatabaseState:
     return database_service.set_database_id(input_database_id)
 

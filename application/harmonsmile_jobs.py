@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Application orchestration for the minimal HARMONSMILE job runtime."""
 from collections.abc import Callable
+import sqlite3
 
 from application.curation_use_cases import run_harmonsmile
 from application.database_use_cases import (
@@ -9,8 +10,13 @@ from application.database_use_cases import (
     TableNotFoundError,
     get_table_state,
     list_database_tables,
+    resolve_database_path,
 )
-from application.job_contracts import JobStatusContract, job_status_from_record
+from application.job_contracts import (
+    JobStatusContract,
+    RecoveredJobContract,
+    job_status_from_record,
+)
 from application.scientific_jobs import JobNotFoundError, register_scientific_job
 from services.database_core import get_connection
 from services.db_audit import register_operation
@@ -82,11 +88,14 @@ def create_harmonsmile_job(
             "table_name": table_name,
             "cid_column": cid_column,
         }
-        record = store.create_job(
+        record, created = store.create_job_unless_active(
             job_type=JobType.HARMONSMILE,
             database_id=database_id,
+            table_name=table_name,
             metadata=request_metadata,
         )
+        if not created:
+            return job_status_from_record(record)
         record = store.update_progress(
             record.job_id,
             "queued",
@@ -242,6 +251,59 @@ def get_harmonsmile_job_status(
             f"Job '{job_id}' was not found in database '{database_id}'."
         )
     return job_status_from_record(record)
+
+
+def recover_orphaned_harmonsmile_jobs(
+    database_id,
+    *,
+    db_dir="SQL",
+    executor_is_alive: Callable,
+    process_is_alive: Callable,
+    current_pid: int,
+):
+    """Requeue orphaned HARMONSMILE jobs in one explicit database."""
+    recovered = []
+    db_path = resolve_database_path(database_id, db_dir=db_dir)
+    connection = sqlite3.connect(db_path, check_same_thread=False)
+    try:
+        has_jobs_table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            ("_chemvault_jobs",),
+        ).fetchone()
+        if has_jobs_table is None:
+            return recovered
+        store = JobStore(connection)
+        jobs = store.list_active_scientific_jobs(JobType.HARMONSMILE)
+        for job in jobs:
+            if job.database_id and job.database_id != database_id:
+                continue
+            # In-process registration is authoritative for local threads;
+            # a persisted PID protects work owned by another live process.
+            # Heartbeat age is deliberately not used because one 500-CID
+            # HARMONSMILE call can be quiet for longer than the stale limit.
+            if executor_is_alive(database_id, job.job_id):
+                continue
+            if (
+                job.worker_pid is not None
+                and job.worker_pid != current_pid
+                and process_is_alive(job.worker_pid)
+            ):
+                continue
+            requeued = store.requeue_orphaned_scientific_job(
+                job.job_id,
+                JobType.HARMONSMILE,
+                job.worker_pid,
+            )
+            if requeued is not None:
+                recovered.append(
+                    RecoveredJobContract(
+                        job=job_status_from_record(requeued),
+                        table_name=str(requeued.metadata.get("table_name", "")),
+                    )
+                )
+    finally:
+        connection.close()
+    return recovered
 
 
 register_scientific_job(
