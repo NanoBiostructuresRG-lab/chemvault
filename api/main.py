@@ -13,6 +13,7 @@ from api.schemas import (
     OperationHistoryResponse,
     RecoveredJobResponse,
     ScientificRuntimeActivationResponse,
+    StructureConsolidationResponse,
     TableMetadataResponse,
     TableMetricsResponse,
     TablePreviewResponse,
@@ -40,6 +41,8 @@ from application.table_use_cases import (
     export_table_csv,
     preview_selected_columns,
 )
+from application.structure_consolidation import consolidate_structure_table
+from services.structure_consolidation import StructureConsolidationError
 from services.job_models import JobType
 
 
@@ -176,6 +179,24 @@ def database_operations(database_id: DatabaseId):
         database_id=database_id,
         operations=list(operations),
     )
+
+
+@app.post(
+    "/databases/{database_id}/tables/{table_name}/structure-consolidation",
+    response_model=StructureConsolidationResponse,
+    status_code=201,
+)
+def structure_consolidation(
+    database_id: DatabaseId,
+    table_name: TableName,
+):
+    try:
+        result = consolidate_structure_table(database_id, table_name)
+    except (DatabaseNotFoundError, TableNotFoundError) as error:
+        raise _not_found(error) from error
+    except StructureConsolidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return StructureConsolidationResponse(**result.__dict__)
 
 
 @app.get(

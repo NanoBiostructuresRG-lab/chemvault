@@ -18,6 +18,10 @@ from application.table_use_cases import (
     export_table_csv,
     preview_selected_columns,
 )
+from application.structure_consolidation import (
+    StructureConsolidationTableResult,
+    consolidate_structure_table as consolidate_local_structure_table,
+)
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
 from application.job_contracts import (
     JobStatusContract,
@@ -99,6 +103,12 @@ class _Backend(Protocol):
         table_name: str,
         columns: list[str] | None = None,
     ) -> bytes: ...
+
+    def consolidate_structure_table(
+        self,
+        database_id: str,
+        source_table: str,
+    ) -> StructureConsolidationTableResult: ...
 
     def launch_harmonsmile_job(
         self,
@@ -211,6 +221,13 @@ class _LocalBackend:
         columns: list[str] | None = None,
     ) -> bytes:
         return export_table_csv(database_id, table_name, columns)
+
+    def consolidate_structure_table(
+        self,
+        database_id: str,
+        source_table: str,
+    ) -> StructureConsolidationTableResult:
+        return consolidate_local_structure_table(database_id, source_table)
 
     def launch_harmonsmile_job(
         self,
@@ -388,6 +405,20 @@ class _HttpBackend:
         except ChemVaultApiError as error:
             self._raise_gateway_error(error)
 
+    def consolidate_structure_table(
+        self,
+        database_id: str,
+        source_table: str,
+    ) -> StructureConsolidationTableResult:
+        try:
+            response = self._client.consolidate_structure_table(
+                database_id,
+                source_table,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return StructureConsolidationTableResult(**response)
+
     def launch_harmonsmile_job(
         self,
         database_id: str,
@@ -512,6 +543,16 @@ class BackendGateway:
             database_id,
             table_name,
             columns,
+        )
+
+    def consolidate_structure_table(
+        self,
+        database_id: str,
+        source_table: str,
+    ) -> StructureConsolidationTableResult:
+        return self._backend.consolidate_structure_table(
+            database_id,
+            source_table,
         )
 
     def launch_harmonsmile_job(

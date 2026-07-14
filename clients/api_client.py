@@ -173,6 +173,19 @@ class ChemVaultApiClient:
             params=params,
         )
 
+    def consolidate_structure_table(
+        self,
+        database_id: str,
+        source_table: str,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        source_table = self._segment(source_table)
+        return self._post(
+            f"/databases/{database_id}/tables/{source_table}/"
+            "structure-consolidation",
+            timeout=self.timeout,
+        )
+
     def launch_harmonsmile_job(
         self,
         database_id: str,

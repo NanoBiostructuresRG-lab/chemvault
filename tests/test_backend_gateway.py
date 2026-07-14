@@ -5,11 +5,30 @@ import pandas as pd
 import pytest
 
 from application.database_use_cases import DatabaseMetrics
+from application.structure_consolidation import (
+    StructureConsolidationTableResult,
+)
 from clients import backend_gateway
 from clients.api_client import ChemVaultApiError
 from application.job_contracts import JobStatusContract, RecoveredJobContract
 from services.job_models import JobStatus
 from services.database import DatabaseState
+
+
+def _structure_consolidation_result():
+    return StructureConsolidationTableResult(
+        table_name="main_structure_consolidated",
+        source_row_count=10,
+        valid_source_row_count=8,
+        unique_structure_count=6,
+        created_row_count=4,
+        active_structure_count=3,
+        inactive_structure_count=1,
+        conflicting_structure_count=1,
+        non_binary_structure_count=1,
+        unusable_row_count=2,
+        consolidated_duplicate_count=2,
+    )
 
 
 def test_gateway_selects_local_backend_without_api_url(monkeypatch):
@@ -238,6 +257,82 @@ def test_table_export_http_error_does_not_fall_back(monkeypatch):
         match="request timed out",
     ):
         backend_gateway.get_backend_gateway().export_table("test_db", "main")
+
+    assert local_calls == []
+
+
+def test_structure_consolidation_uses_local_application_backend(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    expected = _structure_consolidation_result()
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "consolidate_local_structure_table",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    result = backend_gateway.get_backend_gateway().consolidate_structure_table(
+        "test_db",
+        "main",
+    )
+
+    assert result is expected
+    assert calls == [("test_db", "main")]
+
+
+def test_structure_consolidation_uses_http_backend(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    expected = _structure_consolidation_result()
+    calls = []
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def consolidate_structure_table(self, database_id, source_table):
+            calls.append(("consolidate", database_id, source_table))
+            return expected.__dict__
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+
+    result = backend_gateway.get_backend_gateway().consolidate_structure_table(
+        "test_db",
+        "main",
+    )
+
+    assert result == expected
+    assert calls == [
+        ("init", "http://api.example"),
+        ("consolidate", "test_db", "main"),
+    ]
+
+
+def test_structure_consolidation_http_error_does_not_fall_back(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    local_calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "consolidate_local_structure_table",
+        lambda *args: local_calls.append(args),
+    )
+
+    class FailingClient:
+        def __init__(self, base_url):
+            pass
+
+        def consolidate_structure_table(self, database_id, source_table):
+            raise ChemVaultApiError("validation failed")
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FailingClient)
+
+    with pytest.raises(
+        backend_gateway.BackendGatewayError,
+        match="validation failed",
+    ):
+        backend_gateway.get_backend_gateway().consolidate_structure_table(
+            "test_db",
+            "main",
+        )
 
     assert local_calls == []
 

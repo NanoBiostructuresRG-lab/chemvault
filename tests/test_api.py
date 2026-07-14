@@ -14,7 +14,11 @@ from application.database_use_cases import (
     InvalidColumnError,
     TableNotFoundError,
 )
+from application.structure_consolidation import (
+    StructureConsolidationTableResult,
+)
 from services.database import DatabaseState
+from services.structure_consolidation import StructureConsolidationError
 
 
 client = TestClient(api_main.app)
@@ -54,6 +58,22 @@ def _pending_harmonsmile_job():
     }
 
 
+def _structure_consolidation_result():
+    return StructureConsolidationTableResult(
+        table_name="main_structure_consolidated",
+        source_row_count=10,
+        valid_source_row_count=8,
+        unique_structure_count=6,
+        created_row_count=4,
+        active_structure_count=3,
+        inactive_structure_count=1,
+        conflicting_structure_count=1,
+        non_binary_structure_count=1,
+        unusable_row_count=2,
+        consolidated_duplicate_count=2,
+    )
+
+
 def test_docs_endpoint_is_available():
     response = client.get("/docs", follow_redirects=False)
 
@@ -76,6 +96,10 @@ def test_openapi_schema_exposes_read_only_contract():
         "/databases/{database_id}/tables/{table_name}/metrics",
         "/databases/{database_id}/tables/{table_name}/preview",
         "/databases/{database_id}/tables/{table_name}/export",
+        (
+            "/databases/{database_id}/tables/{table_name}/"
+            "structure-consolidation"
+        ),
     }.issubset(schema["paths"])
     assert "/databases/{database_id}/jobs/harmonsmile" in schema["paths"]
     assert "/databases/{database_id}/jobs/{job_id}" in schema["paths"]
@@ -312,6 +336,54 @@ def test_database_operations_endpoint_returns_404_for_missing_database(monkeypat
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Database 'missing' was not found."}
+
+
+def test_structure_consolidation_endpoint_returns_complete_result(monkeypatch):
+    expected = _structure_consolidation_result()
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "consolidate_structure_table",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    response = client.post(
+        "/databases/test_db/tables/main/structure-consolidation"
+    )
+
+    assert response.status_code == 201
+    assert response.json() == expected.__dict__
+    assert calls == [("test_db", "main")]
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (DatabaseNotFoundError("Database was not found."), 404),
+        (TableNotFoundError("Table was not found."), 404),
+        (
+            StructureConsolidationError("Missing HARMONSMILE columns."),
+            422,
+        ),
+    ],
+)
+def test_structure_consolidation_endpoint_maps_application_errors(
+    monkeypatch,
+    error,
+    status_code,
+):
+    monkeypatch.setattr(
+        api_main,
+        "consolidate_structure_table",
+        lambda *_args: (_ for _ in ()).throw(error),
+    )
+
+    response = client.post(
+        "/databases/test_db/tables/main/structure-consolidation"
+    )
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}
 
 
 def test_table_metrics_endpoint_uses_application_layer(monkeypatch):

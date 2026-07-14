@@ -64,6 +64,20 @@ class TablePreviewResponse(BaseModel):
     limit: int
 
 
+class StructureConsolidationResponse(BaseModel):
+    table_name: str
+    source_row_count: int
+    valid_source_row_count: int
+    unique_structure_count: int
+    created_row_count: int
+    active_structure_count: int
+    inactive_structure_count: int
+    conflicting_structure_count: int
+    non_binary_structure_count: int
+    unusable_row_count: int
+    consolidated_duplicate_count: int
+
+
 class HarmonsmileJobRequest(BaseModel):
     table_name: str = Field(min_length=1)
     cid_column: str = Field(min_length=1)
