@@ -26,6 +26,7 @@ from state_keys import (
     SELECTING_CHAMANP,
     SELECTING_HARMONSMILE,
     SET_TEXT_INPUT_LOCKED,
+    SCIENTIFIC_RECOVERY_NOTICE,
 )
 
 
@@ -53,6 +54,7 @@ def initialize_session_state(session_state, verify_directories_callback):
         HARMONSMILE_JOB_ID: "",
         HARMONSMILE_FEEDBACK_KIND: "",
         HARMONSMILE_FEEDBACK_MESSAGE: "",
+        SCIENTIFIC_RECOVERY_NOTICE: "",
     }
 
     for key, value in defaults.items():
@@ -64,6 +66,12 @@ def apply_database_state(session_state, database_state):
     if not database_state.success:
         return False
 
+    previous_database_id = session_state.get(DATABASE_ID, "")
+    if (
+        previous_database_id != database_state.database_id
+        and SCIENTIFIC_RECOVERY_NOTICE in session_state
+    ):
+        session_state[SCIENTIFIC_RECOVERY_NOTICE] = ""
     session_state[DATABASE_ID] = database_state.database_id
     session_state[CURRENT_TABLE] = database_state.current_table
     session_state[HEADERS] = list(database_state.headers)
@@ -128,8 +136,41 @@ def load_database_metadata(
 
 
 def refresh_database_state(session_state):
+    database_id = session_state.get(DATABASE_ID, "")
+    if database_id:
+        try:
+            recovered_jobs = get_backend_gateway().activate_scientific_runtime(
+                database_id
+            )
+        except BackendGatewayError as error:
+            return DatabaseState(
+                database_id=database_id,
+                current_table=session_state.get(CURRENT_TABLE, ""),
+                headers=tuple(session_state.get(HEADERS, [])),
+                all_tables=tuple(session_state.get(ALL_TABLES, [])),
+                selected_headers=tuple(
+                    session_state.get(SELECTED_HEADERS, [])
+                ),
+                message=(
+                    "Unable to activate scientific recovery for the selected "
+                    f"database: {error}"
+                ),
+                success=False,
+            )
+        if recovered_jobs:
+            notices = [
+                (
+                    "Recovered interrupted HARMONSMILE job "
+                    f"{recovered.job.job_id} for table "
+                    f"'{recovered.table_name}' "
+                    f"(status: {recovered.job.status.value})."
+                )
+                for recovered in recovered_jobs
+            ]
+            session_state[SCIENTIFIC_RECOVERY_NOTICE] = " ".join(notices)
+
     database_state, error = load_database_tables(
-        session_state.get(DATABASE_ID, ""),
+        database_id,
         session_state.get(CURRENT_TABLE, ""),
         session_state.get(SELECTED_HEADERS, []),
     )

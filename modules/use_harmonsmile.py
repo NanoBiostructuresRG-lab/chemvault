@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 from harmonsmile import PubChemIngest, PubChemConfig
 import pandas as pd
-import os 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 HARMONSMILE_INPUT_CID_COLUMN = "CID"
 
@@ -20,22 +21,19 @@ def use_PubchemIngest(df: pd.DataFrame) -> pd.DataFrame:
             "Please select the column that contains PubChem CIDs."
         )
 
-    temp_dir = "tempFilesHarmonsile"
-    os.makedirs(temp_dir, exist_ok=True)
-    input_path = os.path.join(temp_dir, "res_pubchem.csv")
+    temp_root = Path("tempFilesHarmonsile")
+    temp_root.mkdir(parents=True, exist_ok=True)
     temp_df = df.copy()
     temp_df.columns = [HARMONSMILE_INPUT_CID_COLUMN]
-    temp_df.to_csv(input_path, index=False, sep=",")
-    cfg = PubChemConfig(
-        input_path=input_path,
-        cid_col=HARMONSMILE_INPUT_CID_COLUMN,
-        keep_extra_columns=True,
-    )
-    try:
+    with TemporaryDirectory(prefix="ingest-", dir=temp_root) as invocation_dir:
+        input_path = Path(invocation_dir) / "res_pubchem.csv"
+        temp_df.to_csv(input_path, index=False, sep=",")
+        cfg = PubChemConfig(
+            input_path=str(input_path),
+            cid_col=HARMONSMILE_INPUT_CID_COLUMN,
+            keep_extra_columns=True,
+        )
         result_df = PubChemIngest(cfg).run()
-    finally:
-        if os.path.exists(input_path):
-            os.remove(input_path)
     result_df.columns = ( #preparamos los datos para ser procesados por sql
         result_df.columns
         .str.replace(" ", "_", regex=False)

@@ -68,6 +68,25 @@ def create_scientific_job(
     return definition.create(database_id, **request)
 
 
+def find_active_scientific_job(
+    database_id: str,
+    job_type: str | JobType,
+    table_name: str,
+) -> JobStatusContract | None:
+    """Return the active owner for one scientific job/table scope."""
+    list_database_tables(database_id)
+    connection = get_connection(database_id)
+    try:
+        record = JobStore(connection).find_active_scientific_job(
+            database_id,
+            job_type,
+            table_name,
+        )
+    finally:
+        connection.close()
+    return None if record is None else job_status_from_record(record)
+
+
 def execute_scientific_job(
     database_id: str,
     job_type: str | JobType,
@@ -76,6 +95,23 @@ def execute_scientific_job(
     """Execute a queued scientific job using a registered workflow hook."""
     definition = get_scientific_job_definition(job_type)
     return definition.execute(database_id, job_id)
+
+
+def claim_scientific_job_executor(
+    database_id: str,
+    job_id: str,
+    worker_pid: int,
+) -> bool:
+    """Atomically claim a pending scientific job for one process."""
+    connection = get_connection(database_id)
+    try:
+        claimed = JobStore(connection).claim_pending_scientific_job(
+            job_id,
+            worker_pid,
+        )
+    finally:
+        connection.close()
+    return claimed is not None
 
 
 def get_scientific_job_status(

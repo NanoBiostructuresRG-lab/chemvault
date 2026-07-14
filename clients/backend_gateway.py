@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Single backend boundary for Streamlit reads and supported commands."""
 import os
-from threading import Thread
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -20,10 +19,19 @@ from application.table_use_cases import (
     preview_selected_columns,
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
-from application.job_contracts import JobStatusContract, job_status_from_payload
+from application.job_contracts import (
+    JobStatusContract,
+    RecoveredJobContract,
+    job_status_from_payload,
+    recovered_job_from_payload,
+)
+from application.scientific_runtime import (
+    activate_scientific_runtime,
+    start_scientific_job_executor,
+)
 from application.scientific_jobs import (
     create_scientific_job,
-    execute_scientific_job,
+    find_active_scientific_job,
     get_scientific_job_status,
 )
 from clients.api_client import ChemVaultApiClient, ChemVaultApiError
@@ -46,6 +54,11 @@ class TableMetadata:
 
 
 class _Backend(Protocol):
+    def activate_scientific_runtime(
+        self,
+        database_id: str,
+    ) -> tuple[RecoveredJobContract, ...]: ...
+
     def list_tables(self, database_id: str) -> tuple[str, ...]: ...
 
     def get_operation_history(
@@ -107,6 +120,12 @@ class _Backend(Protocol):
         job_id: str,
     ) -> JobStatusContract: ...
 
+    def find_active_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+    ) -> JobStatusContract | None: ...
+
 
 def _validate_preview_limit(limit: int) -> int:
     limit = int(limit)
@@ -118,6 +137,15 @@ def _validate_preview_limit(limit: int) -> int:
 
 
 class _LocalBackend:
+    def activate_scientific_runtime(
+        self,
+        database_id: str,
+    ) -> tuple[RecoveredJobContract, ...]:
+        try:
+            return activate_scientific_runtime(database_id)
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return tuple(refresh_database(database_id).all_tables)
 
@@ -203,13 +231,12 @@ class _LocalBackend:
         request: dict[str, object],
     ) -> JobStatusContract:
         created = create_scientific_job(database_id, job_type, dict(request))
-        thread = Thread(
-            target=execute_scientific_job,
-            args=(database_id, job_type, created.job_id),
-            daemon=True,
+        start_scientific_job_executor(
+            database_id,
+            job_type,
+            created.job_id,
             name=f"chemvault-{job_type}",
         )
-        thread.start()
         return created
 
     def get_job_status(
@@ -219,6 +246,17 @@ class _LocalBackend:
     ) -> JobStatusContract:
         return get_scientific_job_status(database_id, job_id)
 
+    def find_active_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+    ) -> JobStatusContract | None:
+        return find_active_scientific_job(
+            database_id,
+            JobType.HARMONSMILE,
+            table_name,
+        )
+
 
 class _HttpBackend:
     def __init__(self, base_url: str):
@@ -227,6 +265,19 @@ class _HttpBackend:
     @staticmethod
     def _raise_gateway_error(error: ChemVaultApiError):
         raise BackendGatewayError(str(error)) from error
+
+    def activate_scientific_runtime(
+        self,
+        database_id: str,
+    ) -> tuple[RecoveredJobContract, ...]:
+        try:
+            response = self._client.activate_scientific_runtime(database_id)
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return tuple(
+            recovered_job_from_payload(payload)
+            for payload in response.get("recovered_jobs", [])
+        )
 
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         try:
@@ -374,6 +425,20 @@ class _HttpBackend:
             self._raise_gateway_error(error)
         return job_status_from_payload(response)
 
+    def find_active_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+    ) -> JobStatusContract | None:
+        try:
+            response = self._client.find_active_harmonsmile_job(
+                database_id,
+                table_name,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return None if response is None else job_status_from_payload(response)
+
 
 class BackendGateway:
     """Facade exposing one stable contract to Streamlit."""
@@ -381,6 +446,12 @@ class BackendGateway:
     def __init__(self, backend: _Backend, mode: str):
         self._backend = backend
         self.mode = mode
+
+    def activate_scientific_runtime(
+        self,
+        database_id: str,
+    ) -> tuple[RecoveredJobContract, ...]:
+        return self._backend.activate_scientific_runtime(database_id)
 
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return self._backend.list_tables(database_id)
@@ -469,6 +540,16 @@ class BackendGateway:
         job_id: str,
     ) -> JobStatusContract:
         return self._backend.get_job_status(database_id, job_id)
+
+    def find_active_harmonsmile_job(
+        self,
+        database_id: str,
+        table_name: str,
+    ) -> JobStatusContract | None:
+        return self._backend.find_active_harmonsmile_job(
+            database_id,
+            table_name,
+        )
 
 
 # Compatibility for existing imports while the boundary evolves beyond reads.

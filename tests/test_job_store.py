@@ -91,6 +91,41 @@ def test_create_job_persists_pending_record():
     assert job.last_heartbeat_at == job.created_at
 
 
+def test_scientific_job_scope_returns_active_owner_and_allows_after_terminal():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    first, created = store.create_job_unless_active(
+        job_type=JobType.HARMONSMILE,
+        database_id="test_db",
+        table_name="main",
+        metadata={"table_name": "main", "cid_column": "CID"},
+    )
+    duplicate, duplicate_created = store.create_job_unless_active(
+        job_type=JobType.HARMONSMILE,
+        database_id="test_db",
+        table_name="main",
+        metadata={"table_name": "main", "cid_column": "Other CID"},
+    )
+
+    assert created is True
+    assert duplicate_created is False
+    assert duplicate.job_id == first.job_id
+    assert store.find_active_scientific_job(
+        "test_db", JobType.HARMONSMILE, "main"
+    ).job_id == first.job_id
+
+    store.complete_job(first.job_id)
+    replacement, replacement_created = store.create_job_unless_active(
+        job_type=JobType.HARMONSMILE,
+        database_id="test_db",
+        table_name="main",
+        metadata={"table_name": "main", "cid_column": "CID"},
+    )
+
+    assert replacement_created is True
+    assert replacement.job_id != first.job_id
+
+
 def test_start_job_updates_status_and_started_timestamp():
     connection = sqlite3.connect(":memory:")
     store = JobStore(connection)
@@ -166,6 +201,39 @@ def test_set_worker_pid_persists_process_identifier():
 
     assert updated.worker_pid == 12345
     assert store.get_job(job.job_id).worker_pid == 12345
+
+
+def test_pending_scientific_job_has_only_one_executor_claim():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    job = store.create_job(job_type=JobType.HARMONSMILE, job_id="job-1")
+
+    claimed = store.claim_pending_scientific_job(job.job_id, 111)
+    duplicate = store.claim_pending_scientific_job(job.job_id, 222)
+
+    assert claimed.worker_pid == 111
+    assert duplicate is None
+    assert store.get_job(job.job_id).worker_pid == 111
+
+
+def test_orphan_requeue_requires_matching_worker_and_preserves_job_id():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    job = store.create_job(job_type=JobType.HARMONSMILE, job_id="job-1")
+    store.claim_pending_scientific_job(job.job_id, 111)
+    store.start_job(job.job_id)
+
+    assert store.requeue_orphaned_scientific_job(
+        job.job_id, JobType.HARMONSMILE, 222
+    ) is None
+    recovered = store.requeue_orphaned_scientific_job(
+        job.job_id, JobType.HARMONSMILE, 111
+    )
+
+    assert recovered.job_id == job.job_id
+    assert recovered.status == JobStatus.PENDING.value
+    assert recovered.current_stage == "recovery_queued"
+    assert recovered.worker_pid is None
 
 
 def test_cancel_job_marks_active_job_cancelled():

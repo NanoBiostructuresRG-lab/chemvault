@@ -14,6 +14,10 @@ def test_existing_core_session_key_strings_are_preserved():
     assert state_keys.SELECTED_PROTEINS == "selected_proteins"
     assert state_keys.ALL_TABLES == "all_tables"
     assert state_keys.CUSTOM_QUERY == "custom_query"
+    assert (
+        state_keys.SCIENTIFIC_RECOVERY_NOTICE
+        == "scientific_recovery_notice"
+    )
 
 
 def test_existing_widget_session_key_strings_are_preserved():

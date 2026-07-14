@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 from services.database import DatabaseState
+from application.job_contracts import JobStatusContract, RecoveredJobContract
+from services.job_models import JobStatus
 from clients.backend_gateway import BackendGatewayError, TableMetadata
 from ui import session_state as session_state_module
 from ui.session_state import (
@@ -7,6 +9,7 @@ from ui.session_state import (
     initialize_session_state,
     load_database_metadata,
     load_database_tables,
+    refresh_database_state,
 )
 
 
@@ -32,6 +35,7 @@ def test_initialize_session_state_sets_current_defaults_when_database_is_missing
     assert session_state["harmonsmile_job_id"] == ""
     assert session_state["harmonsmile_feedback_kind"] == ""
     assert session_state["harmonsmile_feedback_message"] == ""
+    assert session_state["scientific_recovery_notice"] == ""
 
 
 def test_initialize_session_state_preserves_existing_values():
@@ -277,3 +281,64 @@ def test_database_metadata_returns_visible_api_error(monkeypatch):
         "Unable to load table metadata from the "
         "CHEMVAULT API: request timed out"
     )
+
+
+def test_selected_database_activation_surfaces_recovered_table_and_status(
+    monkeypatch,
+):
+    recovered = RecoveredJobContract(
+        job=JobStatusContract(
+            job_id="job-recovered",
+            job_type="harmonsmile",
+            status=JobStatus.PENDING,
+            database_id="test_db",
+            stage="recovery_queued",
+            progress=0.4,
+            message="queued for recovery",
+            created_at="2026-07-03T10:00:00+00:00",
+            started_at=None,
+            finished_at=None,
+            error=None,
+            cancellable=True,
+        ),
+        table_name="archived_table",
+    )
+    calls = []
+
+    class FakeGateway:
+        def activate_scientific_runtime(self, database_id):
+            calls.append(("activate", database_id))
+            return (recovered,)
+
+        def list_tables(self, database_id):
+            calls.append(("tables", database_id))
+            return ("main", "archived_table")
+
+        def get_table_metadata(self, database_id, table_name):
+            calls.append(("metadata", database_id, table_name))
+            return TableMetadata(columns=("CID",), row_count=1)
+
+    monkeypatch.setattr(
+        session_state_module,
+        "get_backend_gateway",
+        lambda: FakeGateway(),
+    )
+    state = {
+        "database_id": "test_db",
+        "current_table": "main",
+        "headers": [],
+        "all_tables": [],
+        "selected_headers": [],
+    }
+
+    database_state = refresh_database_state(state)
+
+    assert database_state.success is True
+    assert calls == [
+        ("activate", "test_db"),
+        ("tables", "test_db"),
+        ("metadata", "test_db", "main"),
+    ]
+    assert "job-recovered" in state["scientific_recovery_notice"]
+    assert "archived_table" in state["scientific_recovery_notice"]
+    assert "status: pending" in state["scientific_recovery_notice"]

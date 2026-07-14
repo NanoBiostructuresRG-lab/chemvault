@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
-import os
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Barrier, Lock
 
 from harmonsmile import load_table
 import pandas as pd
@@ -54,11 +56,14 @@ def test_harmonsmile_032_pubchem_ingest_returns_dataframe_contract(
 
     result = use_harmonsmile.use_PubchemIngest(pd.DataFrame({"CID": [1, 2]}))
 
-    assert captured_configs == [{
-        "input_path": os.path.join("tempFilesHarmonsile", "res_pubchem.csv"),
-        "cid_col": "CID",
-        "keep_extra_columns": True,
-    }]
+    assert len(captured_configs) == 1
+    captured_path = Path(captured_configs[0]["input_path"])
+    assert captured_path.name == "res_pubchem.csv"
+    assert captured_path.parent.name.startswith("ingest-")
+    assert captured_path.parent.parent == tmp_path / "tempFilesHarmonsile"
+    assert not captured_path.exists()
+    assert captured_configs[0]["cid_col"] == "CID"
+    assert captured_configs[0]["keep_extra_columns"] is True
     assert loaded_input_columns == ["CID"]
     assert list(result.columns) == [
         "PubChem_CID",
@@ -69,6 +74,51 @@ def test_harmonsmile_032_pubchem_ingest_returns_dataframe_contract(
         "InChI",
         "InChIKey",
     ]
+
+
+def test_harmonsmile_invocations_use_isolated_temporary_csv_paths(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    barrier = Barrier(2)
+    lock = Lock()
+    observed_paths = []
+
+    class FakePubChemConfig:
+        def __init__(self, **kwargs):
+            self.input_path = kwargs["input_path"]
+
+    class FakePubChemIngest:
+        def __init__(self, cfg):
+            self.cfg = cfg
+
+        def run(self):
+            input_path = Path(self.cfg.input_path)
+            cid = input_path.read_text(encoding="utf-8").splitlines()[1]
+            with lock:
+                observed_paths.append(input_path)
+            barrier.wait(timeout=2)
+            assert input_path.exists()
+            return pd.DataFrame({"PubChem_CID": [cid]})
+
+    monkeypatch.setattr(use_harmonsmile, "PubChemConfig", FakePubChemConfig)
+    monkeypatch.setattr(use_harmonsmile, "PubChemIngest", FakePubChemIngest)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                use_harmonsmile.use_PubchemIngest,
+                [pd.DataFrame({"CID": [1]}), pd.DataFrame({"CID": [2]})],
+            )
+        )
+
+    assert {result.iloc[0]["PubChem_CID"] for result in results} == {"1", "2"}
+    assert len(observed_paths) == 2
+    assert observed_paths[0] != observed_paths[1]
+    assert observed_paths[0].parent != observed_paths[1].parent
+    assert all(not path.exists() for path in observed_paths)
+    assert list((tmp_path / "tempFilesHarmonsile").iterdir()) == []
 
 
 def test_harmonsmile_cache_preserves_032_status_message_and_inchi_fields():

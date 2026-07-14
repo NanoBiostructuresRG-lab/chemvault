@@ -4,23 +4,26 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException, Path, Query
 from fastapi.responses import Response
 
-from api.job_runtime import start_background_job
+from api.job_runtime import start_scientific_background_job
 from api.schemas import (
     DatabaseTablesResponse,
     HealthResponse,
     HarmonsmileJobRequest,
     JobStatusResponse,
     OperationHistoryResponse,
+    RecoveredJobResponse,
+    ScientificRuntimeActivationResponse,
     TableMetadataResponse,
     TableMetricsResponse,
     TablePreviewResponse,
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
+from application.scientific_runtime import activate_scientific_runtime
 from application.scientific_jobs import (
     JobNotFoundError,
     UnsupportedJobTypeError,
     create_scientific_job,
-    execute_scientific_job,
+    find_active_scientific_job,
     get_scientific_job_status,
 )
 from application.database_use_cases import (
@@ -66,6 +69,27 @@ def health():
 
 
 @app.post(
+    "/databases/{database_id}/scientific-runtime/activate",
+    response_model=ScientificRuntimeActivationResponse,
+)
+def activate_database_scientific_runtime(database_id: DatabaseId):
+    try:
+        recovered = activate_scientific_runtime(database_id)
+    except DatabaseNotFoundError as error:
+        raise _not_found(error) from error
+    return ScientificRuntimeActivationResponse(
+        database_id=database_id,
+        recovered_jobs=[
+            RecoveredJobResponse(
+                **recovered_job.job.__dict__,
+                table_name=recovered_job.table_name,
+            )
+            for recovered_job in recovered
+        ],
+    )
+
+
+@app.post(
     "/databases/{database_id}/jobs/harmonsmile",
     response_model=JobStatusResponse,
     status_code=201,
@@ -83,8 +107,7 @@ def launch_harmonsmile(
                 "cid_column": request.cid_column,
             },
         )
-        start_background_job(
-            execute_scientific_job,
+        start_scientific_background_job(
             database_id,
             JobType.HARMONSMILE,
             created.job_id,
@@ -97,6 +120,24 @@ def launch_harmonsmile(
         raise HTTPException(status_code=422, detail=str(error)) from error
     except UnsupportedJobTypeError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get(
+    "/databases/{database_id}/jobs/harmonsmile/active",
+    response_model=JobStatusResponse | None,
+)
+def active_harmonsmile_job(
+    database_id: DatabaseId,
+    table_name: Annotated[str, Query(min_length=1)],
+):
+    try:
+        return find_active_scientific_job(
+            database_id,
+            JobType.HARMONSMILE,
+            table_name,
+        )
+    except DatabaseNotFoundError as error:
+        raise _not_found(error) from error
 
 
 @app.get(

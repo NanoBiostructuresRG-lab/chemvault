@@ -124,6 +124,24 @@ class JobStore:
         self.ensure_jobs_table()
         job_id = job_id or str(uuid.uuid4())
         created_at = _utc_now()
+        self._insert_job(
+            job_id,
+            job_type,
+            database_id,
+            metadata,
+            created_at,
+        )
+        self.connection.commit()
+        return self.get_job(job_id)
+
+    def _insert_job(
+        self,
+        job_id,
+        job_type,
+        database_id,
+        metadata,
+        created_at,
+    ):
         cursor = self.connection.cursor()
         cursor.execute(
             f"""
@@ -160,8 +178,83 @@ class JobStore:
                 _metadata_json(metadata),
             ),
         )
-        self.connection.commit()
-        return self.get_job(job_id)
+
+    def find_active_scientific_job(
+        self,
+        database_id,
+        job_type,
+        table_name,
+    ):
+        """Return the oldest equivalent pending/running scientific job."""
+        self.ensure_jobs_table()
+        return self._find_active_scientific_job(
+            database_id,
+            job_type,
+            table_name,
+        )
+
+    def _find_active_scientific_job(
+        self,
+        database_id,
+        job_type,
+        table_name,
+    ):
+        cursor = self.connection.cursor()
+        cursor.execute(
+            f"""
+            SELECT job_id, metadata_json
+            FROM {JOBS_TABLE}
+            WHERE database_id = ?
+              AND job_type = ?
+              AND status IN (?, ?)
+            ORDER BY created_at, job_id
+            """,
+            (
+                database_id,
+                _enum_value(job_type),
+                *ACTIVE_JOB_STATUSES,
+            ),
+        )
+        for job_id, metadata_json in cursor.fetchall():
+            if _metadata_dict(metadata_json).get("table_name") == table_name:
+                return self.get_job(job_id)
+        return None
+
+    def create_job_unless_active(
+        self,
+        *,
+        job_type,
+        database_id,
+        table_name,
+        metadata=None,
+        job_id=None,
+    ):
+        """Atomically create a job or return its equivalent active owner."""
+        self.ensure_jobs_table()
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            active = self._find_active_scientific_job(
+                database_id,
+                job_type,
+                table_name,
+            )
+            if active is not None:
+                self.connection.commit()
+                return active, False
+
+            job_id = job_id or str(uuid.uuid4())
+            self._insert_job(
+                job_id,
+                job_type,
+                database_id,
+                metadata,
+                _utc_now(),
+            )
+            self.connection.commit()
+            return self.get_job(job_id), True
+        except Exception:
+            self.connection.rollback()
+            raise
 
     def start_job(self, job_id):
         self.ensure_jobs_table()
@@ -218,6 +311,71 @@ class JobStore:
         updated = cursor.rowcount == 1
         self.connection.commit()
         return self.get_job(job_id) if updated else None
+
+    def claim_pending_scientific_job(self, job_id, worker_pid):
+        """Atomically assign one pending job to an in-process executor."""
+        self.ensure_jobs_table()
+        now = _utc_now()
+        cursor = self.connection.cursor()
+        cursor.execute(
+            f"""
+            UPDATE {JOBS_TABLE}
+            SET worker_pid = ?,
+                last_heartbeat_at = ?
+            WHERE job_id = ?
+              AND status = ?
+              AND worker_pid IS NULL
+            """,
+            (int(worker_pid), now, job_id, JobStatus.PENDING.value),
+        )
+        claimed = cursor.rowcount == 1
+        self.connection.commit()
+        return self.get_job(job_id) if claimed else None
+
+    def requeue_orphaned_scientific_job(
+        self,
+        job_id,
+        job_type,
+        expected_worker_pid,
+    ):
+        """Atomically make an orphaned active job claimable again."""
+        self.ensure_jobs_table()
+        cursor = self.connection.cursor()
+        worker_clause = "worker_pid IS NULL"
+        worker_params = []
+        if expected_worker_pid is not None:
+            worker_clause = "worker_pid = ?"
+            worker_params.append(int(expected_worker_pid))
+        params = [
+            JobStatus.PENDING.value,
+            "recovery_queued",
+            "Interrupted HARMONSMILE job queued for recovery",
+            _utc_now(),
+            job_id,
+            _enum_value(job_type),
+            *ACTIVE_JOB_STATUSES,
+            *worker_params,
+        ]
+        cursor.execute(
+            f"""
+            UPDATE {JOBS_TABLE}
+            SET status = ?,
+                current_stage = ?,
+                message = ?,
+                error_message = '',
+                finished_at = NULL,
+                worker_pid = NULL,
+                last_heartbeat_at = ?
+            WHERE job_id = ?
+              AND job_type = ?
+              AND status IN (?, ?)
+              AND {worker_clause}
+            """,
+            params,
+        )
+        requeued = cursor.rowcount == 1
+        self.connection.commit()
+        return self.get_job(job_id) if requeued else None
 
     def cancel_job(self, job_id, message="Cancellation requested"):
         self.ensure_jobs_table()
@@ -456,6 +614,59 @@ class JobStore:
                 LIMIT ?
                 """,
                 (limit,),
+            )
+            rows = cursor.fetchall()
+        finally:
+            self.connection.row_factory = original_factory
+        keys = [
+            "job_id",
+            "job_type",
+            "status",
+            "database_id",
+            "current_stage",
+            "progress",
+            "message",
+            "error_message",
+            "created_at",
+            "started_at",
+            "finished_at",
+            "last_heartbeat_at",
+            "cancel_requested_at",
+            "worker_pid",
+            "metadata_json",
+        ]
+        return [_job_from_row(dict(zip(keys, row))) for row in rows]
+
+    def list_active_scientific_jobs(self, job_type):
+        """Return all pending/running jobs for one scientific job type."""
+        self.ensure_jobs_table()
+        original_factory = self.connection.row_factory
+        self.connection.row_factory = None
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(
+                f"""
+                SELECT
+                    job_id,
+                    job_type,
+                    status,
+                    database_id,
+                    current_stage,
+                    progress,
+                    message,
+                    error_message,
+                    created_at,
+                    started_at,
+                    finished_at,
+                    last_heartbeat_at,
+                    cancel_requested_at,
+                    worker_pid,
+                    metadata_json
+                FROM {JOBS_TABLE}
+                WHERE job_type = ? AND status IN (?, ?)
+                ORDER BY created_at, job_id
+                """,
+                (_enum_value(job_type), *ACTIVE_JOB_STATUSES),
             )
             rows = cursor.fetchall()
         finally:

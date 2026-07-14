@@ -32,6 +32,27 @@ def test_application_database_layer_has_no_streamlit_imports():
     )
 
 
+def test_resolve_database_path_accepts_only_one_explicit_database(
+    tmp_path,
+):
+    sql_dir = tmp_path / "SQL"
+    sql_dir.mkdir()
+    selected = sql_dir / "selected.db"
+    unrelated = sql_dir / "unrelated.db"
+    selected.touch()
+    unrelated.touch()
+
+    assert database_use_cases.resolve_database_path(
+        "selected",
+        db_dir=sql_dir,
+    ) == selected.resolve()
+    with pytest.raises(database_use_cases.DatabaseNotFoundError):
+        database_use_cases.resolve_database_path(
+            "../unrelated",
+            db_dir=sql_dir,
+        )
+
+
 def test_create_database_delegates_to_database_service(monkeypatch):
     expected = DatabaseState(database_id="new_db", current_table="main")
     calls = []
