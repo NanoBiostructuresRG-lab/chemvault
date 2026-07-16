@@ -7,6 +7,199 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.10.5] - 2026-07-15
+
+### Added
+
+- Added the post-HARMONSMILE **Activity Labels** workflow for creating a
+  traceable derived table grouped by `SMILES_Harmonized`.
+- Added one-row-per-structure consolidation when all usable observations for
+  the same harmonized structure have a consistent `Active` or `Inactive`
+  outcome.
+- Added traceable exclusion of structures with conflicting Active/Inactive
+  labels, unsupported non-binary outcomes, or unusable harmonized structures.
+- Added deterministic, activity-based selection of `Reference_CID` and
+  `Reference_AID` using eligible exact activity measurements converted to
+  micromolar.
+- Added reference-activity fields, source CID/AID provenance, source-row
+  counts, distinct assay counts, and retained HARMONSMILE molecular columns to
+  the consolidated output.
+- Added persistent consolidation metadata covering source rows, exclusions,
+  final structures, represented observations, reference-selection results,
+  and Active/Inactive evidence by source assays.
+- Added local and HTTP backend support for Activity Labels execution and
+  retrieval of its persisted summary through the backend gateway.
+
+### Activity-label consolidation method
+
+For each usable harmonized structure \(s\), CHEMVAULT forms the group:
+
+\[
+G_s =
+\left\{
+r \;:\;
+\operatorname{SMILES\_Harmonized}(r)=s
+\right\}
+\]
+
+The set of normalized outcomes observed for that structure is:
+
+\[
+L_s =
+\left\{
+\operatorname{Outcome}(r)
+\;:\;
+r \in G_s
+\right\}
+\]
+
+The structure is retained only when all usable observations agree on one binary
+label:
+
+\[
+L_s = \{\mathrm{Active}\}
+\]
+
+or:
+
+\[
+L_s = \{\mathrm{Inactive}\}
+\]
+
+A structure is excluded when:
+
+\[
+\{\mathrm{Active},\mathrm{Inactive}\}
+\subseteq L_s
+\]
+
+or when the group contains only unsupported non-binary outcomes, lacks a usable
+`SMILES_Harmonized`, or has an unusable HARMONSMILE result.
+
+For every retained structure, CHEMVAULT evaluates its source activity
+observations. An activity observation is eligible for reference selection only
+when:
+
+- `Relation` is blank or `=`;
+- `Activity_Value` is finite and greater than zero;
+- `Unit` is supported and convertible to micromolar;
+- `Activity_Type` matches the single non-empty activity type of the source
+  table.
+
+Explicitly censored values such as `<`, `<=`, `>` and `>=` are preserved in the
+source evidence but are not treated as exact measurements in the reference
+calculation.
+
+Let the eligible exact activities, converted to micromolar, be:
+
+\[
+x_1,x_2,\ldots,x_n
+\qquad
+x_i > 0
+\]
+
+CHEMVAULT calculates the geometric mean activity:
+
+\[
+g =
+\exp\left(
+\frac{1}{n}
+\sum_{i=1}^{n}
+\ln x_i
+\right)
+\]
+
+Each eligible observation is compared with this geometric mean using
+logarithmic distance:
+
+\[
+d_i =
+\left|
+\ln x_i-\ln g
+\right|
+\]
+
+The reference observation is selected as:
+
+\[
+i^{*} =
+\operatorname*{arg\,min}_{i}
+\left|
+\ln x_i-\ln g
+\right|
+\]
+
+`Reference_CID`, `Reference_AID`, `Reference_Activity_Type`,
+`Reference_Relation`, `Reference_Activity_Value`,
+`Reference_Activity_Value_Raw`, `Reference_Unit`, and
+`Reference_Activity_Value_uM` are all taken from the same selected source
+observation \(i^{*}\).
+
+If two or more eligible observations have exactly the same logarithmic
+distance, CHEMVAULT applies a stable ordering of CID, AID, and source-row values
+only as a technical tie-breaker.
+
+The procedure is deterministic because the same eligible source observations
+produce:
+
+1. the same geometric mean \(g\);
+2. the same logarithmic distances \(d_i\);
+3. the same minimum-distance candidates;
+4. the same tie-broken reference, independently of the original row order.
+
+If a retained structure has no eligible exact activity observation, the
+structure remains in the consolidated table because its binary outcome is
+still consistent, but its reference fields remain empty and
+`Reference_Selection_Status` is set to `no_eligible_activity`.
+
+### Changed
+
+- Renamed the former representative identifiers to `Reference_CID` and
+  `Reference_AID` to avoid implying unsupported scientific superiority.
+- Replaced arbitrary minimum-CID reference selection with the deterministic
+  geometric-mean and minimum-log-distance method described above.
+- Added a persistent **Activity labels summary** to Table Manager, including:
+  - source-row and usable-structure counts;
+  - unusable-row and label-conflict exclusions;
+  - final Active and Inactive structure counts;
+  - represented source observations;
+  - additional observations consolidated;
+  - selected and unavailable activity references;
+  - distinct source assays and source observations for each binary outcome.
+- Prevented recursive Activity Labels execution on a table that already
+  contains consolidated activity labels.
+- Improved the Database summary by separating:
+  - active-table information;
+  - PubChem assay coverage;
+  - activity-data availability.
+- Replaced legacy-oriented and implementation-oriented labels with clearer
+  end-user terminology.
+- Moved Structured activity recovery into a collapsed **Advanced maintenance**
+  section and clarified its purpose without changing its recovery behavior.
+- Improved UI consistency through reusable summary-section renderers,
+  responsive metric layouts, uniform spacing, safe HTML rendering, and
+  controlled local error presentation.
+- Preserved equivalent behavior between local and API-client modes without
+  introducing silent HTTP-to-local fallback.
+
+### Notes
+
+- The original HARMONSMILE-enriched source table remains unchanged.
+- The consolidated table contains one retained row per usable
+  `SMILES_Harmonized`.
+- Structures with contradictory Active/Inactive evidence are excluded from the
+  derived binary table but remain preserved in the original source table.
+- Additional source observations are consolidated traceably through
+  `Source_CIDs`, `Source_AIDs`, `Source_Row_Count`, and `Source_AID_Count`.
+- CHEMVAULT does not calculate molecular fingerprints in this workflow.
+- CHEMVAULT does not train machine-learning models in this workflow.
+- CHEMVAULT does not apply activity thresholds or transform measurements to
+  pEC50 or pKi.
+- Activity values are used only to select a traceable source reference within
+  each retained structure group.
+
+---
+
 ## [v0.10.4] - 2026-07-13
 
 ### Added
