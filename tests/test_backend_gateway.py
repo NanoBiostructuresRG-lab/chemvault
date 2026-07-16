@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import json
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from application.database_use_cases import DatabaseMetrics
+from application.database_use_cases import DatabaseMetrics, TableProvenance
 from application.structure_consolidation import (
+    StructureConsolidationSummary,
     StructureConsolidationTableResult,
 )
 from clients import backend_gateway
@@ -13,6 +15,7 @@ from clients.api_client import ChemVaultApiError
 from application.job_contracts import JobStatusContract, RecoveredJobContract
 from services.job_models import JobStatus
 from services.database import DatabaseState
+from services.structure_consolidation import StructureConsolidationError
 
 
 def _structure_consolidation_result():
@@ -28,6 +31,56 @@ def _structure_consolidation_result():
         non_binary_structure_count=1,
         unusable_row_count=2,
         consolidated_duplicate_count=2,
+        represented_source_row_count=6,
+        selected_reference_count=3,
+        no_eligible_activity_count=1,
+    )
+
+
+def _structure_consolidation_summary():
+    return StructureConsolidationSummary(
+        source_table="main",
+        source_row_count=10,
+        valid_source_row_count=8,
+        unusable_row_count=2,
+        unique_structure_count=6,
+        conflicting_structure_count=1,
+        non_binary_structure_count=1,
+        created_row_count=4,
+        active_structure_count=3,
+        inactive_structure_count=1,
+        active_distinct_aid_count=3,
+        active_source_observation_count=4,
+        inactive_distinct_aid_count=2,
+        inactive_source_observation_count=2,
+        represented_source_row_count=6,
+        consolidated_duplicate_count=2,
+        selected_reference_count=3,
+        no_eligible_activity_count=1,
+    )
+
+
+def _persisted_summary_json():
+    return json.dumps(
+        {
+            "source_rows": 10,
+            "usable_source_rows": 8,
+            "unusable_rows": 2,
+            "unique_harmonized_structures": 6,
+            "conflicting_structures": 1,
+            "non_binary_structures": 1,
+            "created_rows": 4,
+            "active_structures": 3,
+            "inactive_structures": 1,
+            "active_distinct_aids": 3,
+            "active_source_observations": 4,
+            "inactive_distinct_aids": 2,
+            "inactive_source_observations": 2,
+            "represented_source_row_count": 6,
+            "consolidated_duplicates": 2,
+            "selected_reference_count": 3,
+            "no_eligible_activity_count": 1,
+        }
     )
 
 
@@ -280,6 +333,32 @@ def test_structure_consolidation_uses_local_application_backend(monkeypatch):
     assert calls == [("test_db", "main")]
 
 
+def test_local_structure_consolidation_error_is_wrapped_for_streamlit(
+    monkeypatch,
+):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+
+    def fail_consolidation(*_args):
+        raise StructureConsolidationError("mixed activity types")
+
+    monkeypatch.setattr(
+        backend_gateway,
+        "consolidate_local_structure_table",
+        fail_consolidation,
+    )
+
+    with pytest.raises(
+        backend_gateway.BackendGatewayError,
+        match="mixed activity types",
+    ) as raised:
+        backend_gateway.get_backend_gateway().consolidate_structure_table(
+            "test_db",
+            "main",
+        )
+
+    assert isinstance(raised.value.__cause__, StructureConsolidationError)
+
+
 def test_structure_consolidation_uses_http_backend(monkeypatch):
     monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
     expected = _structure_consolidation_result()
@@ -420,6 +499,11 @@ def test_local_backend_preserves_read_only_contract(monkeypatch):
     )
     monkeypatch.setattr(
         backend_gateway,
+        "get_local_table_provenance",
+        lambda *args: TableProvenance(),
+    )
+    monkeypatch.setattr(
+        backend_gateway,
         "preview_selected_columns",
         lambda *args: expected_preview,
     )
@@ -440,6 +524,103 @@ def test_local_backend_preserves_read_only_contract(monkeypatch):
     )
     assert metrics is expected_metrics
     assert preview.to_dict(orient="records") == [{"CID": "1"}]
+
+
+def test_table_metadata_returns_typed_summary_in_local_mode(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main_structure_consolidated",
+        headers=("Reference_CID",),
+    )
+    monkeypatch.setattr(backend_gateway, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_metrics",
+        lambda *args: DatabaseMetrics(row_count=4, group_count=0),
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_provenance",
+        lambda *args: TableProvenance(
+            origin="structure_consolidation",
+            source_table="main",
+            notes=_persisted_summary_json(),
+        ),
+    )
+
+    metadata = backend_gateway.get_backend_gateway().get_table_metadata(
+        "test_db",
+        "main_structure_consolidated",
+    )
+
+    assert metadata.origin == "structure_consolidation"
+    assert metadata.source_table == "main"
+    assert (
+        metadata.structure_consolidation_summary
+        == _structure_consolidation_summary()
+    )
+
+
+def test_table_metadata_returns_same_typed_summary_in_http_mode(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    expected_summary = _structure_consolidation_summary()
+
+    class FakeClient:
+        def __init__(self, base_url):
+            assert base_url == "http://api.example"
+
+        def get_table_metadata(self, database_id, table_name):
+            assert (database_id, table_name) == (
+                "test_db",
+                "main_structure_consolidated",
+            )
+            return {
+                "columns": ["Reference_CID"],
+                "row_count": 4,
+                "origin": "structure_consolidation",
+                "source_table": "main",
+                "structure_consolidation_summary": expected_summary.__dict__,
+            }
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+
+    metadata = backend_gateway.get_backend_gateway().get_table_metadata(
+        "test_db",
+        "main_structure_consolidated",
+    )
+
+    assert metadata.structure_consolidation_summary == expected_summary
+
+
+def test_table_metadata_http_error_does_not_fall_back(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    local_calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_provenance",
+        lambda *args: local_calls.append(args),
+    )
+
+    class FailingClient:
+        def __init__(self, base_url):
+            pass
+
+        def get_table_metadata(self, database_id, table_name):
+            raise ChemVaultApiError("request timed out")
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FailingClient)
+
+    with pytest.raises(
+        backend_gateway.BackendGatewayError,
+        match="request timed out",
+    ):
+        backend_gateway.get_backend_gateway().get_table_metadata(
+            "test_db",
+            "main_structure_consolidated",
+        )
+
+    assert local_calls == []
 
 
 def test_streamlit_read_only_routes_do_not_branch_on_api_url():

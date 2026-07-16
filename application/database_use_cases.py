@@ -14,6 +14,13 @@ class DatabaseMetrics:
     group_count: int
 
 
+@dataclass(frozen=True)
+class TableProvenance:
+    origin: str | None = None
+    source_table: str | None = None
+    notes: str | None = None
+
+
 class DatabaseNotFoundError(LookupError):
     """Raised when a requested local database is unavailable."""
 
@@ -140,3 +147,19 @@ def get_table_schema(
         current_table,
     )
     return tuple(schema["columns"])
+
+
+def get_table_provenance(
+    database_id: str,
+    current_table: str,
+) -> TableProvenance:
+    """Return persisted provenance for a validated table when registered."""
+    get_table_state(database_id, current_table)
+    metadata = db_audit.get_table_metadata(
+        resolve_database_path(database_id)
+    ).get(current_table, {})
+    return TableProvenance(
+        origin=metadata.get("origin"),
+        source_table=metadata.get("source_table"),
+        notes=metadata.get("notes"),
+    )
