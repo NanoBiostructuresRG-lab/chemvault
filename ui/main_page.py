@@ -5,6 +5,7 @@ import math
 import os
 import sqlite3
 from pathlib import Path
+from textwrap import dedent
 
 import pandas as pd
 import streamlit as st
@@ -243,42 +244,63 @@ def render_app_identity(container):
         )
 
 
-def render_database_metrics(container, database_id, current_table, row_count, group_count):
-    container.markdown(
+def _database_summary_metric_html(label, value, secondary_text=""):
+    secondary_html = ""
+    if secondary_text:
+        secondary_html = (
+            '<div style="font-size: 0.68rem; color: var(--cv-muted);">'
+            f"{html.escape(str(secondary_text))}</div>"
+        )
+    label_html = ""
+    if label:
+        label_html = (
+            '<div style="font-size: 0.72rem; color: var(--cv-muted);">'
+            f"{html.escape(str(label))}</div>"
+        )
+    return dedent(
         f"""
-        <div style="
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 0.35rem 1.5rem;
-            margin: 0.7rem 0 1rem 0;
-            padding: 0.85rem 0;
-            border-top: 1px solid var(--cv-border);
-            border-bottom: 1px solid var(--cv-border);
-        ">
-            <div>
-                <div style="font-size: 0.76rem; color: var(--cv-muted);">Database</div>
-                <div style="
-                    font-size: 0.95rem;
-                    color: var(--cv-text);
-                    overflow-wrap: anywhere;
-                ">{html.escape(database_id)}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.76rem; color: var(--cv-muted);">Table</div>
-                <div style="font-size: 0.95rem; color: var(--cv-text);">{html.escape(current_table)}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.76rem; color: var(--cv-muted);">Rows</div>
-                <div style="font-size: 0.95rem; color: var(--cv-text);">{row_count}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.76rem; color: var(--cv-muted);">Unique groups</div>
-                <div style="font-size: 0.95rem; color: var(--cv-text);">{group_count}</div>
-            </div>
+        <div data-cv-summary-metric style="min-width: 0;">
+            {label_html}
+            <div style="
+                font-size: 0.93rem;
+                color: var(--cv-text);
+                overflow-wrap: anywhere;
+            ">{html.escape(str(value))}</div>
+            {secondary_html}
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
+    ).strip()
+
+
+def _database_summary_section_html(title, metrics):
+    metric_html = "".join(
+        _database_summary_metric_html(*metric)
+        for metric in metrics
     )
+    section_html = dedent(
+        f"""
+        <div data-cv-summary-section="{html.escape(str(title))}" style="
+            border-top: 1px solid var(--cv-border);
+            padding: 0.75rem 0;
+        ">
+            <div style="
+                margin-bottom: 0.45rem;
+                font-size: 0.72rem;
+                font-weight: 600;
+                color: var(--cv-muted);
+            ">{html.escape(str(title))}</div>
+            <div data-cv-summary-grid style="
+                display: grid;
+                grid-template-columns: repeat(
+                    auto-fit,
+                    minmax(min(100%, 145px), 1fr)
+                );
+                gap: 0.35rem 1rem;
+            ">__METRICS__</div>
+        </div>
+        """
+    ).strip()
+    return section_html.replace("__METRICS__", metric_html)
 
 
 def _get_protein_traceability_summary(connection):
@@ -325,52 +347,79 @@ def _get_protein_traceability_summary(connection):
     }
 
 
-def render_protein_traceability_summary(container, connection):
+def render_database_summary(
+    container,
+    database_id,
+    current_table,
+    row_count,
+    group_count,
+    group_column,
+    connection,
+):
+    sections = [
+        _database_summary_section_html(
+            "Active table",
+            (
+                ("Database", database_id),
+                ("Active table", current_table),
+                ("Rows in active table", row_count),
+                (
+                    "Distinct values",
+                    group_count,
+                    f"Column: {group_column}",
+                ),
+            ),
+        )
+    ]
     summary = _get_protein_traceability_summary(connection)
-    if summary is None:
-        return
+    if summary is not None:
+        protein_text = (
+            ", ".join(summary["proteins"])
+            if summary["proteins"]
+            else "None"
+        )
+        sections.append(
+            _database_summary_section_html(
+                "PubChem assay coverage",
+                (
+                    ("Compounds linked to assays", summary["unique_cids"]),
+                    ("Proteins represented", protein_text),
+                    ("PubChem assays", summary["individual_aids"]),
+                    ("Compound–assay links", summary["cid_aid_links"]),
+                ),
+            )
+        )
+        activity_status_labels = {
+            "enriched": "Compounds with activity data",
+            "partial_or_failed": (
+                "Compounds with incomplete activity data"
+            ),
+        }
+        activity_metrics = tuple(
+            (
+                activity_status_labels.get(status, status),
+                count,
+            )
+            for status, count in summary["activity_status_counts"].items()
+        )
+        if not activity_metrics:
+            activity_metrics = (("", summary["activity_status"]),)
+        sections.append(
+            _database_summary_section_html(
+                "Activity data availability",
+                activity_metrics,
+            )
+        )
 
-    protein_text = ", ".join(summary["proteins"]) if summary["proteins"] else "None"
-    container.markdown(
-        f"""
-        <div style="
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
-            gap: 0.35rem 1rem;
-            margin: -0.3rem 0 1rem 0;
-            padding: 0.75rem 0;
-            border-bottom: 1px solid var(--cv-border);
-        ">
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Unique CIDs</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_cids"]}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Seed proteins</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
-                    {html.escape(protein_text)}
-                </div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Individual AIDs</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["individual_aids"]}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">CID-AID links</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["cid_aid_links"]}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Activity enrichment</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
-                    {html.escape(summary["activity_status"])}
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    summary_html = "".join(sections).strip()
+    with container:
+        st.markdown(summary_html, unsafe_allow_html=True)
+    skipped_count = (
+        summary["activity_status_counts"].get("skipped_aid_limit", 0)
+        if summary is not None
+        else 0
     )
-    skipped_count = summary["activity_status_counts"].get("skipped_aid_limit", 0)
-    if skipped_count > 0:
+    if skipped_count:
         container.warning(
             "Activity enrichment was skipped for this search because the number of "
             "BioAssays exceeded the configured safety limit. CIDs and assay links were "
@@ -442,12 +491,11 @@ def render_activity_enrichment_action(connection):
         return
 
     protein_text = ", ".join(summary["proteins"]) if summary["proteins"] else "None"
-    with st.expander("Maintenance: structured activity backfill", expanded=False):
+    with st.expander("Advanced maintenance", expanded=False):
+        st.markdown("**Repair missing activity records**")
         st.caption(
-            "This reads existing compound_assays links and inserts missing normalized "
-            "rows into compound_activities. It does not modify main or the selected "
-            "table. PubChem protein searches already run this enrichment automatically; "
-            "use this action to retry or backfill existing assay links."
+            "Retry PubChem activity retrieval for persisted assay links. "
+            "Existing activity records are preserved."
         )
         st.caption(
             "Reconstructible AIDs: {aids}; CID-AID links: {links}; Proteins: {proteins}".format(
@@ -458,7 +506,7 @@ def render_activity_enrichment_action(connection):
         )
 
         if st.button(
-            "Retry/backfill structured activity from assay links",
+            "Run activity repair",
             key="enrich_structured_activity_from_assay_links",
         ):
             progress_bar = st.progress(0)
@@ -1049,6 +1097,233 @@ def render_structured_activity_section(connection):
         st.rerun()
 
 
+def _structure_consolidation_metric_tile_html(label, value):
+    return dedent(
+        f"""
+        <div style="
+            min-width: 0;
+            padding: 0.45rem 0.55rem;
+            border: 1px solid var(--cv-border);
+            border-radius: 0.4rem;
+            background: var(--cv-muted-bg);
+        ">
+            <div style="font-size: 0.68rem; color: var(--cv-muted);">
+                {html.escape(str(label))}
+            </div>
+            <div style="
+                margin-top: 0.08rem;
+                font-size: 0.94rem;
+                font-weight: 600;
+                color: var(--cv-heading);
+            ">
+                {html.escape(str(value))}
+            </div>
+        </div>
+        """
+    ).strip()
+
+
+def _structure_consolidation_metric_grid_html(values):
+    tiles = "".join(
+        _structure_consolidation_metric_tile_html(label, value)
+        for label, value in values
+    )
+    return dedent(
+        f"""
+        <div style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.4rem;
+        ">{tiles}</div>
+        """
+    ).strip()
+
+
+def _structure_consolidation_summary_group_html(title, values):
+    return dedent(
+        f"""
+        <div style="margin-top: 0.65rem;">
+            <div style="
+                margin-bottom: 0.3rem;
+                font-size: 0.72rem;
+                font-weight: 600;
+                color: var(--cv-muted);
+            ">{html.escape(title)}</div>
+            {_structure_consolidation_metric_grid_html(values)}
+        </div>
+        """
+    ).strip()
+
+
+def _structure_consolidation_outcome_evidence_html(summary):
+    outcome_groups = (
+        (
+            "Active",
+            (
+                ("Structures", summary.active_structure_count),
+                ("Distinct assays (AIDs)", summary.active_distinct_aid_count),
+                (
+                    "Source observations",
+                    summary.active_source_observation_count,
+                ),
+            ),
+        ),
+        (
+            "Inactive",
+            (
+                ("Structures", summary.inactive_structure_count),
+                (
+                    "Distinct assays (AIDs)",
+                    summary.inactive_distinct_aid_count,
+                ),
+                (
+                    "Source observations",
+                    summary.inactive_source_observation_count,
+                ),
+            ),
+        ),
+    )
+    evidence = "".join(
+        dedent(
+            f"""
+            <div style="margin-top: 0.4rem;">
+                <div style="
+                    margin-bottom: 0.3rem;
+                    font-size: 0.72rem;
+                    font-weight: 600;
+                    color: var(--cv-muted);
+                ">{html.escape(outcome)}</div>
+                {_structure_consolidation_metric_grid_html(values)}
+            </div>
+            """
+        ).strip()
+        for outcome, values in outcome_groups
+    )
+    return dedent(
+        f"""
+        <div style="margin-top: 0.65rem;">
+            <div style="
+                margin-bottom: 0.3rem;
+                font-size: 0.72rem;
+                font-weight: 600;
+                color: var(--cv-muted);
+            ">Evidence by outcome</div>
+            {evidence}
+        </div>
+        """
+    ).strip()
+
+
+def render_structure_consolidation_summary(database_id, table_name):
+    if not database_id or not table_name:
+        return
+    try:
+        metadata = get_backend_gateway().get_table_metadata(
+            database_id,
+            table_name,
+        )
+    except BackendGatewayError as error:
+        st.warning(f"Unable to load structure consolidation summary: {error}")
+        return
+
+    with st.container(border=True):
+        st.markdown("**Activity labels summary**")
+        if metadata.origin != "structure_consolidation":
+            st.caption(
+                "No structure-consolidation summary is available for this "
+                "table."
+            )
+            return
+
+        summary = metadata.structure_consolidation_summary
+        source_table = (
+            summary.source_table
+            if summary is not None
+            else metadata.source_table or "-"
+        )
+        st.caption(f"Derived from: {source_table}")
+        if summary is None:
+            st.info(
+                "This structure-consolidated table has incomplete legacy "
+                "summary metadata."
+            )
+            return
+
+        groups = (
+            (
+                "Source",
+                (
+                    ("Source rows", summary.source_row_count),
+                    ("Usable rows", summary.valid_source_row_count),
+                    (
+                        "Rows without usable structure",
+                        summary.unusable_row_count,
+                    ),
+                    (
+                        "Unique usable structures",
+                        summary.unique_structure_count,
+                    ),
+                ),
+            ),
+            (
+                "Exclusions",
+                (
+                    (
+                        "Label conflicts",
+                        summary.conflicting_structure_count,
+                    ),
+                    (
+                        "Non-binary outcomes",
+                        summary.non_binary_structure_count,
+                    ),
+                ),
+            ),
+            (
+                "Consolidated result",
+                (
+                    ("Final structures", summary.created_row_count),
+                    (
+                        "Source rows represented",
+                        summary.represented_source_row_count,
+                    ),
+                    (
+                        "Additional observations consolidated",
+                        summary.consolidated_duplicate_count,
+                    ),
+                ),
+            ),
+        )
+        for title, values in groups:
+            st.markdown(
+                _structure_consolidation_summary_group_html(title, values),
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            _structure_consolidation_outcome_evidence_html(summary),
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            _structure_consolidation_summary_group_html(
+                "Activity references",
+                (
+                    (
+                        "References selected",
+                        summary.selected_reference_count,
+                    ),
+                    (
+                        "No exact activity reference",
+                        summary.no_eligible_activity_count,
+                    ),
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div style="height: 0.4rem;"></div>',
+            unsafe_allow_html=True,
+        )
+
+
 def render_table_manager_card(container):
     with container:
         st.subheader("Table Manager")
@@ -1064,6 +1339,10 @@ def render_table_manager_card(container):
             profiles = get_user_table_profiles(db_path)
         except FileNotFoundError as e:
             st.warning(str(e))
+            render_structure_consolidation_summary(
+                database_id,
+                st.session_state.get(CURRENT_TABLE, ""),
+            )
             return
 
         if len(profiles) == 0:
@@ -1081,6 +1360,10 @@ def render_table_manager_card(container):
         render_table_manager_actions(database_id, profiles)
         with sqlite3.connect(db_path) as activity_conn:
             render_structured_activity_section(activity_conn)
+            render_structure_consolidation_summary(
+                database_id,
+                st.session_state.get(CURRENT_TABLE, ""),
+            )
             render_activity_enrichment_action(activity_conn)
 
 
@@ -1112,7 +1395,6 @@ def render_database_card(container):
     if recovery_notice:
         container.warning(recovery_notice)
     container.subheader("Database")
-    container.caption("Active table and row summary.")
     table_options = st.session_state.get(ALL_TABLES, [])
     if len(table_options) == 0:
         container.warning("The database does not contain tables.")
@@ -1134,14 +1416,15 @@ def render_database_card(container):
     if metrics_error:
         container.error(metrics_error)
         return
-    render_database_metrics(
+    render_database_summary(
         container,
         st.session_state[DATABASE_ID],
         st.session_state[CURRENT_TABLE],
         metrics.row_count,
         metrics.group_count,
+        st.session_state.get(GROUP_COUNT_COLUMN, ""),
+        conn,
     )
-    render_protein_traceability_summary(container, conn)
     container.markdown("#### Table controls")
     container.selectbox(
         "Select table",

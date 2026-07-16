@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import inspect
 import sqlite3
 
 import pandas as pd
@@ -355,6 +356,182 @@ def test_database_metrics_returns_visible_api_error(monkeypatch):
     )
 
 
+def test_database_summary_uses_active_table_semantic_labels(monkeypatch):
+    markdown_calls = []
+    connection = sqlite3.connect(":memory:")
+
+    class Container:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(
+        main_page.st,
+        "markdown",
+        lambda value, **kwargs: markdown_calls.append((value, kwargs)),
+    )
+
+    main_page.render_database_summary(
+        Container(),
+        "test_db",
+        "activity_subset_IC50",
+        10,
+        2,
+        "Outcome",
+        connection,
+    )
+
+    assert len(markdown_calls) == 1
+    rendered, kwargs = markdown_calls[0]
+    assert kwargs == {"unsafe_allow_html": True}
+    for text in (
+        "Database",
+        "Active table",
+        "Rows in active table",
+        "Distinct values",
+        "Column: Outcome",
+        "test_db",
+        "activity_subset_IC50",
+    ):
+        assert text in rendered
+    assert ">Table</div>" not in rendered
+    assert ">Rows</div>" not in rendered
+    assert "Unique groups" not in rendered
+    assert rendered.count("data-cv-summary-section=") == 1
+    assert rendered.count("data-cv-summary-metric") == 4
+    assert "Active table and row summary." not in inspect.getsource(
+        main_page.render_database_card
+    )
+
+
+def test_database_summary_groups_pubchem_provenance_and_activity_status(
+    monkeypatch,
+):
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [
+            ("1", "11", "P1"),
+            ("1", "12", "P1"),
+            ("2", "11", "P2"),
+        ],
+    )
+    connection.execute(
+        "CREATE TABLE main (CID TEXT, Activity_Enrichment_Status TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO main (CID, Activity_Enrichment_Status) VALUES (?, ?)",
+        [
+            ("1", "enriched"),
+            ("2", "enriched"),
+            ("3", "partial_or_failed"),
+        ],
+    )
+    markdown_calls = []
+    warnings = []
+
+    class Container:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def warning(self, value):
+            warnings.append(value)
+
+    monkeypatch.setattr(
+        main_page.st,
+        "markdown",
+        lambda value, **kwargs: markdown_calls.append((value, kwargs)),
+    )
+
+    main_page.render_database_summary(
+        Container(),
+        "test_db",
+        "main",
+        3,
+        2,
+        "Outcome",
+        connection,
+    )
+
+    assert len(markdown_calls) == 1
+    rendered, kwargs = markdown_calls[0]
+    assert kwargs == {"unsafe_allow_html": True}
+    assert rendered.startswith("<div")
+    assert rendered == rendered.strip()
+    for text in (
+        "PubChem assay coverage",
+        "Compounds linked to assays",
+        "Proteins represented",
+        "PubChem assays",
+        "Compound–assay links",
+        "Activity data availability",
+        "Compounds with activity data",
+        "Compounds with incomplete activity data",
+    ):
+        assert text in rendered
+    section_titles = (
+        "Active table",
+        "PubChem assay coverage",
+        "Activity data availability",
+    )
+    section_fragments = []
+    for index, title in enumerate(section_titles):
+        marker = f'data-cv-summary-section="{title}"'
+        start = rendered.index(marker)
+        if index + 1 < len(section_titles):
+            next_marker = (
+                f'data-cv-summary-section="{section_titles[index + 1]}"'
+            )
+            end = rendered.index(next_marker)
+        else:
+            end = len(rendered)
+        section_fragments.append(rendered[start:end])
+    assert [
+        fragment.count("data-cv-summary-metric")
+        for fragment in section_fragments
+    ] == [4, 4, 2]
+    assert rendered.count("border-top: 1px solid var(--cv-border)") == 3
+    assert rendered.count("padding: 0.75rem 0") == 3
+    assert rendered.count("margin-bottom: 0.45rem") == 3
+    assert rendered.count("data-cv-summary-grid") == 3
+    assert rendered.count("auto-fit") == 3
+    assert rendered.count("minmax(min(100%, 145px), 1fr)") == 3
+    assert "Compounds with activity data: 2" not in rendered
+    assert "Compounds with incomplete activity data: 1" not in rendered
+    activity_data_position = rendered.index("Compounds with activity data")
+    incomplete_position = rendered.index(
+        "Compounds with incomplete activity data"
+    )
+    assert activity_data_position < incomplete_position
+    first_metric_lines = {
+        line.strip()
+        for line in rendered[
+            activity_data_position:incomplete_position
+        ].splitlines()
+    }
+    second_metric_lines = {
+        line.strip()
+        for line in rendered[incomplete_position:].splitlines()
+    }
+    assert any(line.endswith(">2</div>") for line in first_metric_lines)
+    assert any(line.endswith(">1</div>") for line in second_metric_lines)
+    assert "Unique CIDs" not in rendered
+    assert "Seed proteins" not in rendered
+    assert "Individual AIDs" not in rendered
+    assert "CID-AID links" not in rendered
+    assert "Latest activity retrieval status" not in rendered
+    assert "partial_or_failed" not in rendered
+    assert warnings == []
+
+
 def test_table_schema_delegates_to_backend_gateway(monkeypatch):
     expected = ({"name": "CID", "data_type": "TEXT"},)
     calls = []
@@ -452,6 +629,67 @@ def test_activity_enrichment_job_summary_counts_distinct_protein_aid_pairs():
         "cid_aid_links": 5,
         "proteins": ["P1", "P2"],
     }
+
+
+def test_activity_repair_uses_collapsed_advanced_maintenance_presentation(
+    monkeypatch,
+):
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [
+            ("101", "11", "P1"),
+            ("102", "11", "P1"),
+            ("103", "12", "P2"),
+        ],
+    )
+    output = {
+        "expanders": [],
+        "markdown": [],
+        "captions": [],
+        "buttons": [],
+    }
+
+    class Context:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def expander(label, **kwargs):
+        output["expanders"].append((label, kwargs))
+        return Context()
+
+    def button(label, **kwargs):
+        output["buttons"].append((label, kwargs))
+        return False
+
+    monkeypatch.setattr(main_page.st, "expander", expander)
+    monkeypatch.setattr(main_page.st, "markdown", output["markdown"].append)
+    monkeypatch.setattr(main_page.st, "caption", output["captions"].append)
+    monkeypatch.setattr(main_page.st, "button", button)
+
+    main_page.render_activity_enrichment_action(connection)
+
+    assert output["expanders"] == [
+        ("Advanced maintenance", {"expanded": False})
+    ]
+    assert output["markdown"] == ["**Repair missing activity records**"]
+    assert output["captions"] == [
+        "Retry PubChem activity retrieval for persisted assay links. "
+        "Existing activity records are preserved.",
+        "Reconstructible AIDs: 2; CID-AID links: 3; Proteins: P1, P2",
+    ]
+    assert output["buttons"] == [
+        (
+            "Run activity repair",
+            {"key": "enrich_structured_activity_from_assay_links"},
+        )
+    ]
 
 
 def test_protein_traceability_summary_exposes_skipped_activity_status_count():
