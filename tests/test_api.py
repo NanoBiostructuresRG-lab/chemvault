@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import json
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -12,9 +13,15 @@ from application.database_use_cases import (
     DatabaseMetrics,
     DatabaseNotFoundError,
     InvalidColumnError,
+    TableProvenance,
     TableNotFoundError,
 )
+from application.structure_consolidation import (
+    StructureConsolidationSummary,
+    StructureConsolidationTableResult,
+)
 from services.database import DatabaseState
+from services.structure_consolidation import StructureConsolidationError
 
 
 client = TestClient(api_main.app)
@@ -54,6 +61,25 @@ def _pending_harmonsmile_job():
     }
 
 
+def _structure_consolidation_result():
+    return StructureConsolidationTableResult(
+        table_name="main_structure_consolidated",
+        source_row_count=10,
+        valid_source_row_count=8,
+        unique_structure_count=6,
+        created_row_count=4,
+        active_structure_count=3,
+        inactive_structure_count=1,
+        conflicting_structure_count=1,
+        non_binary_structure_count=1,
+        unusable_row_count=2,
+        consolidated_duplicate_count=2,
+        represented_source_row_count=6,
+        selected_reference_count=3,
+        no_eligible_activity_count=1,
+    )
+
+
 def test_docs_endpoint_is_available():
     response = client.get("/docs", follow_redirects=False)
 
@@ -76,6 +102,10 @@ def test_openapi_schema_exposes_read_only_contract():
         "/databases/{database_id}/tables/{table_name}/metrics",
         "/databases/{database_id}/tables/{table_name}/preview",
         "/databases/{database_id}/tables/{table_name}/export",
+        (
+            "/databases/{database_id}/tables/{table_name}/"
+            "structure-consolidation"
+        ),
     }.issubset(schema["paths"])
     assert "/databases/{database_id}/jobs/harmonsmile" in schema["paths"]
     assert "/databases/{database_id}/jobs/{job_id}" in schema["paths"]
@@ -314,6 +344,54 @@ def test_database_operations_endpoint_returns_404_for_missing_database(monkeypat
     assert response.json() == {"detail": "Database 'missing' was not found."}
 
 
+def test_structure_consolidation_endpoint_returns_complete_result(monkeypatch):
+    expected = _structure_consolidation_result()
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "consolidate_structure_table",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    response = client.post(
+        "/databases/test_db/tables/main/structure-consolidation"
+    )
+
+    assert response.status_code == 201
+    assert response.json() == expected.__dict__
+    assert calls == [("test_db", "main")]
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (DatabaseNotFoundError("Database was not found."), 404),
+        (TableNotFoundError("Table was not found."), 404),
+        (
+            StructureConsolidationError("Missing HARMONSMILE columns."),
+            422,
+        ),
+    ],
+)
+def test_structure_consolidation_endpoint_maps_application_errors(
+    monkeypatch,
+    error,
+    status_code,
+):
+    monkeypatch.setattr(
+        api_main,
+        "consolidate_structure_table",
+        lambda *_args: (_ for _ in ()).throw(error),
+    )
+
+    response = client.post(
+        "/databases/test_db/tables/main/structure-consolidation"
+    )
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}
+
+
 def test_table_metrics_endpoint_uses_application_layer(monkeypatch):
     calls = []
     monkeypatch.setattr(
@@ -364,6 +442,11 @@ def test_table_metadata_endpoint_uses_application_layer(monkeypatch):
     monkeypatch.setattr(api_main, "get_table_state", lambda *args: state)
     monkeypatch.setattr(
         api_main,
+        "get_table_provenance",
+        lambda *args: TableProvenance(),
+    )
+    monkeypatch.setattr(
+        api_main,
         "get_table_metrics",
         lambda *args: calls.append(args) or DatabaseMetrics(100, 0),
     )
@@ -392,6 +475,9 @@ def test_table_metadata_endpoint_uses_application_layer(monkeypatch):
         "row_count": 100,
         "preview_limit": 10,
         "read_only": True,
+        "origin": None,
+        "source_table": None,
+        "structure_consolidation_summary": None,
         "schema": [
             {
                 "cid": 0,
@@ -407,6 +493,83 @@ def test_table_metadata_endpoint_uses_application_layer(monkeypatch):
         ("test_db", "main", ""),
         ("test_db", "main"),
     ]
+
+
+def test_table_metadata_endpoint_returns_persisted_consolidation_summary(
+    monkeypatch,
+):
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main_structure_consolidated",
+        headers=("Reference_CID",),
+    )
+    summary = StructureConsolidationSummary(
+        source_table="main",
+        source_row_count=10,
+        valid_source_row_count=8,
+        unusable_row_count=2,
+        unique_structure_count=6,
+        conflicting_structure_count=1,
+        non_binary_structure_count=1,
+        created_row_count=4,
+        active_structure_count=3,
+        inactive_structure_count=1,
+        active_distinct_aid_count=3,
+        active_source_observation_count=4,
+        inactive_distinct_aid_count=2,
+        inactive_source_observation_count=2,
+        represented_source_row_count=6,
+        consolidated_duplicate_count=2,
+        selected_reference_count=3,
+        no_eligible_activity_count=1,
+    )
+    notes = json.dumps(
+        {
+            "source_rows": 10,
+            "usable_source_rows": 8,
+            "unusable_rows": 2,
+            "unique_harmonized_structures": 6,
+            "conflicting_structures": 1,
+            "non_binary_structures": 1,
+            "created_rows": 4,
+            "active_structures": 3,
+            "inactive_structures": 1,
+            "active_distinct_aids": 3,
+            "active_source_observations": 4,
+            "inactive_distinct_aids": 2,
+            "inactive_source_observations": 2,
+            "represented_source_row_count": 6,
+            "consolidated_duplicates": 2,
+            "selected_reference_count": 3,
+            "no_eligible_activity_count": 1,
+        }
+    )
+    monkeypatch.setattr(api_main, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        api_main,
+        "get_table_metrics",
+        lambda *args: DatabaseMetrics(4, 0),
+    )
+    monkeypatch.setattr(api_main, "get_table_schema", lambda *args: ())
+    monkeypatch.setattr(
+        api_main,
+        "get_table_provenance",
+        lambda *args: TableProvenance(
+            origin="structure_consolidation",
+            source_table="main",
+            notes=notes,
+        ),
+    )
+
+    response = client.get(
+        "/databases/test_db/tables/main_structure_consolidated/metadata"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["origin"] == "structure_consolidation"
+    assert payload["source_table"] == "main"
+    assert payload["structure_consolidation_summary"] == summary.__dict__
 
 
 @pytest.mark.parametrize(

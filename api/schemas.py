@@ -46,6 +46,27 @@ class TableColumnSchema(BaseModel):
     primary_key: bool
 
 
+class StructureConsolidationSummaryResponse(BaseModel):
+    source_table: str
+    source_row_count: int
+    valid_source_row_count: int
+    unusable_row_count: int
+    unique_structure_count: int
+    conflicting_structure_count: int
+    non_binary_structure_count: int
+    created_row_count: int
+    active_structure_count: int
+    inactive_structure_count: int
+    active_distinct_aid_count: int
+    active_source_observation_count: int
+    inactive_distinct_aid_count: int
+    inactive_source_observation_count: int
+    represented_source_row_count: int
+    consolidated_duplicate_count: int
+    selected_reference_count: int
+    no_eligible_activity_count: int
+
+
 class TableMetadataResponse(BaseModel):
     database_id: str
     table: str
@@ -54,6 +75,11 @@ class TableMetadataResponse(BaseModel):
     preview_limit: int
     read_only: bool
     table_schema: list[TableColumnSchema] = Field(alias="schema")
+    origin: str | None = None
+    source_table: str | None = None
+    structure_consolidation_summary: (
+        StructureConsolidationSummaryResponse | None
+    ) = None
 
 
 class TablePreviewResponse(BaseModel):
@@ -62,6 +88,23 @@ class TablePreviewResponse(BaseModel):
     columns: list[str]
     rows: list[dict[str, Any]]
     limit: int
+
+
+class StructureConsolidationResponse(BaseModel):
+    table_name: str
+    source_row_count: int
+    valid_source_row_count: int
+    unique_structure_count: int
+    created_row_count: int
+    active_structure_count: int
+    inactive_structure_count: int
+    conflicting_structure_count: int
+    non_binary_structure_count: int
+    unusable_row_count: int
+    consolidated_duplicate_count: int
+    represented_source_row_count: int
+    selected_reference_count: int
+    no_eligible_activity_count: int
 
 
 class HarmonsmileJobRequest(BaseModel):

@@ -124,6 +124,33 @@ def test_export_returns_bytes_and_sends_selected_columns(monkeypatch):
     ]
 
 
+def test_client_posts_structure_consolidation_command(monkeypatch):
+    calls = []
+    payload = {
+        "table_name": "source_structure_consolidated",
+        "created_row_count": 4,
+    }
+
+    def fake_post(_session, url, **kwargs):
+        calls.append((url, kwargs))
+        return StubResponse(payload, status_code=201)
+
+    monkeypatch.setattr(requests.Session, "post", fake_post)
+
+    result = ChemVaultApiClient(
+        "http://api.example/"
+    ).consolidate_structure_table("test db", "source table")
+
+    assert result == payload
+    assert calls == [
+        (
+            "http://api.example/databases/test%20db/tables/"
+            "source%20table/structure-consolidation",
+            {"json": None, "timeout": 10.0},
+        )
+    ]
+
+
 def test_http_error_is_converted_to_client_error(monkeypatch):
     monkeypatch.setattr(
         requests.Session,

@@ -227,6 +227,45 @@ def test_get_table_state_rejects_missing_table(monkeypatch):
         database_use_cases.get_table_state("test_db", "missing")
 
 
+def test_get_table_provenance_reads_registered_metadata(monkeypatch):
+    db_path = Path("SQL") / "test_db.db"
+    calls = []
+    monkeypatch.setattr(
+        database_use_cases,
+        "get_table_state",
+        lambda *args: calls.append(("validate", *args)),
+    )
+    monkeypatch.setattr(
+        database_use_cases,
+        "resolve_database_path",
+        lambda database_id: calls.append(("path", database_id)) or db_path,
+    )
+    monkeypatch.setattr(
+        database_use_cases.db_audit,
+        "get_table_metadata",
+        lambda path: calls.append(("metadata", path)) or {
+            "derived": {
+                "origin": "structure_consolidation",
+                "source_table": "main",
+                "notes": '{"created_rows": 2}',
+            }
+        },
+    )
+
+    result = database_use_cases.get_table_provenance("test_db", "derived")
+
+    assert result == database_use_cases.TableProvenance(
+        origin="structure_consolidation",
+        source_table="main",
+        notes='{"created_rows": 2}',
+    )
+    assert calls == [
+        ("validate", "test_db", "derived"),
+        ("path", "test_db"),
+        ("metadata", db_path),
+    ]
+
+
 def test_get_table_metrics_opens_validated_database(monkeypatch):
     state = DatabaseState(
         database_id="test_db",

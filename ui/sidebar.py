@@ -54,6 +54,23 @@ from ui.harmonsmile_state import (
 from ui.session_state import refresh_database_state
 
 
+STRUCTURE_CONSOLIDATION_REQUIRED_COLUMNS = frozenset(
+    {
+        "CID",
+        "AID",
+        "Outcome",
+        "InChIKey",
+        "SMILES_Harmonized",
+        "SMILES_Harmonization_Status",
+        "Activity_Type",
+        "Relation",
+        "Activity_Value",
+        "Activity_Value_Raw",
+        "Unit",
+    }
+)
+
+
 def render_build_card(select_proteins_callback):
     with st.container(border=True):
         st.subheader("Build")
@@ -311,6 +328,107 @@ def render_harmonsmile_job_status(database_id, table_name):
         st.rerun()
 
 
+def _structure_consolidation_is_ready(session_state):
+    return (
+        session_state.get(DATABASE_ID, "") != ""
+        and session_state.get(CURRENT_TABLE, "") != ""
+        and STRUCTURE_CONSOLIDATION_REQUIRED_COLUMNS.issubset(
+            session_state.get(HEADERS, [])
+        )
+    )
+
+
+def _structure_consolidation_success_message(result):
+    return (
+        f"Created table '{result.table_name}'. "
+        f"Created structures: {result.created_row_count}."
+    )
+
+
+def render_structure_consolidation_card():
+    has_active_table = (
+        st.session_state.get(DATABASE_ID, "") != ""
+        and st.session_state.get(CURRENT_TABLE, "") != ""
+    )
+    gateway = get_backend_gateway() if has_active_table else None
+    metadata_error = None
+    is_already_consolidated = False
+    if gateway is not None:
+        try:
+            metadata = gateway.get_table_metadata(
+                st.session_state[DATABASE_ID],
+                st.session_state[CURRENT_TABLE],
+            )
+            is_already_consolidated = (
+                metadata.origin == "structure_consolidation"
+            )
+        except BackendGatewayError as error:
+            metadata_error = error
+
+    is_ready = (
+        _structure_consolidation_is_ready(st.session_state)
+        and not is_already_consolidated
+        and metadata_error is None
+    )
+    with st.container(border=True):
+        st.markdown("**ACTIVITY LABELS**")
+        run_consolidation = st.button(
+            "Run",
+            key="curate_run_structure_consolidation",
+            disabled=not is_ready,
+        )
+
+        if st.session_state.get(DATABASE_ID, "") == "":
+            st.caption(
+                "Load or select a database to enable structure "
+                "consolidation."
+            )
+        elif st.session_state.get(CURRENT_TABLE, "") == "":
+            st.caption(
+                "Select an active table to enable structure consolidation."
+            )
+        elif is_already_consolidated:
+            st.caption(
+                "This table already contains consolidated activity labels."
+            )
+        elif metadata_error is not None:
+            st.error(
+                "Structure consolidation eligibility could not be checked: "
+                f"{metadata_error}"
+            )
+        elif not is_ready:
+            st.caption(
+                "Select a HARMONSMILE-enriched activity table to enable "
+                "consolidation."
+            )
+
+        if not run_consolidation:
+            return None
+
+        database_id = st.session_state[DATABASE_ID]
+        source_table = st.session_state[CURRENT_TABLE]
+        try:
+            with st.spinner("Consolidating harmonized structures..."):
+                result = gateway.consolidate_structure_table(
+                    database_id,
+                    source_table,
+                )
+        except BackendGatewayError as error:
+            st.error(f"Structure consolidation could not be completed: {error}")
+            return None
+
+        st.session_state[CURRENT_TABLE] = result.table_name
+        st.session_state[SELECTED_HEADERS] = []
+        database_state = refresh_database_state(st.session_state)
+        if not getattr(database_state, "success", True):
+            st.error(
+                database_state.message
+                or "The created table could not be refreshed."
+            )
+        st.success(_structure_consolidation_success_message(result))
+        return result
+
+
 def render_curate_card():
     with st.container(border=True):
         st.subheader("Curate")
@@ -424,6 +542,8 @@ def render_curate_card():
                         refresh_database_state,
                     )
                 st.rerun()
+
+        render_structure_consolidation_card()
 
         with st.container(border=True):
             st.markdown("**CHAMANP**")

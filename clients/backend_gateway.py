@@ -9,6 +9,7 @@ import pandas as pd
 from application.database_use_cases import (
     DatabaseMetrics,
     get_operation_history as get_local_operation_history,
+    get_table_provenance as get_local_table_provenance,
     get_table_metrics as get_local_table_metrics,
     get_table_schema as get_local_table_schema,
     get_table_state,
@@ -17,6 +18,12 @@ from application.database_use_cases import (
 from application.table_use_cases import (
     export_table_csv,
     preview_selected_columns,
+)
+from application.structure_consolidation import (
+    StructureConsolidationSummary,
+    StructureConsolidationTableResult,
+    consolidate_structure_table as consolidate_local_structure_table,
+    structure_consolidation_summary_from_metadata,
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
 from application.job_contracts import (
@@ -36,6 +43,7 @@ from application.scientific_jobs import (
 )
 from clients.api_client import ChemVaultApiClient, ChemVaultApiError
 from services.job_models import JobType
+from services.structure_consolidation import StructureConsolidationError
 
 
 DEFAULT_PREVIEW_LIMIT = 10
@@ -51,6 +59,19 @@ class TableMetadata:
     row_count: int
     preview_limit: int = DEFAULT_PREVIEW_LIMIT
     read_only: bool = True
+    origin: str | None = None
+    source_table: str | None = None
+    structure_consolidation_summary: StructureConsolidationSummary | None = None
+
+
+def _structure_summary_from_payload(payload):
+    if not isinstance(payload, dict):
+        return None
+    try:
+        summary = StructureConsolidationSummary(**payload)
+    except (TypeError, ValueError):
+        return None
+    return summary if summary.has_valid_invariants() else None
 
 
 class _Backend(Protocol):
@@ -99,6 +120,12 @@ class _Backend(Protocol):
         table_name: str,
         columns: list[str] | None = None,
     ) -> bytes: ...
+
+    def consolidate_structure_table(
+        self,
+        database_id: str,
+        source_table: str,
+    ) -> StructureConsolidationTableResult: ...
 
     def launch_harmonsmile_job(
         self,
@@ -162,9 +189,19 @@ class _LocalBackend:
     ) -> TableMetadata:
         state = get_table_state(database_id, table_name)
         metrics = get_local_table_metrics(database_id, table_name)
+        provenance = get_local_table_provenance(database_id, table_name)
         return TableMetadata(
             columns=tuple(state.headers),
             row_count=metrics.row_count,
+            origin=provenance.origin,
+            source_table=provenance.source_table,
+            structure_consolidation_summary=(
+                structure_consolidation_summary_from_metadata(
+                    origin=provenance.origin,
+                    source_table=provenance.source_table,
+                    notes=provenance.notes,
+                )
+            ),
         )
 
     def get_table_metrics(
@@ -211,6 +248,16 @@ class _LocalBackend:
         columns: list[str] | None = None,
     ) -> bytes:
         return export_table_csv(database_id, table_name, columns)
+
+    def consolidate_structure_table(
+        self,
+        database_id: str,
+        source_table: str,
+    ) -> StructureConsolidationTableResult:
+        try:
+            return consolidate_local_structure_table(database_id, source_table)
+        except StructureConsolidationError as error:
+            raise BackendGatewayError(str(error)) from error
 
     def launch_harmonsmile_job(
         self,
@@ -316,6 +363,11 @@ class _HttpBackend:
                 DEFAULT_PREVIEW_LIMIT,
             ),
             read_only=response.get("read_only", True),
+            origin=response.get("origin"),
+            source_table=response.get("source_table"),
+            structure_consolidation_summary=_structure_summary_from_payload(
+                response.get("structure_consolidation_summary")
+            ),
         )
 
     def get_table_metrics(
@@ -387,6 +439,20 @@ class _HttpBackend:
             )
         except ChemVaultApiError as error:
             self._raise_gateway_error(error)
+
+    def consolidate_structure_table(
+        self,
+        database_id: str,
+        source_table: str,
+    ) -> StructureConsolidationTableResult:
+        try:
+            response = self._client.consolidate_structure_table(
+                database_id,
+                source_table,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return StructureConsolidationTableResult(**response)
 
     def launch_harmonsmile_job(
         self,
@@ -512,6 +578,16 @@ class BackendGateway:
             database_id,
             table_name,
             columns,
+        )
+
+    def consolidate_structure_table(
+        self,
+        database_id: str,
+        source_table: str,
+    ) -> StructureConsolidationTableResult:
+        return self._backend.consolidate_structure_table(
+            database_id,
+            source_table,
         )
 
     def launch_harmonsmile_job(

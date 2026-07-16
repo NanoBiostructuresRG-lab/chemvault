@@ -13,6 +13,7 @@ from api.schemas import (
     OperationHistoryResponse,
     RecoveredJobResponse,
     ScientificRuntimeActivationResponse,
+    StructureConsolidationResponse,
     TableMetadataResponse,
     TableMetricsResponse,
     TablePreviewResponse,
@@ -32,6 +33,7 @@ from application.database_use_cases import (
     TableNotFoundError,
     get_table_metrics,
     get_operation_history,
+    get_table_provenance,
     get_table_schema,
     get_table_state,
     list_database_tables,
@@ -40,6 +42,11 @@ from application.table_use_cases import (
     export_table_csv,
     preview_selected_columns,
 )
+from application.structure_consolidation import (
+    consolidate_structure_table,
+    structure_consolidation_summary_from_metadata,
+)
+from services.structure_consolidation import StructureConsolidationError
 from services.job_models import JobType
 
 
@@ -178,6 +185,24 @@ def database_operations(database_id: DatabaseId):
     )
 
 
+@app.post(
+    "/databases/{database_id}/tables/{table_name}/structure-consolidation",
+    response_model=StructureConsolidationResponse,
+    status_code=201,
+)
+def structure_consolidation(
+    database_id: DatabaseId,
+    table_name: TableName,
+):
+    try:
+        result = consolidate_structure_table(database_id, table_name)
+    except (DatabaseNotFoundError, TableNotFoundError) as error:
+        raise _not_found(error) from error
+    except StructureConsolidationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return StructureConsolidationResponse(**result.__dict__)
+
+
 @app.get(
     "/databases/{database_id}/tables/{table_name}/metrics",
     response_model=TableMetricsResponse,
@@ -213,8 +238,14 @@ def table_metadata(
     try:
         metrics = get_table_metrics(database_id, table_name, "")
         schema = get_table_schema(database_id, table_name)
+        provenance = get_table_provenance(database_id, table_name)
     except (DatabaseNotFoundError, TableNotFoundError) as error:
         raise _not_found(error) from error
+    summary = structure_consolidation_summary_from_metadata(
+        origin=provenance.origin,
+        source_table=provenance.source_table,
+        notes=provenance.notes,
+    )
     return TableMetadataResponse(
         database_id=database_id,
         table=table_name,
@@ -223,6 +254,11 @@ def table_metadata(
         preview_limit=10,
         read_only=True,
         schema=list(schema),
+        origin=provenance.origin,
+        source_table=provenance.source_table,
+        structure_consolidation_summary=(
+            summary.__dict__ if summary is not None else None
+        ),
     )
 
 
