@@ -3,340 +3,232 @@
 import sqlite3
 from types import SimpleNamespace
 
-import numpy as np
 import pandas as pd
 import pytest
-from molraptor import MorganFingerprintProfile
 
 from application import modelability_index as use_case
-from application.database_use_cases import TableNotFoundError
-from application.modelability_index import (
-    ModelabilityIndexUseCaseError,
-)
+from application.modelability_index import ModelabilityIndexUseCaseError
 
 
-def _source(rows=None):
-    if rows is None:
-        rows = [
+def _source():
+    return pd.DataFrame(
+        [
             {
                 "SMILES_Harmonized": "CCO",
-                "Outcome": "Active",
+                "Outcome": " active ",
                 "Reference_Selection_Status": "selected",
             },
             {
                 "SMILES_Harmonized": "CCCO",
-                "Outcome": "Active",
+                "Outcome": "ACTIVE",
                 "Reference_Selection_Status": "no_eligible_activity",
             },
             {
                 "SMILES_Harmonized": "c1ccccc1",
-                "Outcome": "Inactive",
+                "Outcome": "inactive",
                 "Reference_Selection_Status": "selected",
             },
             {
                 "SMILES_Harmonized": "c1ccncc1",
-                "Outcome": "Inactive",
+                "Outcome": " Inactive ",
                 "Reference_Selection_Status": "no_eligible_activity",
             },
         ]
-    return pd.DataFrame(rows)
-
-
-def test_uses_all_binary_structures_without_reference_status_filter():
-    result = use_case.calculate_dataframe_modelability_index(_source())
-
-    assert result.source_row_count == 4
-    assert result.encoded_structure_count == 4
-    assert result.excluded_structure_count == 0
-    assert result.active_count == 2
-    assert result.inactive_count == 2
-    assert len(result.diagnostics) == 4
-
-    assert result.molraptor_version == "0.2.0"
-    assert result.fingerprint_profile["algorithm"] == "morgan"
-    assert result.fingerprint_profile["radius"] == 2
-    assert result.fingerprint_profile["fp_size"] == 2048
-    assert result.fingerprint_shape == (4, 2048)
-    assert result.fingerprint_dtype == "uint8"
-
-
-def test_result_is_independent_of_source_row_order():
-    source = _source()
-
-    forward = use_case.calculate_dataframe_modelability_index(source)
-    reversed_result = use_case.calculate_dataframe_modelability_index(
-        source.iloc[::-1].reset_index(drop=True)
-    )
-
-    assert forward.modelability_index == reversed_result.modelability_index
-    assert forward.active_contribution == reversed_result.active_contribution
-    assert (
-        forward.inactive_contribution
-        == reversed_result.inactive_contribution
-    )
-    assert forward.ordered_input_hash == reversed_result.ordered_input_hash
-
-    forward_pairs = tuple(
-        (
-            item.smiles_harmonized,
-            item.nearest_neighbor_smiles_harmonized,
-            item.tanimoto_similarity,
-        )
-        for item in forward.diagnostics
-    )
-    reversed_pairs = tuple(
-        (
-            item.smiles_harmonized,
-            item.nearest_neighbor_smiles_harmonized,
-            item.tanimoto_similarity,
-        )
-        for item in reversed_result.diagnostics
-    )
-    assert forward_pairs == reversed_pairs
-
-
-def test_maps_invalid_encoding_to_traceable_exclusion(monkeypatch):
-    source = _source(
-        [
-            {
-                "SMILES_Harmonized": "AA",
-                "Outcome": "Active",
-            },
-            {
-                "SMILES_Harmonized": "AB",
-                "Outcome": "Active",
-            },
-            {
-                "SMILES_Harmonized": "BAD",
-                "Outcome": "Active",
-            },
-            {
-                "SMILES_Harmonized": "BA",
-                "Outcome": "Inactive",
-            },
-            {
-                "SMILES_Harmonized": "BB",
-                "Outcome": "Inactive",
-            },
-        ]
-    )
-
-    def fake_encode(smiles, profile):
-        assert smiles == ("AA", "AB", "BA", "BAD", "BB")
-        return SimpleNamespace(
-            fingerprints=np.asarray(
-                [
-                    [1, 1, 0, 0],
-                    [1, 1, 0, 1],
-                    [0, 0, 1, 1],
-                    [0, 0, 1, 0],
-                ],
-                dtype=np.uint8,
-            ),
-            profile=profile.model_dump(mode="json"),
-            valid_indices=(0, 1, 2, 4),
-            input_statuses=(
-                SimpleNamespace(
-                    input_index=0,
-                    input_smiles="AA",
-                    status="valid",
-                    rdkit_canonical_smiles="AA",
-                    fingerprint_index=0,
-                    invalid_reason=None,
-                ),
-                SimpleNamespace(
-                    input_index=1,
-                    input_smiles="AB",
-                    status="valid",
-                    rdkit_canonical_smiles="AB",
-                    fingerprint_index=1,
-                    invalid_reason=None,
-                ),
-                SimpleNamespace(
-                    input_index=2,
-                    input_smiles="BA",
-                    status="valid",
-                    rdkit_canonical_smiles="BA",
-                    fingerprint_index=2,
-                    invalid_reason=None,
-                ),
-                SimpleNamespace(
-                    input_index=3,
-                    input_smiles="BAD",
-                    status="invalid",
-                    rdkit_canonical_smiles=None,
-                    fingerprint_index=None,
-                    invalid_reason="parse_failure",
-                ),
-                SimpleNamespace(
-                    input_index=4,
-                    input_smiles="BB",
-                    status="valid",
-                    rdkit_canonical_smiles="BB",
-                    fingerprint_index=3,
-                    invalid_reason=None,
-                ),
-            ),
-            valid_count=4,
-            invalid_count=1,
-            matrix_shape=(4, 4),
-            matrix_dtype="uint8",
-            molraptor_version="0.2.0",
-            rdkit_version="test",
-            ordered_input_hash="input-hash",
-            profile_hash="profile-hash",
-        )
-
-    monkeypatch.setattr(use_case, "encode_fingerprints", fake_encode)
-
-    result = use_case.calculate_dataframe_modelability_index(source)
-
-    assert result.encoded_structure_count == 4
-    assert result.excluded_structure_count == 1
-    assert result.modelability_index == pytest.approx(1.0)
-
-    assert result.exclusions == (
-        use_case.ModelabilityEncodingExclusion(
-            input_index=3,
-            source_row_index=2,
-            smiles_harmonized="BAD",
-            outcome="Active",
-            reason="parse_failure",
-        ),
     )
 
 
-def test_custom_profile_is_passed_to_molraptor():
-    profile = MorganFingerprintProfile(
-        radius=3,
-        fp_size=512,
-        include_chirality=True,
-    )
+def test_uses_all_rows_regardless_of_reference_status_with_fixed_provenance(
+    monkeypatch,
+):
+    real_encode = use_case.encode_fingerprints
+
+    def checked_encode(smiles, profile):
+        assert profile is use_case._FINGERPRINT_PROFILE
+        return real_encode(smiles, profile)
+
+    monkeypatch.setattr(use_case, "encode_fingerprints", checked_encode)
 
     result = use_case.calculate_dataframe_modelability_index(
         _source(),
-        profile=profile,
+        source_table="structures",
     )
 
-    assert result.fingerprint_profile["radius"] == 3
-    assert result.fingerprint_profile["fp_size"] == 512
-    assert result.fingerprint_profile["include_chirality"] is True
-    assert result.fingerprint_shape == (4, 512)
+    assert result.structure_count == 4
+    assert result.active_count == 2
+    assert result.inactive_count == 2
+    assert {item["outcome"] for item in result.diagnostics} == {
+        "Active",
+        "Inactive",
+    }
+    assert {item["smiles"] for item in result.diagnostics} == {
+        "CCO",
+        "CCCO",
+        "c1ccccc1",
+        "c1ccncc1",
+    }
+
+    provenance = result.provenance
+    assert provenance["source_table"] == "structures"
+    assert provenance["fingerprint_profile"] == {
+        "profile_schema_version": "1.0",
+        "algorithm": "morgan",
+        "output_type": "binary-bit-vector",
+        "radius": 2,
+        "fp_size": 2048,
+        "include_chirality": False,
+        "use_bond_types": True,
+        "include_ring_membership": True,
+        "include_redundant_environments": False,
+        "invariant_policy": "rdkit-default",
+    }
+    assert provenance["molraptor_version"] == "0.2.0"
+    assert provenance["rdkit_version"]
+    assert provenance["molraptor_profile_hash"]
+    assert provenance["molraptor_ordered_input_hash"]
+    assert provenance["chemvault_analysis_hash"]
+    assert provenance["similarity_metric"] == "tanimoto"
+    assert provenance["neighbor_rule"] == "single_nearest_neighbor"
+    assert provenance["tie_policy"] == "lowest_ordered_index"
+    assert provenance["aggregation"] == "macro_average"
 
 
-def test_rejects_missing_required_columns():
+def test_source_row_order_does_not_change_result():
+    source = _source()
+
+    forward = use_case.calculate_dataframe_modelability_index(source)
+    reverse = use_case.calculate_dataframe_modelability_index(
+        source.iloc[::-1].reset_index(drop=True)
+    )
+
+    assert forward == reverse
+
+
+def test_analysis_hash_includes_outcomes_but_molraptor_hash_does_not():
+    original = _source()
+    relabeled = _source()
+    relabeled.loc[1, "Outcome"] = "Inactive"
+
+    first = use_case.calculate_dataframe_modelability_index(original)
+    second = use_case.calculate_dataframe_modelability_index(relabeled)
+
+    assert (
+        first.provenance["molraptor_ordered_input_hash"]
+        == second.provenance["molraptor_ordered_input_hash"]
+    )
+    assert (
+        first.provenance["chemvault_analysis_hash"]
+        != second.provenance["chemvault_analysis_hash"]
+    )
+
+
+def test_any_molraptor_invalid_input_fails_without_partial_calculation(
+    monkeypatch,
+):
+    encoding = SimpleNamespace(
+        invalid_count=1,
+        input_statuses=(
+            SimpleNamespace(
+                input_index=0,
+                input_smiles="BAD",
+                status="invalid",
+                invalid_reason="parse_failure",
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        use_case,
+        "encode_fingerprints",
+        lambda smiles, profile: encoding,
+    )
+
+    def must_not_calculate(*args, **kwargs):
+        raise AssertionError("partial Modelability Index was calculated")
+
+    monkeypatch.setattr(
+        use_case,
+        "calculate_modelability_index",
+        must_not_calculate,
+    )
+    source = pd.DataFrame(
+        {
+            "SMILES_Harmonized": ["BAD", "CCO"],
+            "Outcome": ["Active", "Inactive"],
+        }
+    )
+
     with pytest.raises(
         ModelabilityIndexUseCaseError,
-        match="missing required columns: Outcome",
+        match=r"MOLRAPTOR rejected.*BAD.*parse_failure",
     ):
+        use_case.calculate_dataframe_modelability_index(source)
+
+
+def test_sqlite_reader_selects_only_smiles_and_outcome(tmp_path, monkeypatch):
+    db_dir = tmp_path / "SQL"
+    db_dir.mkdir()
+    connection = sqlite3.connect(db_dir / "target.db")
+    _source().to_sql("structures", connection, index=False)
+    connection.close()
+    captured = {}
+    sentinel = object()
+
+    def capture_source(dataframe, *, source_table=None):
+        captured["columns"] = list(dataframe.columns)
+        captured["source_table"] = source_table
+        return sentinel
+
+    monkeypatch.setattr(
+        use_case,
+        "calculate_dataframe_modelability_index",
+        capture_source,
+    )
+
+    result = use_case.calculate_table_modelability_index(
+        "target",
+        "structures",
+        db_dir=db_dir,
+    )
+
+    assert result is sentinel
+    assert captured == {
+        "columns": ["SMILES_Harmonized", "Outcome"],
+        "source_table": "structures",
+    }
+
+
+def test_rejects_missing_columns_and_non_binary_outcomes():
+    with pytest.raises(ModelabilityIndexUseCaseError, match="Outcome"):
         use_case.calculate_dataframe_modelability_index(
             pd.DataFrame({"SMILES_Harmonized": ["CCO"]})
         )
 
-
-def test_rejects_non_binary_outcome():
     with pytest.raises(
         ModelabilityIndexUseCaseError,
         match="only Active or Inactive",
     ):
         use_case.calculate_dataframe_modelability_index(
-            _source(
-                [
-                    {
-                        "SMILES_Harmonized": "CCO",
-                        "Outcome": "Active",
-                    },
-                    {
-                        "SMILES_Harmonized": "CCC",
-                        "Outcome": "Unknown",
-                    },
-                ]
+            pd.DataFrame(
+                {
+                    "SMILES_Harmonized": ["CCO", "CCC"],
+                    "Outcome": ["Active", "Unknown"],
+                }
             )
         )
 
 
-def test_rejects_duplicate_harmonized_structures():
-    with pytest.raises(
-        ModelabilityIndexUseCaseError,
-        match="duplicated SMILES_Harmonized values: CCO",
-    ):
-        use_case.calculate_dataframe_modelability_index(
-            _source(
-                [
-                    {
-                        "SMILES_Harmonized": "CCO",
-                        "Outcome": "Active",
-                    },
-                    {
-                        "SMILES_Harmonized": "CCO",
-                        "Outcome": "Inactive",
-                    },
-                ]
-            )
-        )
+@pytest.mark.parametrize("row_count", [0, 1], ids=["empty", "one_row"])
+def test_rejects_too_few_structures_before_encoding(monkeypatch, row_count):
+    source = pd.DataFrame(
+        {
+            "SMILES_Harmonized": ["CCO"],
+            "Outcome": ["Active"],
+        }
+    ).iloc[:row_count]
 
+    def must_not_encode(*args, **kwargs):
+        raise AssertionError("MOLRAPTOR was called")
 
-def test_wraps_core_population_error_after_encoding():
-    with pytest.raises(
-        ModelabilityIndexUseCaseError,
-        match="at least two structures",
-    ):
-        use_case.calculate_dataframe_modelability_index(
-            _source(
-                [
-                    {
-                        "SMILES_Harmonized": "CCO",
-                        "Outcome": "Active",
-                    },
-                    {
-                        "SMILES_Harmonized": "CCCO",
-                        "Outcome": "Active",
-                    },
-                    {
-                        "SMILES_Harmonized": "c1ccccc1",
-                        "Outcome": "Inactive",
-                    },
-                ]
-            )
-        )
+    monkeypatch.setattr(use_case, "encode_fingerprints", must_not_encode)
 
-
-def test_reads_selected_columns_from_existing_sqlite_table(tmp_path):
-    db_dir = tmp_path / "SQL"
-    db_dir.mkdir()
-    db_path = db_dir / "target.db"
-
-    connection = sqlite3.connect(db_path)
-    _source().to_sql(
-        "activity_subset_EC50_structure_consolidated",
-        connection,
-        index=False,
-    )
-    connection.close()
-
-    result = use_case.calculate_table_modelability_index(
-        "target",
-        "activity_subset_EC50_structure_consolidated",
-        db_dir=db_dir,
-    )
-
-    assert (
-        result.source_table
-        == "activity_subset_EC50_structure_consolidated"
-    )
-    assert result.source_row_count == 4
-    assert result.active_count == 2
-    assert result.inactive_count == 2
-
-
-def test_rejects_missing_sqlite_table(tmp_path):
-    db_dir = tmp_path / "SQL"
-    db_dir.mkdir()
-    sqlite3.connect(db_dir / "target.db").close()
-
-    with pytest.raises(TableNotFoundError, match="was not found"):
-        use_case.calculate_table_modelability_index(
-            "target",
-            "missing",
-            db_dir=db_dir,
-        )
+    with pytest.raises(ModelabilityIndexUseCaseError, match="At least two"):
+        use_case.calculate_dataframe_modelability_index(source)

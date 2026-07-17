@@ -3,14 +3,13 @@
 import numpy as np
 import pytest
 
-from services.modelability_index import (
-    ModelabilityIndexError,
-    calculate_modelability_index,
-)
+from services import modelability_index as service
+from services.modelability_index import ModelabilityIndexError
 
 
-def _perfectly_separated_fingerprints():
-    return np.asarray(
+def test_exact_tanimoto_neighbors_exclude_self_across_blocks(monkeypatch):
+    monkeypatch.setattr(service, "_BLOCK_SIZE", 2)
+    fingerprints = np.asarray(
         [
             [1, 1, 0, 0],
             [1, 1, 0, 1],
@@ -20,36 +19,25 @@ def _perfectly_separated_fingerprints():
         dtype=np.uint8,
     )
 
-
-def test_calculates_perfect_binary_modelability_index():
-    result = calculate_modelability_index(
-        _perfectly_separated_fingerprints(),
+    result = service.calculate_modelability_index(
+        fingerprints,
         ["Active", "Active", "Inactive", "Inactive"],
-        block_size=2,
     )
 
+    assert result.neighbor_indices == (1, 0, 3, 2)
+    assert result.neighbor_similarities == pytest.approx(
+        (2 / 3, 2 / 3, 1 / 2, 1 / 2)
+    )
+    assert all(
+        index != neighbor
+        for index, neighbor in enumerate(result.neighbor_indices)
+    )
+    assert result.active_concordance == pytest.approx(1.0)
+    assert result.inactive_concordance == pytest.approx(1.0)
     assert result.modelability_index == pytest.approx(1.0)
-    assert result.active_contribution == pytest.approx(1.0)
-    assert result.inactive_contribution == pytest.approx(1.0)
-
-    assert result.active_count == 2
-    assert result.inactive_count == 2
-    assert result.total_structure_count == 4
-    assert result.concordant_structure_count == 4
-    assert result.discordant_structure_count == 0
-    assert result.tie_affected_structure_count == 0
-
-    first = result.diagnostics[0]
-    assert first.input_index == 0
-    assert first.outcome == "Active"
-    assert first.nearest_neighbor_index == 1
-    assert first.nearest_neighbor_outcome == "Active"
-    assert first.nearest_neighbor_similarity == pytest.approx(2 / 3)
-    assert first.outcome_concordant is True
-    assert first.nearest_neighbor_tie_count == 1
 
 
-def test_macro_average_weights_active_and_inactive_equally():
+def test_equal_similarity_ties_use_lowest_ordered_index():
     fingerprints = np.asarray(
         [
             [1, 0],
@@ -60,208 +48,82 @@ def test_macro_average_weights_active_and_inactive_equally():
         dtype=np.uint8,
     )
 
-    result = calculate_modelability_index(
+    result = service.calculate_modelability_index(
         fingerprints,
         ["Active", "Active", "Inactive", "Inactive"],
     )
 
-    assert result.active_contribution == pytest.approx(0.0)
-    assert result.inactive_contribution == pytest.approx(1.0)
-    assert result.modelability_index == pytest.approx(0.5)
-
-    assert result.concordant_structure_count == 2
-    assert result.discordant_structure_count == 2
+    assert result.neighbor_indices == (2, 2, 3, 2)
+    assert result.neighbor_similarities == pytest.approx(
+        (0.5, 0.5, 1.0, 1.0)
+    )
 
 
-def test_equal_similarity_uses_lowest_index_and_records_ties():
+def test_macro_average_differs_from_micro_average_for_imbalanced_classes():
     fingerprints = np.asarray(
         [
             [1, 0],
+            [1, 0],
             [0, 1],
+            [0, 1],
+            [0, 1],
+        ],
+        dtype=np.uint8,
+    )
+    outcomes = ["Active", "Active", "Active", "Inactive", "Inactive"]
+
+    result = service.calculate_modelability_index(fingerprints, outcomes)
+
+    assert result.concordant == (True, True, False, False, False)
+    assert result.active_concordance == pytest.approx(2 / 3)
+    assert result.inactive_concordance == pytest.approx(0.0)
+    assert result.modelability_index == pytest.approx(1 / 3)
+    assert np.mean(result.concordant) == pytest.approx(2 / 5)
+    assert result.modelability_index != pytest.approx(
+        np.mean(result.concordant)
+    )
+
+
+def test_singleton_class_is_supported():
+    fingerprints = np.asarray(
+        [
+            [1, 0],
             [1, 1],
-            [1, 1],
+            [0, 1],
         ],
         dtype=np.uint8,
     )
 
-    result = calculate_modelability_index(
+    result = service.calculate_modelability_index(
         fingerprints,
-        ["Active", "Active", "Inactive", "Inactive"],
-        block_size=2,
+        ["Active", "Inactive", "Inactive"],
     )
 
-    assert result.diagnostics[0].nearest_neighbor_index == 2
-    assert result.diagnostics[0].nearest_neighbor_tie_count == 2
-
-    assert result.diagnostics[1].nearest_neighbor_index == 2
-    assert result.diagnostics[1].nearest_neighbor_tie_count == 2
-
-    assert result.tie_affected_structure_count == 2
-
-
-def test_block_size_does_not_change_exact_result():
-    fingerprints = _perfectly_separated_fingerprints()
-    outcomes = ["Active", "Active", "Inactive", "Inactive"]
-
-    one_row_blocks = calculate_modelability_index(
-        fingerprints,
-        outcomes,
-        block_size=1,
-    )
-    one_block = calculate_modelability_index(
-        fingerprints,
-        outcomes,
-        block_size=4,
-    )
-
-    assert one_row_blocks == one_block
-
-
-def test_outcomes_are_normalized_to_canonical_binary_labels():
-    result = calculate_modelability_index(
-        _perfectly_separated_fingerprints(),
-        [" active ", "ACTIVE", "inactive", " Inactive "],
-    )
-
-    assert tuple(
-        diagnostic.outcome for diagnostic in result.diagnostics
-    ) == (
-        "Active",
-        "Active",
-        "Inactive",
-        "Inactive",
-    )
-
-
-def test_does_not_mutate_input_fingerprint_array():
-    fingerprints = _perfectly_separated_fingerprints()
-    original = fingerprints.copy()
-
-    calculate_modelability_index(
-        fingerprints,
-        ["Active", "Active", "Inactive", "Inactive"],
-    )
-
-    np.testing.assert_array_equal(fingerprints, original)
-
-
-def test_rejects_outcome_count_mismatch():
-    with pytest.raises(
-        ModelabilityIndexError,
-        match="number of outcomes",
-    ):
-        calculate_modelability_index(
-            _perfectly_separated_fingerprints(),
-            ["Active", "Active"],
-        )
-
-
-def test_rejects_non_binary_outcome():
-    with pytest.raises(
-        ModelabilityIndexError,
-        match="only Active or Inactive",
-    ):
-        calculate_modelability_index(
-            _perfectly_separated_fingerprints(),
-            ["Active", "Active", "Inactive", "Unknown"],
-        )
+    assert result.active_concordance == pytest.approx(0.0)
+    assert result.inactive_concordance == pytest.approx(0.5)
+    assert result.modelability_index == pytest.approx(0.25)
 
 
 @pytest.mark.parametrize(
-    "outcomes, expected_message",
+    "fingerprints, outcomes, message",
     [
+        (np.asarray([[1, 0]], dtype=np.uint8), ["Active"], "At least two"),
         (
-            ["Active", "Active", "Active", "Active"],
+            np.asarray([[1, 0], [0, 1]], dtype=np.uint8),
+            ["Active", "Active"],
             "Both Active and Inactive",
         ),
         (
-            ["Active", "Active", "Active", "Inactive"],
-            "at least two structures",
+            np.asarray([[1, 0], [0, 1]], dtype=np.uint8),
+            ["Active"],
+            "number of outcomes",
         ),
     ],
 )
-def test_requires_two_binary_classes_with_two_structures_each(
-    outcomes,
-    expected_message,
-):
-    with pytest.raises(
-        ModelabilityIndexError,
-        match=expected_message,
-    ):
-        calculate_modelability_index(
-            _perfectly_separated_fingerprints(),
-            outcomes,
-        )
-
-
-@pytest.mark.parametrize(
-    "fingerprints, expected_message",
-    [
-        (
-            np.asarray([1, 0, 1]),
-            "two-dimensional",
-        ),
-        (
-            np.empty((4, 0), dtype=np.uint8),
-            "at least one bit",
-        ),
-        (
-            np.asarray(
-                [
-                    [1, 0],
-                    [1, 2],
-                    [0, 1],
-                    [1, 1],
-                ]
-            ),
-            "only binary values",
-        ),
-        (
-            np.asarray(
-                [
-                    [1, 0],
-                    [0, 0],
-                    [0, 1],
-                    [1, 1],
-                ]
-            ),
-            "all-zero rows: 1",
-        ),
-        (
-            np.asarray(
-                [
-                    [1.0, 0.0],
-                    [1.0, np.nan],
-                    [0.0, 1.0],
-                    [1.0, 1.0],
-                ]
-            ),
-            "finite binary values",
-        ),
-    ],
-)
-def test_rejects_invalid_fingerprint_matrices(
+def test_rejects_only_inputs_where_the_index_is_undefined(
     fingerprints,
-    expected_message,
+    outcomes,
+    message,
 ):
-    with pytest.raises(
-        ModelabilityIndexError,
-        match=expected_message,
-    ):
-        calculate_modelability_index(
-            fingerprints,
-            ["Active", "Active", "Inactive", "Inactive"],
-        )
-
-
-@pytest.mark.parametrize("block_size", [0, -1, True, 1.5])
-def test_rejects_invalid_block_size(block_size):
-    with pytest.raises(
-        ModelabilityIndexError,
-        match="positive integer",
-    ):
-        calculate_modelability_index(
-            _perfectly_separated_fingerprints(),
-            ["Active", "Active", "Inactive", "Inactive"],
-            block_size=block_size,
-        )
+    with pytest.raises(ModelabilityIndexError, match=message):
+        service.calculate_modelability_index(fingerprints, outcomes)
