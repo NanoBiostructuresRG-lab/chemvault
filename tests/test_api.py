@@ -61,6 +61,15 @@ def _pending_harmonsmile_job():
     }
 
 
+def _pending_modelability_job():
+    return {
+        **_pending_harmonsmile_job(),
+        "job_type": "modelability_index",
+        "message": "Modelability Index job queued",
+        "cancellable": False,
+    }
+
+
 def _structure_consolidation_result():
     return StructureConsolidationTableResult(
         table_name="main_structure_consolidated",
@@ -108,6 +117,10 @@ def test_openapi_schema_exposes_read_only_contract():
         ),
     }.issubset(schema["paths"])
     assert "/databases/{database_id}/jobs/harmonsmile" in schema["paths"]
+    assert (
+        "/databases/{database_id}/jobs/modelability_index"
+        in schema["paths"]
+    )
     assert "/databases/{database_id}/jobs/{job_id}" in schema["paths"]
     assert (
         "/databases/{database_id}/scientific-runtime/activate"
@@ -156,6 +169,68 @@ def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
             {"name": "chemvault-harmonsmile"},
         )
     ]
+
+
+def test_modelability_launch_endpoint_uses_application_runtime(monkeypatch):
+    expected = job_status_from_payload(_pending_modelability_job())
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "create_scientific_job",
+        lambda *args: calls.append(args) or expected,
+    )
+    background_calls = []
+    monkeypatch.setattr(
+        api_main,
+        "start_scientific_background_job",
+        lambda *args, **kwargs: background_calls.append((args, kwargs)),
+    )
+
+    response = client.post(
+        "/databases/test_db/jobs/modelability_index",
+        json={"table_name": "structures"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["job_type"] == "modelability_index"
+    assert response.json()["cancellable"] is False
+    assert calls == [
+        (
+            "test_db",
+            api_main.JobType.MODELABILITY_INDEX,
+            {"table_name": "structures"},
+        )
+    ]
+    assert background_calls == [
+        (
+            (
+                "test_db",
+                api_main.JobType.MODELABILITY_INDEX,
+                "job-1",
+            ),
+            {"name": "chemvault-modelability-index"},
+        )
+    ]
+
+
+def test_modelability_launch_rejects_non_consolidated_source(monkeypatch):
+    monkeypatch.setattr(
+        api_main,
+        "create_scientific_job",
+        lambda *_args: (_ for _ in ()).throw(
+            api_main.InvalidModelabilitySourceError(
+                "Modelability Index requires a consolidated table."
+            )
+        ),
+    )
+
+    response = client.post(
+        "/databases/test_db/jobs/modelability_index",
+        json={"table_name": "arbitrary"},
+    )
+
+    assert response.status_code == 422
+    assert "requires a consolidated table" in response.json()["detail"]
 
 
 def test_active_harmonsmile_endpoint_uses_application_runtime(monkeypatch):

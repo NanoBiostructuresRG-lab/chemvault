@@ -112,6 +112,10 @@ class HarmonsmileJobRequest(BaseModel):
     cid_column: str = Field(min_length=1)
 
 
+class ModelabilityIndexJobRequest(BaseModel):
+    table_name: str = Field(min_length=1)
+
+
 class JobStatusResponse(BaseModel):
     job_id: str
     job_type: str

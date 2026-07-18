@@ -26,6 +26,7 @@ from application.structure_consolidation import (
     structure_consolidation_summary_from_metadata,
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
+import application.modelability_jobs  # noqa: F401 - registers Modelability hooks
 from application.job_contracts import (
     JobStatusContract,
     RecoveredJobContract,

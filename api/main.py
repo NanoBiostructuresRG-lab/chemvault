@@ -10,6 +10,7 @@ from api.schemas import (
     HealthResponse,
     HarmonsmileJobRequest,
     JobStatusResponse,
+    ModelabilityIndexJobRequest,
     OperationHistoryResponse,
     RecoveredJobResponse,
     ScientificRuntimeActivationResponse,
@@ -19,6 +20,8 @@ from api.schemas import (
     TablePreviewResponse,
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
+import application.modelability_jobs  # noqa: F401 - registers Modelability hooks
+from application.modelability_jobs import InvalidModelabilitySourceError
 from application.scientific_runtime import activate_scientific_runtime
 from application.scientific_jobs import (
     JobNotFoundError,
@@ -124,6 +127,36 @@ def launch_harmonsmile(
     except (DatabaseNotFoundError, TableNotFoundError) as error:
         raise _not_found(error) from error
     except InvalidColumnError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except UnsupportedJobTypeError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post(
+    "/databases/{database_id}/jobs/modelability_index",
+    response_model=JobStatusResponse,
+    status_code=201,
+)
+def launch_modelability_index(
+    database_id: DatabaseId,
+    request: ModelabilityIndexJobRequest,
+):
+    try:
+        created = create_scientific_job(
+            database_id,
+            JobType.MODELABILITY_INDEX,
+            {"table_name": request.table_name},
+        )
+        start_scientific_background_job(
+            database_id,
+            JobType.MODELABILITY_INDEX,
+            created.job_id,
+            name="chemvault-modelability-index",
+        )
+        return created
+    except (DatabaseNotFoundError, TableNotFoundError) as error:
+        raise _not_found(error) from error
+    except InvalidModelabilitySourceError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except UnsupportedJobTypeError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

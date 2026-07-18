@@ -5,6 +5,7 @@ import os
 from threading import Lock, Thread
 
 from application.harmonsmile_jobs import recover_orphaned_harmonsmile_jobs
+from application.modelability_jobs import fail_orphaned_modelability_jobs
 from application.database_use_cases import resolve_database_path
 from application.scientific_jobs import (
     claim_scientific_job_executor,
@@ -129,6 +130,13 @@ def activate_scientific_runtime(database_id, *, db_dir="SQL"):
     with _activation_lock:
         if database_key in _activated_databases:
             return _activated_databases[database_key]
+        fail_orphaned_modelability_jobs(
+            database_id,
+            db_dir=db_dir,
+            executor_is_alive=scientific_job_executor_is_alive,
+            process_is_alive=process_is_alive,
+            current_pid=os.getpid(),
+        )
         recovered = recover_orphaned_harmonsmile_jobs(
             database_id,
             db_dir=db_dir,
