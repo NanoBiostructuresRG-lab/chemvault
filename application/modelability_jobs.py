@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 
 from application.database_use_cases import (
+    TableNotFoundError,
     get_table_provenance,
     resolve_database_path,
 )
@@ -27,7 +28,49 @@ MODELABILITY_INTERRUPTED_MESSAGE = (
 
 
 class InvalidModelabilitySourceError(ValueError):
-    """Raised when Modelability input is not structure-consolidated."""
+    """Raised when Modelability input is not an Activity Labels output."""
+
+
+def _is_activity_labels_output_name(table_name: str, source_table: str) -> bool:
+    base_name = f"{source_table}_structure_consolidated"
+    if table_name == base_name:
+        return True
+    numbered_prefix = f"{base_name}_"
+    if not table_name.startswith(numbered_prefix):
+        return False
+    suffix = table_name.removeprefix(numbered_prefix)
+    return suffix.isdigit() and int(suffix) >= 2
+
+
+def _validate_modelability_source(database_id: str, table_name: str) -> None:
+    provenance = get_table_provenance(database_id, table_name)
+    source_table = provenance.source_table or ""
+    if (
+        provenance.origin != "structure_consolidation"
+        or not source_table.startswith("activity_subset_")
+        or source_table == "activity_subset_"
+        or not _is_activity_labels_output_name(table_name, source_table)
+    ):
+        raise InvalidModelabilitySourceError(
+            "Modelability Index requires an Activity Labels consolidated "
+            "table derived from a registered activity_subset_* source."
+        )
+
+    try:
+        source_provenance = get_table_provenance(database_id, source_table)
+    except TableNotFoundError as error:
+        raise InvalidModelabilitySourceError(
+            "Modelability Index requires a complete Activity Labels lineage; "
+            f"source table '{source_table}' is unavailable."
+        ) from error
+    if (
+        source_provenance.origin != "structured_activity_filtered_subset"
+        or source_provenance.source_table != "compound_activities"
+    ):
+        raise InvalidModelabilitySourceError(
+            "Modelability Index requires an Activity Labels consolidated "
+            "table derived from a registered activity_subset_* source."
+        )
 
 
 def fail_orphaned_modelability_jobs(
@@ -103,12 +146,7 @@ def create_modelability_job(
     table_name: str,
 ) -> JobStatusContract:
     """Validate and persist one queued Modelability Index job."""
-    provenance = get_table_provenance(database_id, table_name)
-    if provenance.origin != "structure_consolidation":
-        raise InvalidModelabilitySourceError(
-            "Modelability Index requires a table produced by structure "
-            "consolidation / Activity Labels."
-        )
+    _validate_modelability_source(database_id, table_name)
     _fail_orphans_before_creation(database_id)
     request_metadata = {
         "table_name": table_name,

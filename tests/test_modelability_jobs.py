@@ -27,10 +27,17 @@ from services.job_store import JobStore
 from services.sql_utils import get_tables_from_connection
 
 
+MODELABILITY_TABLE = "activity_subset_IC50_structure_consolidated"
+
+
+def _activity_subset_source(table_name):
+    return table_name.split("_structure_consolidated", 1)[0]
+
+
 def _create_database(
     tmp_path,
     monkeypatch,
-    tables=("structures",),
+    tables=(MODELABILITY_TABLE,),
     *,
     register_consolidated=True,
 ):
@@ -47,18 +54,27 @@ def _create_database(
             [("CCO", "Active"), ("CCC", "Inactive")],
         )
         if register_consolidated:
+            source_table = _activity_subset_source(table)
+            connection.execute(f'CREATE TABLE "{source_table}" (CID TEXT)')
+            register_table_metadata(
+                connection,
+                source_table,
+                role="derived",
+                origin="structured_activity_filtered_subset",
+                source_table="compound_activities",
+            )
             register_table_metadata(
                 connection,
                 table,
                 role="derived",
                 origin="structure_consolidation",
-                source_table="raw_source",
+                source_table=source_table,
             )
     connection.commit()
     connection.close()
 
 
-def _result(table_name="structures"):
+def _result(table_name=MODELABILITY_TABLE):
     return ModelabilityIndexUseCaseResult(
         structure_count=2,
         active_count=1,
@@ -107,7 +123,7 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
     created = create_scientific_job(
         "test_db",
         JobType.MODELABILITY_INDEX,
-        {"table_name": "structures"},
+        {"table_name": MODELABILITY_TABLE},
     )
     completed = execute_scientific_job(
         "test_db",
@@ -121,7 +137,7 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
     assert created.cancellable is False
     assert completed.status == JobStatus.COMPLETED
     assert queried == completed
-    assert calls == [("test_db", "structures")]
+    assert calls == [("test_db", MODELABILITY_TABLE)]
     assert completed.result["modelability_index"] == 0.0
     assert len(completed.result["diagnostics"]) == 2
     assert completed.result["provenance"]["similarity_metric"] == "tanimoto"
@@ -129,11 +145,14 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
 
     connection = get_connection("test_db")
     try:
-        assert get_tables_from_connection(connection) == ["structures"]
+        assert get_tables_from_connection(connection) == [
+            "activity_subset_IC50",
+            MODELABILITY_TABLE,
+        ]
         record = JobStore(connection).get_job(created.job_id)
     finally:
         connection.close()
-    assert record.metadata["table_name"] == "structures"
+    assert record.metadata["table_name"] == MODELABILITY_TABLE
     assert record.metadata["cancellation_supported"] is False
     assert record.metadata["result"] == completed.result
     assert "fingerprints" not in record.metadata["result"]
@@ -142,8 +161,8 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
 def test_duplicate_active_creation_returns_existing_job(tmp_path, monkeypatch):
     _create_database(tmp_path, monkeypatch)
 
-    first = create_modelability_job("test_db", "structures")
-    duplicate = create_modelability_job("test_db", "structures")
+    first = create_modelability_job("test_db", MODELABILITY_TABLE)
+    duplicate = create_modelability_job("test_db", MODELABILITY_TABLE)
 
     assert duplicate == first
     connection = get_connection("test_db")
@@ -169,9 +188,59 @@ def test_creation_rejects_existing_non_consolidated_table(
 
     with pytest.raises(
         InvalidModelabilitySourceError,
-        match="requires a table produced by structure consolidation",
+        match="requires an Activity Labels consolidated table",
     ):
-        create_modelability_job("test_db", "structures")
+        create_modelability_job("test_db", MODELABILITY_TABLE)
+
+
+def test_creation_rejects_unrelated_structure_consolidation_output(
+    tmp_path,
+    monkeypatch,
+):
+    _create_database(
+        tmp_path,
+        monkeypatch,
+        tables=("other_structure_consolidated",),
+        register_consolidated=False,
+    )
+    connection = get_connection("test_db")
+    try:
+        register_table_metadata(
+            connection,
+            "other_structure_consolidated",
+            role="derived",
+            origin="structure_consolidation",
+            source_table="unrelated_source",
+        )
+    finally:
+        connection.close()
+
+    with pytest.raises(
+        InvalidModelabilitySourceError,
+        match="requires an Activity Labels consolidated table",
+    ):
+        create_modelability_job("test_db", "other_structure_consolidated")
+
+
+def test_creation_rejects_forged_activity_subset_lineage(tmp_path, monkeypatch):
+    _create_database(tmp_path, monkeypatch)
+    connection = get_connection("test_db")
+    try:
+        register_table_metadata(
+            connection,
+            "activity_subset_IC50",
+            role="derived",
+            origin="refine",
+            source_table="compound_activities",
+        )
+    finally:
+        connection.close()
+
+    with pytest.raises(
+        InvalidModelabilitySourceError,
+        match="requires an Activity Labels consolidated table",
+    ):
+        create_modelability_job("test_db", MODELABILITY_TABLE)
 
 
 def test_modelability_execution_failure_is_persisted(tmp_path, monkeypatch):
@@ -182,7 +251,7 @@ def test_modelability_execution_failure_is_persisted(tmp_path, monkeypatch):
         lambda *_args: (_ for _ in ()).throw(RuntimeError("calculation failed")),
     )
 
-    created = create_modelability_job("test_db", "structures")
+    created = create_modelability_job("test_db", MODELABILITY_TABLE)
     failed = execute_modelability_job("test_db", created.job_id)
 
     assert failed.status == JobStatus.FAILED
@@ -196,7 +265,7 @@ def test_dead_orphan_is_failed_and_fresh_job_can_be_created(
     monkeypatch,
 ):
     _create_database(tmp_path, monkeypatch)
-    created = create_modelability_job("test_db", "structures")
+    created = create_modelability_job("test_db", MODELABILITY_TABLE)
     connection = get_connection("test_db")
     store = JobStore(connection)
     store.claim_pending_scientific_job(created.job_id, 424242)
@@ -214,7 +283,7 @@ def test_dead_orphan_is_failed_and_fresh_job_can_be_created(
     assert failed[0].status == JobStatus.FAILED
     assert failed[0].error == MODELABILITY_INTERRUPTED_MESSAGE
 
-    replacement = create_modelability_job("test_db", "structures")
+    replacement = create_modelability_job("test_db", MODELABILITY_TABLE)
     assert replacement.job_id != created.job_id
     assert replacement.status == JobStatus.PENDING
 
@@ -226,10 +295,19 @@ def test_orphan_cleanup_preserves_current_executor_and_live_foreign_pid(
     _create_database(
         tmp_path,
         monkeypatch,
-        tables=("current_owner", "foreign_owner"),
+        tables=(
+            "activity_subset_current_structure_consolidated",
+            "activity_subset_foreign_structure_consolidated",
+        ),
     )
-    current = create_modelability_job("test_db", "current_owner")
-    foreign = create_modelability_job("test_db", "foreign_owner")
+    current = create_modelability_job(
+        "test_db",
+        "activity_subset_current_structure_consolidated",
+    )
+    foreign = create_modelability_job(
+        "test_db",
+        "activity_subset_foreign_structure_consolidated",
+    )
     connection = get_connection("test_db")
     store = JobStore(connection)
     store.claim_pending_scientific_job(current.job_id, os.getpid())
