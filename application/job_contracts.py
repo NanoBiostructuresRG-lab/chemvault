@@ -3,7 +3,11 @@
 from dataclasses import dataclass
 from typing import Any
 
-from services.job_models import JobRecord, JobStatus
+from services.job_models import (
+    JobRecord,
+    JobStatus,
+    job_supports_cancellation,
+)
 
 
 CANCELLABLE_STATUSES = frozenset({
@@ -62,7 +66,10 @@ def job_status_from_record(record: JobRecord) -> JobStatusContract:
         finished_at=record.finished_at or None,
         error=record.error_message or None,
         result=record.metadata.get("result"),
-        cancellable=status in CANCELLABLE_STATUSES,
+        cancellable=(
+            status in CANCELLABLE_STATUSES
+            and job_supports_cancellation(record)
+        ),
     )
 
 

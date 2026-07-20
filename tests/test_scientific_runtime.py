@@ -36,7 +36,15 @@ def _recovered(database_id, job_id):
 def test_runtime_activates_each_database_independently_only_once(monkeypatch):
     scientific_runtime._reset_scientific_runtime_for_tests()
     recovery_calls = []
+    cleanup_calls = []
     launch_calls = []
+    monkeypatch.setattr(
+        scientific_runtime,
+        "fail_orphaned_modelability_jobs",
+        lambda database_id, **kwargs: cleanup_calls.append(
+            (database_id, kwargs)
+        ),
+    )
     monkeypatch.setattr(
         scientific_runtime,
         "recover_orphaned_harmonsmile_jobs",
@@ -63,6 +71,7 @@ def test_runtime_activates_each_database_independently_only_once(monkeypatch):
     assert first[0].job.job_id == "job-a"
     assert second[0].job.job_id == "job-b"
     assert [call[0] for call in recovery_calls] == ["a", "b"]
+    assert [call[0] for call in cleanup_calls] == ["a", "b"]
     assert launch_calls == [
         (
             ("a", JobType.HARMONSMILE, "job-a"),
@@ -90,6 +99,11 @@ def test_runtime_startup_retries_after_recovered_executor_launch_fails(
     scientific_runtime._reset_scientific_runtime_for_tests()
     recovery_calls = []
     launch_calls = []
+    monkeypatch.setattr(
+        scientific_runtime,
+        "fail_orphaned_modelability_jobs",
+        lambda *_args, **_kwargs: (),
+    )
     monkeypatch.setattr(
         scientific_runtime,
         "recover_orphaned_harmonsmile_jobs",

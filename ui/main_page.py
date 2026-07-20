@@ -52,6 +52,7 @@ from ui.session_state import (
     refresh_database_state,
     set_database_from_input,
 )
+from ui.modelability_result import render_modelability_result_card
 
 ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Type",
@@ -1365,6 +1366,11 @@ def render_table_manager_card(container):
                 st.session_state.get(CURRENT_TABLE, ""),
             )
             render_activity_enrichment_action(activity_conn)
+            render_modelability_result_card(
+                st.session_state,
+                database_id,
+                st.session_state.get(CURRENT_TABLE, ""),
+            )
 
 
 def render_database_card(container):

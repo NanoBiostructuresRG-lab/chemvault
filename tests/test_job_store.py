@@ -4,7 +4,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from services.job_models import JobStatus, JobType
+from services.job_models import (
+    JobCancellationNotSupportedError,
+    JobStatus,
+    JobType,
+)
 from services.job_store import (
     JOBS_TABLE,
     STALE_JOB_ERROR_MESSAGE,
@@ -262,6 +266,27 @@ def test_cancel_job_ignores_terminal_jobs():
 
     assert store.cancel_job(job.job_id) is None
     assert store.get_job(job.job_id).status == JobStatus.COMPLETED.value
+
+
+def test_cancel_job_rejects_non_interruptible_active_job():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    job = store.create_job(
+        job_type=JobType.MODELABILITY_INDEX,
+        metadata={"cancellation_supported": False},
+        job_id="job-1",
+    )
+    store.start_job(job.job_id)
+
+    with pytest.raises(
+        JobCancellationNotSupportedError,
+        match="does not support cancellation",
+    ):
+        store.cancel_job(job.job_id)
+
+    unchanged = store.get_job(job.job_id)
+    assert unchanged.status == JobStatus.RUNNING.value
+    assert unchanged.cancel_requested_at == ""
 
 
 def test_get_job_returns_none_for_missing_job():

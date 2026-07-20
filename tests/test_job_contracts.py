@@ -89,6 +89,17 @@ def test_job_status_contract_maps_terminal_error_and_timestamps():
     assert status.cancellable is False
 
 
+def test_active_job_can_explicitly_disable_cancellation():
+    record = JobRecord(
+        job_id="job-1",
+        job_type="modelability_index",
+        status=JobStatus.RUNNING.value,
+        metadata={"cancellation_supported": False},
+    )
+
+    assert job_status_from_record(record).cancellable is False
+
+
 def test_job_status_contract_rejects_unknown_persisted_status():
     record = JobRecord(
         job_id="job-1",

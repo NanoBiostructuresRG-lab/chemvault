@@ -51,6 +51,7 @@ from ui.harmonsmile_state import (
     execute_harmonsmile_command,
     sync_harmonsmile_runtime,
 )
+from ui.modelability_card import render_modelability_card
 from ui.session_state import refresh_database_state
 
 
@@ -544,6 +545,7 @@ def render_curate_card():
                 st.rerun()
 
         render_structure_consolidation_card()
+        render_modelability_card()
 
         with st.container(border=True):
             st.markdown("**CHAMANP**")

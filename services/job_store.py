@@ -4,7 +4,13 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from services.job_models import JobRecord, JobStatus, JobType
+from services.job_models import (
+    JobCancellationNotSupportedError,
+    JobRecord,
+    JobStatus,
+    JobType,
+    job_supports_cancellation,
+)
 from services.runtime_config import JOB_HEARTBEAT_TIMEOUT_SECONDS
 
 JOBS_TABLE = "_chemvault_jobs"
@@ -379,6 +385,13 @@ class JobStore:
 
     def cancel_job(self, job_id, message="Cancellation requested"):
         self.ensure_jobs_table()
+        job = self.get_job(job_id)
+        if job is None or job.status not in ACTIVE_JOB_STATUSES:
+            return None
+        if not job_supports_cancellation(job):
+            raise JobCancellationNotSupportedError(
+                f"Job '{job_id}' does not support cancellation."
+            )
         now = _utc_now()
         cursor = self.connection.cursor()
         cursor.execute(
