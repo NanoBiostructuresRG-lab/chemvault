@@ -7,6 +7,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.11.0] - 2026-07-20
+
+### Added
+
+- Added the native CHEMVAULT **Modelability Index** workflow for evaluating
+  nearest-neighbor class concordance in consolidated Active/Inactive structure
+  datasets.
+- Added strict input eligibility for
+  `activity_subset_XX_structure_consolidated` tables containing
+  `SMILES_Harmonized`, `Outcome`, and `Reference_Selection_Status`.
+- Added exclusion of rows whose `Reference_Selection_Status` is not
+  `selected`, while preserving the original PubChem `Active` and `Inactive`
+  labels without introducing activity-threshold rules.
+- Added in-memory Morgan fingerprint encoding through MOLRAPTOR 0.2.0.
+  CHEMVAULT consumes the returned fingerprints but does not implement a
+  separate fingerprint-generation engine.
+- Added a reproducible molecular representation profile using 2048-bit Morgan
+  fingerprints with radius 2, RDKit default invariants, bond types and ring
+  membership, and no chirality or redundant environments.
+- Added deterministic single-nearest-neighbor assignment using Tanimoto
+  similarity and stable ordered-index tie resolution.
+- Added calculation of the Modelability Index, Active Concordance, and
+  Inactive Concordance using macro-averaged class concordance.
+- Added a complete structure-level nearest-neighbor report for inspection and
+  downstream analysis.
+- Added persisted fingerprint-profile and analysis provenance, with concise
+  scientific parameters exposed through the end-user interface.
+- Added local and HTTP backend-job execution through the existing CHEMVAULT
+  backend gateway.
+- Added table-specific Streamlit result state so switching tables does not
+  misattribute stored Modelability Index results.
+- Added the `MODELABILITY INDEX` execution card and a result card aligned with
+  the existing CHEMVAULT interface.
+- Preserved `CURRENT_TABLE` during Modelability Index execution.
+
+### Modelability Index method
+
+CHEMVAULT evaluates only rows satisfying:
+
+\[
+\operatorname{Reference\_Selection\_Status}(r)
+=
+\texttt{selected}
+\]
+
+with a usable `SMILES_Harmonized` and a binary `Outcome` equal to
+`Active` or `Inactive`.
+
+For every eligible structure \(i\), MOLRAPTOR generates an in-memory binary
+Morgan fingerprint \(F_i\). CHEMVAULT calculates pairwise Tanimoto similarity:
+
+\[
+T(F_i,F_j)
+=
+\frac{
+\left|F_i \cap F_j\right|
+}{
+\left|F_i\right|
++
+\left|F_j\right|
+-
+\left|F_i \cap F_j\right|
+}
+\]
+
+The nearest neighbor of structure \(i\) is:
+
+\[
+j^{*}(i)
+=
+\operatorname*{arg\,max}_{j \ne i}
+T(F_i,F_j)
+\]
+
+When multiple structures have the same maximum similarity, CHEMVAULT applies
+the stable ordered-input index as a deterministic technical tie-breaker.
+
+Nearest-neighbor concordance for structure \(i\) is:
+
+\[
+c_i
+=
+\begin{cases}
+1, & \operatorname{Outcome}(i)
+=
+\operatorname{Outcome}(j^{*}(i)) \\
+0, & \text{otherwise}
+\end{cases}
+\]
+
+The class-specific concordances are:
+
+\[
+C_{\mathrm{Active}}
+=
+\frac{1}{N_{\mathrm{Active}}}
+\sum_{i:\,y_i=\mathrm{Active}} c_i
+\]
+
+and:
+
+\[
+C_{\mathrm{Inactive}}
+=
+\frac{1}{N_{\mathrm{Inactive}}}
+\sum_{i:\,y_i=\mathrm{Inactive}} c_i
+\]
+
+The Modelability Index is their macro average:
+
+\[
+\operatorname{Modelability\ Index}
+=
+\frac{
+C_{\mathrm{Active}}
++
+C_{\mathrm{Inactive}}
+}{2}
+\]
+
+This macro averaging gives equal weight to the Active and Inactive classes
+regardless of class imbalance. Values closer to 1 indicate stronger local
+same-class nearest-neighbor concordance for the selected molecular
+representation profile.
+
+---
+
 ## [v0.10.5] - 2026-07-15
 
 ### Added
