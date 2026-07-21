@@ -81,7 +81,7 @@ def test_uses_all_rows_regardless_of_reference_status_with_fixed_provenance(
         "include_redundant_environments": False,
         "invariant_policy": "rdkit-default",
     }
-    assert provenance["molraptor_version"] == "0.2.0"
+    assert provenance["molraptor_version"] == "0.3.0"
     assert provenance["rdkit_version"]
     assert provenance["molraptor_profile_hash"]
     assert provenance["molraptor_ordered_input_hash"]
