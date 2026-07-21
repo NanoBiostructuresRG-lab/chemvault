@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.11.1] - 2026-07-21
+
+### Changed
+
+- Updated the pinned MOLRAPTOR dependency from 0.2.0 to 0.3.0.
+- Confirmed compatibility of the existing Modelability Index workflow with
+  `MorganFingerprintProfile` and `encode_fingerprints` from MOLRAPTOR 0.3.0.
+- Preserved the existing Morgan fingerprint profile, Modelability Index
+  calculation, provenance contract, and user interface without scientific
+  algorithm changes.
+
+---
+
 ## [v0.11.0] - 2026-07-20
 
 ### Added
