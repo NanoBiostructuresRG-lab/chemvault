@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import sqlite3
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 from molraptor import (
     MorganFingerprintProfile,
@@ -25,9 +27,12 @@ from services.modelability_index import (
     calculate_modelability_index,
 )
 from services.modelability_fingerprint_artifacts import (
+    MATRIX_FORMAT,
+    MATRIX_FORMAT_VERSION,
     FingerprintArtifact,
     FingerprintArtifactExpectation,
     build_fingerprint_artifact,
+    read_fingerprint_artifact,
     restore_or_calculate_fingerprint_artifact,
 )
 from services.sql_utils import get_tables_from_connection, quote_identifier
@@ -48,6 +53,7 @@ TIE_POLICY = "lowest_ordered_index"
 AGGREGATION_METHOD = "macro_average"
 FINGERPRINT_ARTIFACT_CONTRACT = "modelability_fingerprint_artifact"
 FINGERPRINT_ARTIFACT_CONTRACT_VERSION = 1
+_OUTCOME_MAPPING = {"Inactive": 0, "Active": 1}
 
 
 class ModelabilityIndexUseCaseError(ValueError):
@@ -392,6 +398,28 @@ def calculate_persisted_prepared_modelability_index(
     source_table: str,
 ) -> ModelabilityIndexUseCaseResult:
     """Calculate Modelability with a reusable SQLite fingerprint artifact."""
+    expectation = _fingerprint_artifact_expectation(
+        prepared,
+        source_table=source_table,
+    )
+    artifact, fingerprint_source = restore_or_calculate_fingerprint_artifact(
+        connection,
+        expectation=expectation,
+        calculate=lambda: _calculate_fingerprint_artifact(prepared),
+    )
+    return _calculate_with_fingerprint_artifact(
+        prepared,
+        artifact,
+        fingerprint_source=fingerprint_source,
+        source_table=source_table,
+    )
+
+
+def _fingerprint_artifact_expectation(
+    prepared: PreparedModelabilityInput,
+    *,
+    source_table: str,
+) -> FingerprintArtifactExpectation:
     population_identity = (
         prepared.population_identity or _population_identity(prepared.smiles)
     )
@@ -399,7 +427,7 @@ def calculate_persisted_prepared_modelability_index(
         prepared.fingerprint_identity
         or _fingerprint_identity(population_identity)
     )
-    expectation = FingerprintArtifactExpectation(
+    return FingerprintArtifactExpectation(
         source_table=source_table,
         fingerprint_identity=fingerprint_identity,
         artifact_contract=FINGERPRINT_ARTIFACT_CONTRACT,
@@ -414,17 +442,109 @@ def calculate_persisted_prepared_modelability_index(
         row_count=len(prepared.smiles),
         fp_size=_FINGERPRINT_PROFILE.fp_size,
     )
-    artifact, fingerprint_source = restore_or_calculate_fingerprint_artifact(
-        connection,
-        expectation=expectation,
-        calculate=lambda: _calculate_fingerprint_artifact(prepared),
-    )
-    return _calculate_with_fingerprint_artifact(
+
+
+def export_modelability_fingerprints_npz(
+    connection,
+    prepared: PreparedModelabilityInput,
+    *,
+    database_id: str,
+    source_table: str,
+) -> tuple[bytes, str]:
+    """Build an in-memory NPZ from an existing validated fingerprint artifact."""
+    prefix = "activity_subset_"
+    suffix = "_structure_consolidated"
+    if (
+        not source_table.startswith(prefix)
+        or not source_table.endswith(suffix)
+        or len(source_table) <= len(prefix) + len(suffix)
+    ):
+        raise ModelabilityIndexUseCaseError(
+            "Modelability source table does not contain an activity type."
+        )
+    activity_type = source_table[len(prefix):-len(suffix)]
+    if len(prepared.outcomes) != len(prepared.smiles):
+        raise ModelabilityIndexUseCaseError(
+            "The number of outcomes must match the fingerprint rows."
+        )
+    if (
+        _analysis_identity(prepared.smiles, prepared.outcomes)
+        != prepared.analysis_identity
+    ):
+        raise ModelabilityIndexUseCaseError(
+            "Prepared Modelability analysis identity does not match its rows."
+        )
+    expectation = _fingerprint_artifact_expectation(
         prepared,
-        artifact,
-        fingerprint_source=fingerprint_source,
         source_table=source_table,
     )
+    artifact = read_fingerprint_artifact(
+        connection,
+        expectation=expectation,
+    )
+
+    try:
+        outcomes = np.asarray(prepared.outcomes, dtype=np.str_)
+        y = np.asarray(
+            [_OUTCOME_MAPPING[outcome] for outcome in prepared.outcomes],
+            dtype=np.uint8,
+        )
+    except KeyError as error:
+        raise ModelabilityIndexUseCaseError(
+            "Outcome must contain only Active or Inactive."
+        ) from error
+
+    metadata = {
+        "analysis_identity": prepared.analysis_identity,
+        "artifact_contract": expectation.artifact_contract,
+        "artifact_contract_version": expectation.artifact_contract_version,
+        "database_id": database_id,
+        "fingerprint_artifact_sha256": artifact.sha256,
+        "fingerprint_identity": expectation.fingerprint_identity,
+        "fingerprint_profile": dict(artifact.profile),
+        "matrix_format": MATRIX_FORMAT,
+        "matrix_format_version": MATRIX_FORMAT_VERSION,
+        "molraptor_ordered_input_hash": artifact.ordered_input_hash,
+        "molraptor_profile_hash": artifact.profile_hash,
+        "molraptor_version": artifact.molraptor_version,
+        "outcome_mapping": dict(_OUTCOME_MAPPING),
+        "population_identity": expectation.population_identity,
+        "rdkit_version": artifact.rdkit_version,
+        "schema_name": "chemvault_modelability_fingerprints",
+        "schema_version": 1,
+        "source_table": source_table,
+    }
+    metadata_json = json.dumps(
+        metadata,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    smiles = np.asarray(prepared.smiles, dtype=np.str_)
+    structure_ids = np.asarray(
+        [
+            hashlib.sha256(smiles_value.encode("utf-8")).hexdigest()
+            for smiles_value in prepared.smiles
+        ],
+        dtype="<U64",
+    )
+    stream = io.BytesIO()
+    np.savez_compressed(
+        stream,
+        X=artifact.matrix,
+        SMILES_Harmonized=smiles,
+        Outcome=outcomes,
+        y=y,
+        row_index=np.arange(len(prepared.smiles), dtype=np.int64),
+        structure_id=structure_ids,
+        metadata_json=np.asarray(metadata_json, dtype=np.str_),
+    )
+
+    filename = (
+        f"{database_id}_{activity_type}_fingerprints_"
+        f"{prepared.analysis_identity[:8]}.npz"
+    )
+    return stream.getvalue(), filename
 
 
 def calculate_table_modelability_index(

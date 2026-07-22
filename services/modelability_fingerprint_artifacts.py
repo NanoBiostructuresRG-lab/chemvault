@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import sqlite3
 import zlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -21,6 +22,10 @@ FINGERPRINT_ARTIFACTS_TABLE = (
 MATRIX_FORMAT = "npy-zlib"
 MATRIX_FORMAT_VERSION = 1
 MATRIX_DTYPE = "uint8"
+
+
+class FingerprintArtifactError(ValueError):
+    """Raised when a persisted fingerprint artifact cannot be used."""
 
 
 @dataclass(frozen=True)
@@ -354,3 +359,30 @@ def restore_or_calculate_fingerprint_artifact(
     if not _artifact_matches_expectation(calculated, expectation):
         raise ValueError("Calculated fingerprint artifact is incompatible.")
     return _replace_artifact(connection, expectation, calculated), "calculated"
+
+
+def read_fingerprint_artifact(
+    connection,
+    *,
+    expectation: FingerprintArtifactExpectation,
+) -> FingerprintArtifact:
+    """Read one existing compatible artifact without creating or replacing it."""
+    try:
+        table_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (FINGERPRINT_ARTIFACTS_TABLE,),
+        ).fetchone()
+        artifact = (
+            _restore_artifact(connection, expectation)
+            if table_exists is not None
+            else None
+        )
+    except sqlite3.Error as error:
+        raise FingerprintArtifactError(
+            "The persisted fingerprint artifact is unavailable or incompatible."
+        ) from error
+    if artifact is None:
+        raise FingerprintArtifactError(
+            "The persisted fingerprint artifact is missing, corrupt, or incompatible."
+        )
+    return artifact
