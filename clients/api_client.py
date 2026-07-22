@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 from typing import Any
+from email.message import Message
 from urllib.parse import quote
 
 import requests
@@ -63,6 +64,18 @@ class ChemVaultApiClient:
 
     def _get_bytes(self, path: str, params=None) -> bytes:
         return self._get_response(path, params=params).content
+
+    def _get_download(self, path: str, params=None) -> tuple[bytes, str]:
+        response = self._get_response(path, params=params)
+        disposition = response.headers.get("Content-Disposition", "")
+        message = Message()
+        message["Content-Disposition"] = disposition
+        filename = message.get_filename()
+        if not filename:
+            raise ChemVaultApiError(
+                "CHEMVAULT API download response did not include a filename."
+            )
+        return response.content, filename
 
     def _post(self, path: str, json=None, timeout=10.0) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
@@ -171,6 +184,20 @@ class ChemVaultApiClient:
         return self._get_bytes(
             f"/databases/{database_id}/tables/{table_name}/export",
             params=params,
+        )
+
+    def export_modelability_fingerprints(
+        self,
+        database_id: str,
+        table_name: str,
+        analysis_identity: str,
+    ) -> tuple[bytes, str]:
+        database_id = self._segment(database_id)
+        table_name = self._segment(table_name)
+        return self._get_download(
+            f"/databases/{database_id}/tables/{table_name}/"
+            "modelability-index/fingerprints/export",
+            params={"analysis_identity": analysis_identity},
         )
 
     def consolidate_structure_table(

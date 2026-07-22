@@ -21,6 +21,10 @@ from api.schemas import (
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
 import application.modelability_jobs  # noqa: F401 - registers Modelability hooks
+from application.modelability_index import (
+    ModelabilityIndexUseCaseError,
+    export_table_modelability_fingerprints_npz,
+)
 from application.modelability_jobs import InvalidModelabilitySourceError
 from application.scientific_runtime import activate_scientific_runtime
 from application.scientific_jobs import (
@@ -51,6 +55,7 @@ from application.structure_consolidation import (
 )
 from services.structure_consolidation import StructureConsolidationError
 from services.job_models import JobType
+from services.modelability_fingerprint_artifacts import FingerprintArtifactError
 
 
 app = FastAPI(title="ChemVault API", version="0.1.0")
@@ -358,5 +363,38 @@ def table_export(
             "Content-Disposition": (
                 'attachment; filename="chemvault_table_export.csv"'
             )
+        },
+    )
+
+
+@app.get(
+    "/databases/{database_id}/tables/{table_name}/"
+    "modelability-index/fingerprints/export",
+    response_class=Response,
+    responses={200: {"content": {"application/octet-stream": {}}}},
+)
+def modelability_fingerprint_export(
+    database_id: DatabaseId,
+    table_name: TableName,
+    analysis_identity: Annotated[str, Query(min_length=1)],
+):
+    try:
+        npz_bytes, filename = export_table_modelability_fingerprints_npz(
+            database_id,
+            table_name,
+            analysis_identity,
+        )
+    except (DatabaseNotFoundError, TableNotFoundError) as error:
+        raise _not_found(error) from error
+    except (
+        FingerprintArtifactError,
+        ModelabilityIndexUseCaseError,
+    ) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return Response(
+        content=npz_bytes,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
         },
     )

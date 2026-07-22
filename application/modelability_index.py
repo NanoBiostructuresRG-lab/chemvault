@@ -547,6 +547,36 @@ def export_modelability_fingerprints_npz(
     return stream.getvalue(), filename
 
 
+def export_table_modelability_fingerprints_npz(
+    database_id: str,
+    source_table: str,
+    analysis_identity: str,
+    *,
+    db_dir="SQL",
+) -> tuple[bytes, str]:
+    """Export fingerprints only when the current table matches the result."""
+    db_path = resolve_database_path(database_id, db_dir=db_dir)
+    connection = sqlite3.connect(db_path)
+    try:
+        prepared = prepare_table_modelability_input(
+            connection,
+            source_table,
+            database_id=database_id,
+        )
+        if prepared.analysis_identity != analysis_identity:
+            raise ModelabilityIndexUseCaseError(
+                "Modelability source changed after the displayed result."
+            )
+        return export_modelability_fingerprints_npz(
+            connection,
+            prepared,
+            database_id=database_id,
+            source_table=source_table,
+        )
+    finally:
+        connection.close()
+
+
 def calculate_table_modelability_index(
     database_id: str,
     source_table: str,

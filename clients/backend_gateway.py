@@ -19,6 +19,9 @@ from application.table_use_cases import (
     export_table_csv,
     preview_selected_columns,
 )
+from application.modelability_index import (
+    export_table_modelability_fingerprints_npz,
+)
 from application.structure_consolidation import (
     StructureConsolidationSummary,
     StructureConsolidationTableResult,
@@ -121,6 +124,13 @@ class _Backend(Protocol):
         table_name: str,
         columns: list[str] | None = None,
     ) -> bytes: ...
+
+    def export_modelability_fingerprints(
+        self,
+        database_id: str,
+        table_name: str,
+        analysis_identity: str,
+    ) -> tuple[bytes, str]: ...
 
     def consolidate_structure_table(
         self,
@@ -249,6 +259,21 @@ class _LocalBackend:
         columns: list[str] | None = None,
     ) -> bytes:
         return export_table_csv(database_id, table_name, columns)
+
+    def export_modelability_fingerprints(
+        self,
+        database_id: str,
+        table_name: str,
+        analysis_identity: str,
+    ) -> tuple[bytes, str]:
+        try:
+            return export_table_modelability_fingerprints_npz(
+                database_id,
+                table_name,
+                analysis_identity,
+            )
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
 
     def consolidate_structure_table(
         self,
@@ -441,6 +466,21 @@ class _HttpBackend:
         except ChemVaultApiError as error:
             self._raise_gateway_error(error)
 
+    def export_modelability_fingerprints(
+        self,
+        database_id: str,
+        table_name: str,
+        analysis_identity: str,
+    ) -> tuple[bytes, str]:
+        try:
+            return self._client.export_modelability_fingerprints(
+                database_id,
+                table_name,
+                analysis_identity,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+
     def consolidate_structure_table(
         self,
         database_id: str,
@@ -579,6 +619,18 @@ class BackendGateway:
             database_id,
             table_name,
             columns,
+        )
+
+    def export_modelability_fingerprints(
+        self,
+        database_id: str,
+        table_name: str,
+        analysis_identity: str,
+    ) -> tuple[bytes, str]:
+        return self._backend.export_modelability_fingerprints(
+            database_id,
+            table_name,
+            analysis_identity,
         )
 
     def consolidate_structure_table(

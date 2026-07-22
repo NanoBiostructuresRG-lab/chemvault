@@ -335,8 +335,31 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
             rendered["expanders"].append((label, kwargs)) or Context()
         ),
     )
+    gateway_calls = []
+
+    class Gateway:
+        def export_modelability_fingerprints(
+            self,
+            database_id,
+            table_name,
+            analysis_identity,
+        ):
+            gateway_calls.append(
+                (database_id, table_name, analysis_identity)
+            )
+            return (
+                b"npz-bytes",
+                "test_db_IC50_fingerprints_analysis.npz",
+            )
+
+    monkeypatch.setattr(
+        modelability_result,
+        "get_backend_gateway",
+        lambda: Gateway(),
+    )
 
     result = _result()
+    result["provenance"]["fingerprint_source"] = "restored"
     result["diagnostics"] = [
         {**result["diagnostics"][0], "smiles": f"structure-{index}"}
         for index in range(12)
@@ -449,6 +472,18 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "Download nearest-neighbor report",
     )
     assert rendered["downloads"][0][1]["data"] == diagnostics_csv(result)
+    assert rendered["downloads"][1] == (
+        ("Download fingerprints (.npz)",),
+        {
+            "data": b"npz-bytes",
+            "file_name": "test_db_IC50_fingerprints_analysis.npz",
+            "mime": "application/octet-stream",
+            "key": f"download_modelability_fingerprints_{TABLE_NAME}",
+        },
+    )
+    assert gateway_calls == [
+        (DATABASE_ID, TABLE_NAME, "analysis-hash")
+    ]
     assert len(diagnostics_csv(result).splitlines()) == 13
     assert rendered["expanders"] == [
         ("Analysis details", {"expanded": False}),
@@ -465,6 +500,62 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     assert result["provenance"]["molraptor_profile_hash"] == "profile-hash"
     assert result["provenance"]["molraptor_ordered_input_hash"] == "input-hash"
     assert result["provenance"]["chemvault_analysis_hash"] == "analysis-hash"
+
+
+def test_modelability_npz_export_failure_is_visible(monkeypatch):
+    class Context:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FailingGateway:
+        def export_modelability_fingerprints(self, *_args):
+            raise modelability_result.BackendGatewayError(
+                "persisted fingerprint artifact is unavailable"
+            )
+
+    errors = []
+    monkeypatch.setattr(
+        modelability_result,
+        "get_backend_gateway",
+        lambda: FailingGateway(),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "container",
+        lambda **_kwargs: Context(),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "expander",
+        lambda *_args, **_kwargs: Context(),
+    )
+    monkeypatch.setattr(modelability_result.st, "markdown", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "caption", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "dataframe", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        modelability_result.st,
+        "download_button",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(modelability_result.st, "error", errors.append)
+    state = {
+        "modelability_job_database_id": DATABASE_ID,
+        "modelability_job_table_name": TABLE_NAME,
+        "modelability_result": _result(),
+    }
+
+    assert modelability_result.render_modelability_result_card(
+        state,
+        DATABASE_ID,
+        TABLE_NAME,
+    ) is True
+    assert errors == [
+        "Modelability fingerprint download could not be prepared: "
+        "persisted fingerprint artifact is unavailable"
+    ]
 
 
 def test_scope_mismatch_does_not_render_stale_result(monkeypatch):
