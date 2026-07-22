@@ -4,6 +4,7 @@ import sqlite3
 from services.sql_utils import (
     ensure_main_table,
     get_tables_from_connection,
+    is_user_facing_table_name,
     table_exists,
 )
 
@@ -38,6 +39,16 @@ def test_get_tables_from_connection_excludes_sqlite_internal_tables_and_orders_n
     connection.execute('CREATE TABLE "compound_assays" (CID TEXT, AID TEXT, Protein TEXT)')
     connection.execute('CREATE TABLE "compound_activities" (CID TEXT, AID TEXT)')
     connection.execute('CREATE TABLE "_chemvault_jobs" (job_id TEXT)')
+    connection.execute(
+        'CREATE TABLE "_chemvault_modelability_fingerprint_artifacts" '
+        '(fingerprint_identity TEXT)'
+    )
+    connection.execute('CREATE TABLE "_chemvault_future_support" (id INTEGER)')
     connection.execute('INSERT INTO "z_table" DEFAULT VALUES')
 
     assert get_tables_from_connection(connection) == ["a_table", "z_table"]
+    assert not is_user_facing_table_name(
+        "_chemvault_modelability_fingerprint_artifacts"
+    )
+    assert not is_user_facing_table_name("_chemvault_future_support")
+    assert is_user_facing_table_name("_chemvaultx")

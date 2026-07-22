@@ -4,7 +4,11 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from services.sql_utils import quote_identifier, table_exists
+from services.sql_utils import (
+    is_user_facing_table_name,
+    quote_identifier,
+    table_exists,
+)
 
 METADATA_TABLE = "_chemvault_table_metadata"
 OPERATION_LOG_TABLE = "_chemvault_operation_log"
@@ -275,7 +279,7 @@ def delete_user_table(connection, table_name: str, commit: bool = True) -> None:
     """Delete a user-facing table and its ChemVault metadata."""
     if table_name == "main":
         raise ValueError("The main table cannot be deleted.")
-    if table_name in INTERNAL_TABLES or table_name.startswith("sqlite_"):
+    if not is_user_facing_table_name(table_name):
         raise ValueError("Internal SQLite or ChemVault tables cannot be deleted.")
     if not table_exists(connection, table_name):
         raise ValueError(f"Table not found: {table_name}")
@@ -479,7 +483,7 @@ def get_user_table_profiles(db_path: Path) -> list[dict[str, object]]:
     return [
         profile
         for profile in get_table_profiles(db_path)
-        if profile["table"] not in INTERNAL_TABLES
+        if is_user_facing_table_name(profile["table"])
     ]
 
 
