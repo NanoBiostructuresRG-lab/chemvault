@@ -9,7 +9,12 @@ import sqlite3
 from dataclasses import dataclass
 
 import pandas as pd
-from molraptor import MorganFingerprintProfile, encode_fingerprints
+from molraptor import (
+    MorganFingerprintProfile,
+    __version__ as MOLRAPTOR_VERSION,
+    encode_fingerprints,
+)
+from rdkit import __version__ as RDKIT_VERSION
 
 from application.database_use_cases import (
     TableNotFoundError,
@@ -22,9 +27,19 @@ from services.modelability_index import (
 from services.sql_utils import get_tables_from_connection, quote_identifier
 
 
-REQUIRED_COLUMNS = ("SMILES_Harmonized", "Outcome")
+REQUIRED_COLUMNS = (
+    "SMILES_Harmonized",
+    "Outcome",
+    "Reference_Selection_Status",
+)
 _FINGERPRINT_PROFILE = MorganFingerprintProfile()
 _BINARY_OUTCOMES = {"active": "Active", "inactive": "Inactive"}
+POPULATION_POLICY = "reference_selected_only/v1"
+MODELABILITY_INDEX_CONTRACT_VERSION = "modelability_index/v1"
+SIMILARITY_METRIC = "tanimoto"
+NEIGHBOR_RULE = "single_nearest_neighbor"
+TIE_POLICY = "lowest_ordered_index"
+AGGREGATION_METHOD = "macro_average"
 
 
 class ModelabilityIndexUseCaseError(ValueError):
@@ -43,11 +58,47 @@ class ModelabilityIndexUseCaseResult:
     provenance: dict[str, object]
 
 
+@dataclass(frozen=True)
+class PreparedModelabilityInput:
+    smiles: tuple[str, ...]
+    outcomes: tuple[str, ...]
+    analysis_identity: str
+
+
 def _clean_text(value) -> str:
     return "" if pd.isna(value) else str(value).strip()
 
 
-def _prepare_source(dataframe: pd.DataFrame) -> pd.DataFrame:
+def _analysis_identity(
+    smiles: tuple[str, ...],
+    outcomes: tuple[str, ...],
+) -> str:
+    payload = {
+        "aggregation": AGGREGATION_METHOD,
+        "fingerprint_profile": _FINGERPRINT_PROFILE.serialize(),
+        "modelability_index_contract_version": (
+            MODELABILITY_INDEX_CONTRACT_VERSION
+        ),
+        "molraptor_version": MOLRAPTOR_VERSION,
+        "neighbor_rule": NEIGHBOR_RULE,
+        "ordered_input_pairs": list(zip(smiles, outcomes)),
+        "population_policy": POPULATION_POLICY,
+        "rdkit_version": RDKIT_VERSION,
+        "similarity_metric": SIMILARITY_METRIC,
+        "tie_policy": TIE_POLICY,
+    }
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def prepare_modelability_input(
+    dataframe: pd.DataFrame,
+) -> PreparedModelabilityInput:
     missing = [
         column for column in REQUIRED_COLUMNS if column not in dataframe.columns
     ]
@@ -57,6 +108,13 @@ def _prepare_source(dataframe: pd.DataFrame) -> pd.DataFrame:
         )
 
     prepared = dataframe.loc[:, REQUIRED_COLUMNS].copy()
+    selection_status = prepared["Reference_Selection_Status"].map(
+        lambda value: _clean_text(value).lower()
+    )
+    prepared = prepared.loc[
+        selection_status == "selected",
+        ["SMILES_Harmonized", "Outcome"],
+    ].copy()
     prepared["SMILES_Harmonized"] = prepared["SMILES_Harmonized"].map(
         _clean_text
     )
@@ -72,22 +130,60 @@ def _prepare_source(dataframe: pd.DataFrame) -> pd.DataFrame:
             f"invalid rows: {invalid_rows}."
         )
     prepared["Outcome"] = normalized
-    return prepared.sort_values(
+    prepared = prepared.sort_values(
         ["SMILES_Harmonized", "Outcome"],
         kind="stable",
     ).reset_index(drop=True)
+    if len(prepared) < 2:
+        raise ModelabilityIndexUseCaseError(
+            "At least two selected structures are required."
+        )
 
-
-def _analysis_hash(prepared: pd.DataFrame) -> str:
-    pairs = list(
-        prepared.loc[:, REQUIRED_COLUMNS].itertuples(index=False, name=None)
+    smiles = tuple(prepared["SMILES_Harmonized"])
+    outcomes = tuple(prepared["Outcome"])
+    if set(outcomes) != {"Active", "Inactive"}:
+        raise ModelabilityIndexUseCaseError(
+            "Both Active and Inactive outcomes are required."
+        )
+    return PreparedModelabilityInput(
+        smiles=smiles,
+        outcomes=outcomes,
+        analysis_identity=_analysis_identity(smiles, outcomes),
     )
-    payload = json.dumps(
-        pairs,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+
+
+def prepare_table_modelability_input(
+    connection,
+    source_table: str,
+    *,
+    database_id: str | None = None,
+) -> PreparedModelabilityInput:
+    if source_table not in get_tables_from_connection(connection):
+        database_detail = (
+            f" in database '{database_id}'" if database_id is not None else ""
+        )
+        raise TableNotFoundError(
+            f"Table '{source_table}' was not found{database_detail}."
+        )
+    schema_rows = connection.execute(
+        f"PRAGMA table_info({quote_identifier(source_table)})"
+    ).fetchall()
+    column_names = {row[1] for row in schema_rows}
+    missing = [
+        column for column in REQUIRED_COLUMNS if column not in column_names
+    ]
+    if missing:
+        raise ModelabilityIndexUseCaseError(
+            "The source table is missing required columns: " + ", ".join(missing)
+        )
+    columns_sql = ", ".join(
+        quote_identifier(column) for column in REQUIRED_COLUMNS
+    )
+    source = pd.read_sql_query(
+        f"SELECT {columns_sql} FROM {quote_identifier(source_table)}",
+        connection,
+    )
+    return prepare_modelability_input(source)
 
 
 def _invalid_encoding_message(encoding) -> str:
@@ -105,13 +201,21 @@ def calculate_dataframe_modelability_index(
     source_table: str | None = None,
 ) -> ModelabilityIndexUseCaseResult:
     """Calculate a complete Modelability Index for a consolidated table."""
-    prepared = _prepare_source(dataframe)
-    if len(prepared) < 2:
-        raise ModelabilityIndexUseCaseError(
-            "At least two structures are required."
-        )
-    smiles = tuple(prepared["SMILES_Harmonized"])
-    outcomes = tuple(prepared["Outcome"])
+    prepared = prepare_modelability_input(dataframe)
+    return calculate_prepared_modelability_index(
+        prepared,
+        source_table=source_table,
+    )
+
+
+def calculate_prepared_modelability_index(
+    prepared: PreparedModelabilityInput,
+    *,
+    source_table: str | None = None,
+) -> ModelabilityIndexUseCaseResult:
+    """Calculate Modelability from an already validated prepared input."""
+    smiles = prepared.smiles
+    outcomes = prepared.outcomes
     encoding = encode_fingerprints(smiles, _FINGERPRINT_PROFILE)
 
     if encoding.invalid_count:
@@ -143,17 +247,17 @@ def calculate_dataframe_modelability_index(
         "fingerprint_profile": dict(encoding.profile),
         "molraptor_profile_hash": str(encoding.profile_hash),
         "molraptor_ordered_input_hash": str(encoding.ordered_input_hash),
-        "chemvault_analysis_hash": _analysis_hash(prepared),
+        "chemvault_analysis_hash": prepared.analysis_identity,
         "molraptor_version": str(encoding.molraptor_version),
         "rdkit_version": str(encoding.rdkit_version),
-        "similarity_metric": "tanimoto",
-        "neighbor_rule": "single_nearest_neighbor",
-        "tie_policy": "lowest_ordered_index",
-        "aggregation": "macro_average",
+        "similarity_metric": SIMILARITY_METRIC,
+        "neighbor_rule": NEIGHBOR_RULE,
+        "tie_policy": TIE_POLICY,
+        "aggregation": AGGREGATION_METHOD,
     }
 
     return ModelabilityIndexUseCaseResult(
-        structure_count=len(prepared),
+        structure_count=len(smiles),
         active_count=outcomes.count("Active"),
         inactive_count=outcomes.count("Inactive"),
         active_concordance=numerical.active_concordance,
@@ -174,22 +278,15 @@ def calculate_table_modelability_index(
     db_path = resolve_database_path(database_id, db_dir=db_dir)
     connection = sqlite3.connect(db_path)
     try:
-        if source_table not in get_tables_from_connection(connection):
-            raise TableNotFoundError(
-                f"Table '{source_table}' was not found in database "
-                f"'{database_id}'."
-            )
-        columns_sql = ", ".join(
-            quote_identifier(column) for column in REQUIRED_COLUMNS
-        )
-        source = pd.read_sql_query(
-            f"SELECT {columns_sql} FROM {quote_identifier(source_table)}",
+        prepared = prepare_table_modelability_input(
             connection,
+            source_table,
+            database_id=database_id,
         )
     finally:
         connection.close()
 
-    return calculate_dataframe_modelability_index(
-        source,
+    return calculate_prepared_modelability_index(
+        prepared,
         source_table=source_table,
     )

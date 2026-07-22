@@ -62,6 +62,29 @@ def _job_from_row(row):
     )
 
 
+_JOB_ROW_KEYS = (
+    "job_id",
+    "job_type",
+    "status",
+    "database_id",
+    "current_stage",
+    "progress",
+    "message",
+    "error_message",
+    "created_at",
+    "started_at",
+    "finished_at",
+    "last_heartbeat_at",
+    "cancel_requested_at",
+    "worker_pid",
+    "metadata_json",
+)
+
+
+def _job_from_values(values):
+    return _job_from_row(dict(zip(_JOB_ROW_KEYS, values)))
+
+
 class JobStore:
     def __init__(self, connection):
         self.connection = connection
@@ -204,26 +227,81 @@ class JobStore:
         database_id,
         job_type,
         table_name,
+        metadata=None,
+        match_metadata_keys=(),
+    ):
+        return self._find_equivalent_scientific_job(
+            database_id,
+            job_type,
+            table_name,
+            ACTIVE_JOB_STATUSES,
+            metadata=metadata,
+            match_metadata_keys=match_metadata_keys,
+            newest=False,
+        )
+
+    def _find_equivalent_scientific_job(
+        self,
+        database_id,
+        job_type,
+        table_name,
+        statuses,
+        *,
+        metadata=None,
+        match_metadata_keys=(),
+        newest=False,
     ):
         cursor = self.connection.cursor()
+        status_placeholders = ", ".join("?" for _ in statuses)
+        order_sql = (
+            "finished_at DESC, created_at DESC, rowid DESC"
+            if newest
+            else "created_at, rowid"
+        )
         cursor.execute(
             f"""
-            SELECT job_id, metadata_json
+            SELECT
+                job_id,
+                job_type,
+                status,
+                database_id,
+                current_stage,
+                progress,
+                message,
+                error_message,
+                created_at,
+                started_at,
+                finished_at,
+                last_heartbeat_at,
+                cancel_requested_at,
+                worker_pid,
+                metadata_json
             FROM {JOBS_TABLE}
             WHERE database_id = ?
               AND job_type = ?
-              AND status IN (?, ?)
-            ORDER BY created_at, job_id
+              AND status IN ({status_placeholders})
+            ORDER BY {order_sql}
             """,
             (
                 database_id,
                 _enum_value(job_type),
-                *ACTIVE_JOB_STATUSES,
+                *statuses,
             ),
         )
-        for job_id, metadata_json in cursor.fetchall():
-            if _metadata_dict(metadata_json).get("table_name") == table_name:
-                return self.get_job(job_id)
+        requested_metadata = metadata or {}
+        for row in cursor.fetchall():
+            candidate = _job_from_values(row)
+            candidate_metadata = candidate.metadata
+            if candidate_metadata.get("table_name") != table_name:
+                continue
+            if not all(
+                key in requested_metadata
+                and key in candidate_metadata
+                and candidate_metadata[key] == requested_metadata[key]
+                for key in match_metadata_keys
+            ):
+                continue
+            return candidate
         return None
 
     def create_job_unless_active(
@@ -234,26 +312,51 @@ class JobStore:
         table_name,
         metadata=None,
         job_id=None,
+        metadata_factory=None,
+        match_metadata_keys=(),
+        include_completed=False,
     ):
-        """Atomically create a job or return its equivalent active owner."""
+        """Atomically return an equivalent job or create a pending owner."""
         self.ensure_jobs_table()
+        match_metadata_keys = tuple(match_metadata_keys)
         try:
             self.connection.execute("BEGIN IMMEDIATE")
+            resolved_metadata = (
+                metadata_factory(self.connection)
+                if metadata_factory is not None
+                else metadata
+            )
             active = self._find_active_scientific_job(
                 database_id,
                 job_type,
                 table_name,
+                resolved_metadata,
+                match_metadata_keys,
             )
             if active is not None:
                 self.connection.commit()
                 return active, False
+
+            if include_completed:
+                completed = self._find_equivalent_scientific_job(
+                    database_id,
+                    job_type,
+                    table_name,
+                    (JobStatus.COMPLETED.value,),
+                    metadata=resolved_metadata,
+                    match_metadata_keys=match_metadata_keys,
+                    newest=True,
+                )
+                if completed is not None:
+                    self.connection.commit()
+                    return completed, False
 
             job_id = job_id or str(uuid.uuid4())
             self._insert_job(
                 job_id,
                 job_type,
                 database_id,
-                metadata,
+                resolved_metadata,
                 _utc_now(),
             )
             self.connection.commit()

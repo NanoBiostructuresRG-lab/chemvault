@@ -189,6 +189,29 @@ def test_async_job_state_is_scoped_to_database_and_table():
     assert calls[-1] == ("status", (DATABASE_ID, "job-1"))
 
 
+def test_immediate_completed_job_restores_persisted_result():
+    state = {}
+
+    class Gateway:
+        def launch_scientific_job(self, *_args):
+            return _status(JobStatus.COMPLETED, result=_result(), progress=1.0)
+
+    status = launch_modelability_job(
+        state,
+        Gateway(),
+        DATABASE_ID,
+        TABLE_NAME,
+    )
+
+    assert status.status == JobStatus.COMPLETED
+    assert state["modelability_running"] is False
+    assert state["modelability_result"] == _result()
+    assert state["modelability_feedback_kind"] == "success"
+    assert state["modelability_feedback_message"] == (
+        "Result restored from persisted analysis."
+    )
+
+
 def test_completed_and_failed_jobs_update_scoped_result_state():
     completed_state = {
         "modelability_job_id": "job-1",
@@ -210,6 +233,9 @@ def test_completed_and_failed_jobs_update_scoped_result_state():
     assert completed_state["modelability_running"] is False
     assert completed_state["modelability_result"] == _result()
     assert completed_state["modelability_feedback_kind"] == "success"
+    assert completed_state["modelability_feedback_message"] == (
+        "Modelability Index calculation completed."
+    )
 
     failed_state = {
         "modelability_job_id": "job-2",

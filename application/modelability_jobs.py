@@ -14,7 +14,11 @@ from application.database_use_cases import (
     resolve_database_path,
 )
 from application.job_contracts import JobStatusContract, job_status_from_record
-from application.modelability_index import calculate_table_modelability_index
+from application.modelability_index import (
+    POPULATION_POLICY,
+    calculate_prepared_modelability_index,
+    prepare_table_modelability_input,
+)
 from application.scientific_jobs import JobNotFoundError, register_scientific_job
 from services.database_core import get_connection
 from services.job_models import JobStatus, JobType
@@ -148,11 +152,22 @@ def create_modelability_job(
     """Validate and persist one queued Modelability Index job."""
     _validate_modelability_source(database_id, table_name)
     _fail_orphans_before_creation(database_id)
-    request_metadata = {
-        "table_name": table_name,
-        "cancellation_supported": False,
-        "creator_pid": os.getpid(),
-    }
+    creator_pid = os.getpid()
+
+    def metadata_factory(connection):
+        prepared = prepare_table_modelability_input(
+            connection,
+            table_name,
+            database_id=database_id,
+        )
+        return {
+            "table_name": table_name,
+            "cancellation_supported": False,
+            "creator_pid": creator_pid,
+            "analysis_identity": prepared.analysis_identity,
+            "analysis_contract": POPULATION_POLICY,
+        }
+
     connection = get_connection(database_id)
     try:
         store = JobStore(connection)
@@ -160,10 +175,13 @@ def create_modelability_job(
             job_type=JobType.MODELABILITY_INDEX,
             database_id=database_id,
             table_name=table_name,
-            metadata=request_metadata,
+            metadata_factory=metadata_factory,
+            match_metadata_keys=("analysis_identity", "analysis_contract"),
+            include_completed=True,
         )
         if not created:
             return job_status_from_record(record)
+        request_metadata = dict(record.metadata)
         queued = store.update_progress(
             record.job_id,
             "queued",
@@ -206,7 +224,23 @@ def execute_modelability_job(
             "Calculating Modelability Index",
             request_metadata,
         )
-        result = calculate_table_modelability_index(database_id, table_name)
+        prepared = prepare_table_modelability_input(
+            connection,
+            table_name,
+            database_id=database_id,
+        )
+        if (
+            request_metadata.get("analysis_contract") != POPULATION_POLICY
+            or request_metadata.get("analysis_identity")
+            != prepared.analysis_identity
+        ):
+            raise RuntimeError(
+                "Modelability Index source changed after the job was queued."
+            )
+        result = calculate_prepared_modelability_index(
+            prepared,
+            source_table=table_name,
+        )
         store.update_progress(
             job_id,
             "completed",
