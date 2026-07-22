@@ -24,6 +24,12 @@ from services.modelability_index import (
     ModelabilityIndexError,
     calculate_modelability_index,
 )
+from services.modelability_fingerprint_artifacts import (
+    FingerprintArtifact,
+    FingerprintArtifactExpectation,
+    build_fingerprint_artifact,
+    restore_or_calculate_fingerprint_artifact,
+)
 from services.sql_utils import get_tables_from_connection, quote_identifier
 
 
@@ -40,6 +46,8 @@ SIMILARITY_METRIC = "tanimoto"
 NEIGHBOR_RULE = "single_nearest_neighbor"
 TIE_POLICY = "lowest_ordered_index"
 AGGREGATION_METHOD = "macro_average"
+FINGERPRINT_ARTIFACT_CONTRACT = "modelability_fingerprint_artifact"
+FINGERPRINT_ARTIFACT_CONTRACT_VERSION = 1
 
 
 class ModelabilityIndexUseCaseError(ValueError):
@@ -63,6 +71,8 @@ class PreparedModelabilityInput:
     smiles: tuple[str, ...]
     outcomes: tuple[str, ...]
     analysis_identity: str
+    fingerprint_identity: str = ""
+    population_identity: str = ""
 
 
 def _clean_text(value) -> str:
@@ -96,6 +106,58 @@ def _analysis_identity(
     return hashlib.sha256(serialized).hexdigest()
 
 
+def _fingerprint_identity(population_identity: str) -> str:
+    payload = {
+        "artifact_contract": FINGERPRINT_ARTIFACT_CONTRACT,
+        "artifact_contract_version": FINGERPRINT_ARTIFACT_CONTRACT_VERSION,
+        "fingerprint_profile": _FINGERPRINT_PROFILE.serialize(),
+        "molraptor_version": MOLRAPTOR_VERSION,
+        "population_identity": population_identity,
+        "rdkit_version": RDKIT_VERSION,
+    }
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def _population_identity(smiles: tuple[str, ...]) -> str:
+    payload = {
+        "ordered_selected_smiles_harmonized": list(smiles),
+        "population_policy": POPULATION_POLICY,
+    }
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def _molraptor_profile_hash() -> str:
+    serialized = json.dumps(
+        _FINGERPRINT_PROFILE.serialize(),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def _molraptor_ordered_input_hash(smiles: tuple[str, ...]) -> str:
+    serialized = json.dumps(
+        smiles,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=False,
+    ).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
+
+
 def prepare_modelability_input(
     dataframe: pd.DataFrame,
 ) -> PreparedModelabilityInput:
@@ -118,6 +180,15 @@ def prepare_modelability_input(
     prepared["SMILES_Harmonized"] = prepared["SMILES_Harmonized"].map(
         _clean_text
     )
+    duplicates = prepared["SMILES_Harmonized"].duplicated(keep=False)
+    if duplicates.any():
+        duplicate_smiles = ", ".join(
+            sorted(set(prepared.loc[duplicates, "SMILES_Harmonized"]))
+        )
+        raise ModelabilityIndexUseCaseError(
+            "Selected SMILES_Harmonized values must be unique; duplicates: "
+            f"{duplicate_smiles}."
+        )
     normalized = prepared["Outcome"].map(
         lambda value: _BINARY_OUTCOMES.get(_clean_text(value).lower())
     )
@@ -145,10 +216,13 @@ def prepare_modelability_input(
         raise ModelabilityIndexUseCaseError(
             "Both Active and Inactive outcomes are required."
         )
+    population_identity = _population_identity(smiles)
     return PreparedModelabilityInput(
         smiles=smiles,
         outcomes=outcomes,
         analysis_identity=_analysis_identity(smiles, outcomes),
+        fingerprint_identity=_fingerprint_identity(population_identity),
+        population_identity=population_identity,
     )
 
 
@@ -214,8 +288,19 @@ def calculate_prepared_modelability_index(
     source_table: str | None = None,
 ) -> ModelabilityIndexUseCaseResult:
     """Calculate Modelability from an already validated prepared input."""
+    artifact = _calculate_fingerprint_artifact(prepared)
+    return _calculate_with_fingerprint_artifact(
+        prepared,
+        artifact,
+        fingerprint_source="calculated",
+        source_table=source_table,
+    )
+
+
+def _calculate_fingerprint_artifact(
+    prepared: PreparedModelabilityInput,
+) -> FingerprintArtifact:
     smiles = prepared.smiles
-    outcomes = prepared.outcomes
     encoding = encode_fingerprints(smiles, _FINGERPRINT_PROFILE)
 
     if encoding.invalid_count:
@@ -223,9 +308,30 @@ def calculate_prepared_modelability_index(
             _invalid_encoding_message(encoding)
         )
 
+    return build_fingerprint_artifact(
+        encoding.fingerprints,
+        smiles,
+        profile=encoding.profile,
+        profile_hash=str(encoding.profile_hash),
+        ordered_input_hash=str(encoding.ordered_input_hash),
+        molraptor_version=str(encoding.molraptor_version),
+        rdkit_version=str(encoding.rdkit_version),
+    )
+
+
+def _calculate_with_fingerprint_artifact(
+    prepared: PreparedModelabilityInput,
+    artifact: FingerprintArtifact,
+    *,
+    fingerprint_source: str,
+    source_table: str | None,
+) -> ModelabilityIndexUseCaseResult:
+    smiles = prepared.smiles
+    outcomes = prepared.outcomes
+
     try:
         numerical = calculate_modelability_index(
-            encoding.fingerprints,
+            artifact.matrix,
             outcomes,
         )
     except ModelabilityIndexError as error:
@@ -244,12 +350,23 @@ def calculate_prepared_modelability_index(
     )
     provenance = {
         "source_table": source_table,
-        "fingerprint_profile": dict(encoding.profile),
-        "molraptor_profile_hash": str(encoding.profile_hash),
-        "molraptor_ordered_input_hash": str(encoding.ordered_input_hash),
+        "fingerprint_profile": dict(_FINGERPRINT_PROFILE.serialize()),
+        "molraptor_profile_hash": artifact.profile_hash,
+        "molraptor_ordered_input_hash": artifact.ordered_input_hash,
         "chemvault_analysis_hash": prepared.analysis_identity,
-        "molraptor_version": str(encoding.molraptor_version),
-        "rdkit_version": str(encoding.rdkit_version),
+        "molraptor_version": MOLRAPTOR_VERSION,
+        "rdkit_version": RDKIT_VERSION,
+        "fingerprint_source": fingerprint_source,
+        "fingerprint_identity": (
+            prepared.fingerprint_identity
+            or _fingerprint_identity(
+                prepared.population_identity or _population_identity(smiles)
+            )
+        ),
+        "population_identity": (
+            prepared.population_identity or _population_identity(smiles)
+        ),
+        "fingerprint_artifact_sha256": artifact.sha256,
         "similarity_metric": SIMILARITY_METRIC,
         "neighbor_rule": NEIGHBOR_RULE,
         "tie_policy": TIE_POLICY,
@@ -268,6 +385,48 @@ def calculate_prepared_modelability_index(
     )
 
 
+def calculate_persisted_prepared_modelability_index(
+    connection,
+    prepared: PreparedModelabilityInput,
+    *,
+    source_table: str,
+) -> ModelabilityIndexUseCaseResult:
+    """Calculate Modelability with a reusable SQLite fingerprint artifact."""
+    population_identity = (
+        prepared.population_identity or _population_identity(prepared.smiles)
+    )
+    fingerprint_identity = (
+        prepared.fingerprint_identity
+        or _fingerprint_identity(population_identity)
+    )
+    expectation = FingerprintArtifactExpectation(
+        source_table=source_table,
+        fingerprint_identity=fingerprint_identity,
+        artifact_contract=FINGERPRINT_ARTIFACT_CONTRACT,
+        artifact_contract_version=FINGERPRINT_ARTIFACT_CONTRACT_VERSION,
+        population_identity=population_identity,
+        profile=_FINGERPRINT_PROFILE.serialize(),
+        profile_hash=_molraptor_profile_hash(),
+        ordered_input_hash=_molraptor_ordered_input_hash(prepared.smiles),
+        molraptor_version=MOLRAPTOR_VERSION,
+        rdkit_version=RDKIT_VERSION,
+        ordered_smiles=prepared.smiles,
+        row_count=len(prepared.smiles),
+        fp_size=_FINGERPRINT_PROFILE.fp_size,
+    )
+    artifact, fingerprint_source = restore_or_calculate_fingerprint_artifact(
+        connection,
+        expectation=expectation,
+        calculate=lambda: _calculate_fingerprint_artifact(prepared),
+    )
+    return _calculate_with_fingerprint_artifact(
+        prepared,
+        artifact,
+        fingerprint_source=fingerprint_source,
+        source_table=source_table,
+    )
+
+
 def calculate_table_modelability_index(
     database_id: str,
     source_table: str,
@@ -283,10 +442,10 @@ def calculate_table_modelability_index(
             source_table,
             database_id=database_id,
         )
+        return calculate_persisted_prepared_modelability_index(
+            connection,
+            prepared,
+            source_table=source_table,
+        )
     finally:
         connection.close()
-
-    return calculate_prepared_modelability_index(
-        prepared,
-        source_table=source_table,
-    )

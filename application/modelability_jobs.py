@@ -16,7 +16,7 @@ from application.database_use_cases import (
 from application.job_contracts import JobStatusContract, job_status_from_record
 from application.modelability_index import (
     POPULATION_POLICY,
-    calculate_prepared_modelability_index,
+    calculate_persisted_prepared_modelability_index,
     prepare_table_modelability_input,
 )
 from application.scientific_jobs import JobNotFoundError, register_scientific_job
@@ -237,7 +237,8 @@ def execute_modelability_job(
             raise RuntimeError(
                 "Modelability Index source changed after the job was queued."
             )
-        result = calculate_prepared_modelability_index(
+        result = calculate_persisted_prepared_modelability_index(
+            connection,
             prepared,
             source_table=table_name,
         )

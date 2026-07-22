@@ -175,14 +175,15 @@ def test_sqlite_reader_uses_all_required_columns_and_prepared_boundary(
     captured = {}
     sentinel = object()
 
-    def capture_prepared(prepared, *, source_table=None):
+    def capture_prepared(connection, prepared, *, source_table):
+        captured["connection"] = connection
         captured["prepared"] = prepared
         captured["source_table"] = source_table
         return sentinel
 
     monkeypatch.setattr(
         use_case,
-        "calculate_prepared_modelability_index",
+        "calculate_persisted_prepared_modelability_index",
         capture_prepared,
     )
 
@@ -193,6 +194,7 @@ def test_sqlite_reader_uses_all_required_columns_and_prepared_boundary(
     )
 
     assert result is sentinel
+    assert isinstance(captured["connection"], sqlite3.Connection)
     assert isinstance(
         captured["prepared"],
         use_case.PreparedModelabilityInput,

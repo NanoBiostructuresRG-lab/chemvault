@@ -133,8 +133,8 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
         preparation_calls.append((connection, table_name, database_id))
         return prepared
 
-    def calculate(prepared_input, *, source_table=None):
-        calculation_calls.append((prepared_input, source_table))
+    def calculate(connection, prepared_input, *, source_table):
+        calculation_calls.append((connection, prepared_input, source_table))
         return _result()
 
     monkeypatch.setattr(
@@ -144,7 +144,7 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
     )
     monkeypatch.setattr(
         modelability_jobs,
-        "calculate_prepared_modelability_index",
+        "calculate_persisted_prepared_modelability_index",
         calculate,
     )
 
@@ -172,7 +172,15 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
         (table_name, database_id) == (MODELABILITY_TABLE, "test_db")
         for _connection, table_name, database_id in preparation_calls
     )
-    assert calculation_calls == [(prepared, MODELABILITY_TABLE)]
+
+    assert len(calculation_calls) == 1
+    calculation_connection, calculation_input, calculation_table = (
+        calculation_calls[0]
+    )
+    assert isinstance(calculation_connection, sqlite3.Connection)
+    assert calculation_input is prepared
+    assert calculation_table == MODELABILITY_TABLE
+
     assert completed.result["modelability_index"] == 0.0
     assert len(completed.result["diagnostics"]) == 2
     assert completed.result["provenance"]["similarity_metric"] == "tanimoto"
@@ -284,7 +292,7 @@ def test_modelability_execution_failure_is_persisted(tmp_path, monkeypatch):
     _create_database(tmp_path, monkeypatch)
     monkeypatch.setattr(
         modelability_jobs,
-        "calculate_prepared_modelability_index",
+        "calculate_persisted_prepared_modelability_index",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("calculation failed")
         ),
