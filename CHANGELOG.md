@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.11.2] - 2026-07-22
+
+### Added
+
+- Added deterministic scientific identities for reusing compatible completed
+  Modelability Index analyses after restarting CHEMVAULT.
+- Added persistent SQLite fingerprint artifacts containing the ordered
+  MOLRAPTOR fingerprint matrix, representation profile, dependency versions,
+  structure mapping, hashes, and integrity metadata.
+- Added self-contained Modelability fingerprint export in `.npz` format,
+  including the fingerprint matrix, ordered harmonized SMILES, Active/Inactive
+  outcomes, binary labels, stable structure identifiers, and canonical
+  provenance metadata.
+- Added local and HTTP backend support for Modelability fingerprint downloads
+  through the existing backend gateway.
+- Added the `Download fingerprints (.npz)` control beside the
+  nearest-neighbor report download.
+- Added the filename contract
+  `<database_id>_<activity_type>_fingerprints_<analysis8>.npz`, where
+  `analysis8` contains exactly the first eight characters of the complete
+  analysis identity.
+
+### Changed
+
+- Restored compatible completed Modelability Index results from persisted job
+  state when the source population and scientific contracts remain unchanged.
+- Reused valid persisted fingerprints without invoking MOLRAPTOR again.
+- Kept `.npz` generation transient and in memory; generated export files are
+  not persisted by CHEMVAULT.
+- Updated the visible sidebar operation name from `HARMONSMILE` to
+  `SMILES HARMONIZED`, while preserving HARMONSMILE attribution as the external
+  calculation engine and retaining internal technical identifiers.
+- Updated README and FastAPI documentation for the current Modelability Index,
+  structure-consolidation, scientific-runtime, and fingerprint-export paths.
+- Preserved the Modelability Index formula, Morgan fingerprint profile,
+  nearest-neighbor method, and scientific result contract.
+
+### Fixed
+
+- Added lazy fingerprint-artifact backfill for compatible legacy Modelability
+  analyses created before fingerprint persistence was introduced.
+- Prevented internal CHEMVAULT, SQLite, and support tables from appearing in
+  user-facing table workflows.
+- Added visible download errors for missing, corrupt, incompatible, or stale
+  fingerprint artifacts instead of silently hiding the failure.
+- Aligned the Modelability Index card title typography with the other sidebar
+  workflow cards.
+
+### Validation
+
+- Passed the complete test suite: 517 tests.
+- Completed manual cold-start validation for restored analyses, legacy artifact
+  backfill, repeated `.npz` downloads, stable eight-character filename hashes,
+  and aligned download controls.
+
+---
+
 ## [v0.11.1] - 2026-07-21
 
 ### Changed
