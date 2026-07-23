@@ -273,7 +273,7 @@ def test_diagnostics_csv_is_generated_in_memory():
 def test_sidebar_execution_card_does_not_render_scientific_result():
     source = inspect.getsource(modelability_card.render_modelability_card)
 
-    assert 'st.subheader("MODELABILITY INDEX")' in source
+    assert 'st.markdown("**MODELABILITY INDEX**")' in source
     assert "st.caption(message)" in source
     assert "st.success(message)" not in source
     assert "MODELABILITY_RESULT" not in source

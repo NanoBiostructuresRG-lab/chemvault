@@ -467,7 +467,7 @@ def render_curate_card():
         )
 
         with st.container(border=True):
-            st.markdown("**HARMONSMILE**")
+            st.markdown("**SMILES HARMONIZED**")
             select_column, run_column = st.columns(2)
             with select_column:
                 if st.button(
@@ -513,11 +513,13 @@ def render_curate_card():
                 )
 
             if not has_active_database:
-                st.caption("Load or select a database to enable HARMONSMILE.")
+                st.caption(
+                    "Load or select a database to enable SMILES calculations."
+                )
             elif not has_active_table:
                 st.caption("Select an active table to enable HARMONSMILE.")
             elif len(selected_headers) == 0:
-                st.caption("Select one CID column to enable HARMONSMILE.")
+                st.caption("Select one CID column to enable SMILES calculations.")
             elif len(selected_headers) > 1:
                 st.caption("Select exactly one CID column to enable HARMONSMILE.")
             elif not is_cid_header(selected_headers[0]):

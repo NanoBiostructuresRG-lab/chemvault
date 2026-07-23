@@ -305,5 +305,13 @@ def test_card_uses_only_gateway_for_consolidation_and_is_ordered_in_curate():
     consolidation_position = curate_source.index(
         "render_structure_consolidation_card()"
     )
-    assert curate_source.index("**HARMONSMILE**") < consolidation_position
+    assert curate_source.index("**SMILES HARMONIZED**") < consolidation_position
+    assert (
+        "Load or select a database to enable SMILES calculations."
+        in curate_source
+    )
+    assert (
+        "Select one CID column to enable SMILES calculations."
+        in curate_source
+    )
     assert consolidation_position < curate_source.index("**CHAMANP**")
