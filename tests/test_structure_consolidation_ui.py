@@ -140,8 +140,8 @@ def test_card_is_disabled_without_required_harmonsmile_columns(monkeypatch):
 
     assert output["buttons"][0][1]["disabled"] is True
     assert output["captions"] == [
-        "Select a SMILES HARMONIZED activity table to enable "
-        "consolidation."
+        "Run SMILES HARMONIZED on a Structured activity table before using "
+        "ACTIVITY LABELS."
     ]
 
 
@@ -166,8 +166,32 @@ def test_card_is_disabled_without_required_activity_columns(
 
     assert output["buttons"][0][1]["disabled"] is True
     assert output["captions"] == [
-        "Select a SMILES HARMONIZED activity table to enable "
-        "consolidation."
+        "Select a Structured activity table after running SMILES HARMONIZED."
+    ]
+
+
+def test_card_uses_short_guidance_when_multiple_activity_columns_are_missing(
+    monkeypatch,
+):
+    state = _eligible_state()
+    missing_columns = {
+        "AID",
+        "Outcome",
+        "Activity_Type",
+        "Relation",
+        "Activity_Value",
+        "Activity_Value_Raw",
+        "Unit",
+    }
+    state["headers"] = [
+        header for header in state["headers"] if header not in missing_columns
+    ]
+
+    output = _render(monkeypatch, state)
+
+    assert output["buttons"][0][1]["disabled"] is True
+    assert output["captions"] == [
+        "Select a Structured activity table after running SMILES HARMONIZED."
     ]
 
 

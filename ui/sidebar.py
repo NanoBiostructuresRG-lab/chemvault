@@ -398,10 +398,19 @@ def render_structure_consolidation_card():
                 f"{metadata_error}"
             )
         elif not is_ready:
-            st.caption(
-                "Select a SMILES HARMONIZED activity table to enable "
-                "consolidation."
-            )
+            if not {
+                "SMILES_Harmonized",
+                "SMILES_Harmonization_Status",
+            }.issubset(st.session_state.get(HEADERS, [])):
+                st.caption(
+                    "Run SMILES HARMONIZED on a Structured activity table "
+                    "before using ACTIVITY LABELS."
+                )
+            else:
+                st.caption(
+                    "Select a Structured activity table after running SMILES "
+                    "HARMONIZED."
+                )
 
         if not run_consolidation:
             return None
