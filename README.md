@@ -192,9 +192,9 @@ streamlit run app.py
 
 ### Current API-client coverage
 
-API-client mode covers selected read-only database operations, including table listing, metadata, metrics, preview, schema inspection, operation history, and current table CSV export. HARMONSMILE execution also goes through FastAPI and its minimal local job runtime.
+API-client mode covers table listing, metadata, metrics, preview, schema inspection, operation history, and current-table CSV export. It also covers scientific runtime activation, SMILES HARMONIZED execution through the HARMONSMILE engine, active HARMONSMILE job lookup, Modelability Index jobs, structure consolidation, and Modelability fingerprint NPZ export.
 
-In API mode, FastAPI queues HARMONSMILE in a minimal in-process background thread and returns the job ID immediately. Streamlit polls the persisted job status until completion or a bounded connection failure; this is not a remote worker. PubChem searches, CHAMANP, enrichment, other curation writes, and general table mutations are not routed through FastAPI.
+In API mode, FastAPI queues HARMONSMILE and Modelability Index jobs in in-process background threads and returns the job ID immediately. Streamlit polls persisted job status through the same contract used in local mode; this is not a remote worker. PubChem searches, CHAMANP, enrichment, other curation writes, and general table mutations are not routed through FastAPI.
 
 ---
 
@@ -218,8 +218,8 @@ In API mode, FastAPI queues HARMONSMILE in a minimal in-process background threa
 5. Follow the progress modal while the persistent local worker searches PubChem. It shows the current status, stage, progress, and messages; use **Cancel search** if you need to stop safely
 6. Completed PubChem searches populate `main`, `compound_assays`, and `compound_activities`
 7. Select the `CID` pill in the **Columns** section
-8. Click **HARMONSMILE** in the sidebar, then **Run**
-9. Wait for HARMONSMILE to enrich your dataset with molecular properties
+8. In the **SMILES HARMONIZED** card, click **Select**, then **Run**
+9. Wait for the SMILES calculations to enrich your dataset with molecular properties
 10. Use **Refine** to create a focused subtable (for example, select only `CID` and `SMILES_RDKit`), then click **Create table from current selection**
 11. Click **Download CSV** to export your curated dataset
 
@@ -245,9 +245,9 @@ The **Table Manager** lets users inspect database tables, schema, provenance, an
 
 ---
 
-## Understanding HARMONSMILE output
+## Understanding SMILES HARMONIZED output
 
-When you run HARMONSMILE on a column of PubChem CIDs, CHEMVAULT enriches your table with molecular properties retrieved and standardized from PubChem. The output includes three SMILES variants:
+When you run **SMILES HARMONIZED** on a column of PubChem CIDs, CHEMVAULT uses the external [HARMONSMILE](https://pypi.org/project/harmonsmile/) engine to enrich the table with molecular properties retrieved and standardized from PubChem. The output includes three SMILES variants:
 
 - **SMILES** -- the original SMILES as retrieved from PubChem.
 - **SMILES_RDKit** -- the harmonized SMILES, recanonized by RDKit following a consistent convention (canonical + isomeric + Kekulized). **This is the recommended column for downstream cheminformatics and ML workflows**, as it provides a standardized, uniform representation.
@@ -256,6 +256,12 @@ When you run HARMONSMILE on a column of PubChem CIDs, CHEMVAULT enriches your ta
 Additional columns include molecular descriptors such as `MolecularFormula`, `MW` (molecular weight), `InChI`, `InChIKey`, `XLogP`, `TPSA`, `Charge`, `HBondDonorCount`, `HBondAcceptorCount`, `RotatableBondCount`, and `HeavyAtomCount`.
 
 > **Tip:** To prepare a clean dataset for ML, use **Refine** to select the columns and rows you need (for example, `CID` + `SMILES_RDKit` + selected descriptors), then use **Create table from current selection** or **Download CSV**.
+
+---
+
+## Modelability Index workflow
+
+After preparing an `activity_subset_*` table with SMILES calculations, use **ACTIVITY LABELS** to create its consolidated structure table. Select that table and run **MODELABILITY INDEX**. CHEMVAULT restores an exact compatible completed analysis when available; otherwise it calculates and persists the result. The result card provides the nearest-neighbor report and a fingerprint NPZ download. NPZ filenames follow `<database_id>_<activity_type>*fingerprints*<analysis8>.npz`.
 
 ---
 

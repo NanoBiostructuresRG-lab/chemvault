@@ -312,11 +312,11 @@ def refresh_harmonsmile_status_once(database_id, table_name, gateway=None):
     if status is not None and status.status not in TERMINAL_JOB_STATUSES:
         st.progress(min(max(status.progress, 0.0), 1.0))
         st.caption(
-            status.message or "HARMONSMILE is running in the backend."
+            status.message or "SMILES calculations are running in the backend."
         )
     elif st.session_state.get(HARMONSMILE_RUNNING, False):
         st.caption(
-            "HARMONSMILE status is temporarily unavailable; retrying."
+            "Status for SMILES calculations is temporarily unavailable; retrying."
         )
     return status
 
@@ -399,7 +399,7 @@ def render_structure_consolidation_card():
             )
         elif not is_ready:
             st.caption(
-                "Select a HARMONSMILE-enriched activity table to enable "
+                "Select a SMILES HARMONIZED activity table to enable "
                 "consolidation."
             )
 
@@ -517,25 +517,29 @@ def render_curate_card():
                     "Load or select a database to enable SMILES calculations."
                 )
             elif not has_active_table:
-                st.caption("Select an active table to enable HARMONSMILE.")
+                st.caption(
+                    "Select an active table to enable SMILES calculations."
+                )
             elif len(selected_headers) == 0:
                 st.caption("Select one CID column to enable SMILES calculations.")
             elif len(selected_headers) > 1:
-                st.caption("Select exactly one CID column to enable HARMONSMILE.")
+                st.caption(
+                    "Select exactly one CID column to enable SMILES calculations."
+                )
             elif not is_cid_header(selected_headers[0]):
                 st.caption(
-                    "Select a valid CID column to enable HARMONSMILE."
+                    "Select a valid CID column to enable SMILES calculations."
                 )
             elif not harmonsmile_is_selected:
-                st.caption("Select HARMONSMILE, then run it for the active CID column.")
+                st.caption(
+                    "Select SMILES HARMONIZED, then run it for the active CID column."
+                )
 
             if run_harmonsmile:
                 target_table = st.session_state[CURRENT_TABLE]
                 cid_column = selected_headers[0]
                 gateway = harmonsmile_gateway or get_backend_gateway()
-                with st.spinner(
-                    "Starting HARMONSMILE through the backend..."
-                ):
+                with st.spinner("Starting SMILES calculations through the backend..."):
                     execute_harmonsmile_command(
                         st.session_state,
                         gateway,

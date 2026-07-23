@@ -206,7 +206,7 @@ def test_periodic_refresh_reads_status_once_and_never_resubmits(monkeypatch):
     assert result.status == JobStatus.RUNNING
     assert calls == [("status", ("test_db", "job-1"))]
     assert progress == [0.4]
-    assert captions == ["HARMONSMILE is running in the backend."]
+    assert captions == ["SMILES calculations are running in the backend."]
 
 
 def test_periodic_terminal_status_stops_monitoring(monkeypatch):

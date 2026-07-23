@@ -140,7 +140,7 @@ def test_card_is_disabled_without_required_harmonsmile_columns(monkeypatch):
 
     assert output["buttons"][0][1]["disabled"] is True
     assert output["captions"] == [
-        "Select a HARMONSMILE-enriched activity table to enable "
+        "Select a SMILES HARMONIZED activity table to enable "
         "consolidation."
     ]
 
@@ -166,7 +166,7 @@ def test_card_is_disabled_without_required_activity_columns(
 
     assert output["buttons"][0][1]["disabled"] is True
     assert output["captions"] == [
-        "Select a HARMONSMILE-enriched activity table to enable "
+        "Select a SMILES HARMONIZED activity table to enable "
         "consolidation."
     ]
 
