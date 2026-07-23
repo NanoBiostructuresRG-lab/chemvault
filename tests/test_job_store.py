@@ -130,6 +130,150 @@ def test_scientific_job_scope_returns_active_owner_and_allows_after_terminal():
     assert replacement.job_id != first.job_id
 
 
+def _modelability_metadata(identity="analysis-a", contract="selected/v1"):
+    return {
+        "table_name": "structures",
+        "analysis_identity": identity,
+        "analysis_contract": contract,
+    }
+
+
+def test_scientific_job_reuses_active_owner_with_matching_metadata_keys():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    metadata = _modelability_metadata()
+
+    first, created = store.create_job_unless_active(
+        job_type=JobType.MODELABILITY_INDEX,
+        database_id="test_db",
+        table_name="structures",
+        metadata=metadata,
+        match_metadata_keys=("analysis_identity", "analysis_contract"),
+    )
+    duplicate, duplicate_created = store.create_job_unless_active(
+        job_type=JobType.MODELABILITY_INDEX,
+        database_id="test_db",
+        table_name="structures",
+        metadata=dict(metadata),
+        match_metadata_keys=("analysis_identity", "analysis_contract"),
+    )
+
+    assert created is True
+    assert duplicate_created is False
+    assert duplicate.job_id == first.job_id
+
+
+def test_scientific_job_creates_distinct_active_owner_for_new_identity():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+
+    first, _created = store.create_job_unless_active(
+        job_type=JobType.MODELABILITY_INDEX,
+        database_id="test_db",
+        table_name="structures",
+        metadata=_modelability_metadata("analysis-a"),
+        match_metadata_keys=("analysis_identity", "analysis_contract"),
+    )
+    second, second_created = store.create_job_unless_active(
+        job_type=JobType.MODELABILITY_INDEX,
+        database_id="test_db",
+        table_name="structures",
+        metadata=_modelability_metadata("analysis-b"),
+        match_metadata_keys=("analysis_identity", "analysis_contract"),
+    )
+
+    assert second_created is True
+    assert second.job_id != first.job_id
+
+
+def test_scientific_job_reuses_newest_equivalent_completed_job():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    metadata = _modelability_metadata()
+    common = {
+        "job_type": JobType.MODELABILITY_INDEX,
+        "database_id": "test_db",
+        "table_name": "structures",
+        "metadata": metadata,
+        "match_metadata_keys": ("analysis_identity", "analysis_contract"),
+    }
+
+    older, _created = store.create_job_unless_active(**common, job_id="older")
+    store.start_job(older.job_id)
+    store.complete_job(older.job_id, metadata)
+    newest, _created = store.create_job_unless_active(**common, job_id="newest")
+    store.start_job(newest.job_id)
+    store.complete_job(newest.job_id, metadata)
+
+    restored, restored_created = store.create_job_unless_active(
+        **common,
+        include_completed=True,
+    )
+
+    assert restored_created is False
+    assert restored.job_id == newest.job_id
+    assert restored.status == JobStatus.COMPLETED.value
+
+
+@pytest.mark.parametrize(
+    "requested_metadata",
+    [
+        _modelability_metadata("analysis-b", "selected/v1"),
+        _modelability_metadata("analysis-a", "selected/v2"),
+    ],
+    ids=["identity", "contract"],
+)
+def test_scientific_job_does_not_reuse_incompatible_completed_job(
+    requested_metadata,
+):
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+    completed, _created = store.create_job_unless_active(
+        job_type=JobType.MODELABILITY_INDEX,
+        database_id="test_db",
+        table_name="structures",
+        metadata=_modelability_metadata(),
+    )
+    store.start_job(completed.job_id)
+    store.complete_job(completed.job_id, _modelability_metadata())
+
+    created, was_created = store.create_job_unless_active(
+        job_type=JobType.MODELABILITY_INDEX,
+        database_id="test_db",
+        table_name="structures",
+        metadata=requested_metadata,
+        match_metadata_keys=("analysis_identity", "analysis_contract"),
+        include_completed=True,
+    )
+
+    assert was_created is True
+    assert created.job_id != completed.job_id
+    assert created.status == JobStatus.PENDING.value
+
+
+def test_metadata_factory_failure_rolls_back_without_inserting_job():
+    connection = sqlite3.connect(":memory:")
+    store = JobStore(connection)
+
+    def fail_metadata_factory(factory_connection):
+        assert factory_connection is connection
+        assert connection.in_transaction is True
+        raise RuntimeError("preparation failed")
+
+    with pytest.raises(RuntimeError, match="preparation failed"):
+        store.create_job_unless_active(
+            job_type=JobType.MODELABILITY_INDEX,
+            database_id="test_db",
+            table_name="structures",
+            metadata_factory=fail_metadata_factory,
+        )
+
+    assert connection.in_transaction is False
+    assert connection.execute(
+        f"SELECT COUNT(*) FROM {JOBS_TABLE}"
+    ).fetchone()[0] == 0
+
+
 def test_start_job_updates_status_and_started_timestamp():
     connection = sqlite3.connect(":memory:")
     store = JobStore(connection)

@@ -45,14 +45,16 @@ def _set_scope(session_state, database_id, table_name) -> None:
     session_state[MODELABILITY_JOB_TABLE_NAME] = table_name
 
 
-def _apply_status(session_state, status) -> None:
+def _apply_status(session_state, status, *, restored=False) -> None:
     session_state[MODELABILITY_JOB_ID] = status.job_id
     if status.status == JobStatus.COMPLETED:
         session_state[MODELABILITY_RUNNING] = False
         session_state[MODELABILITY_RESULT] = status.result or {}
         session_state[MODELABILITY_FEEDBACK_KIND] = "success"
         session_state[MODELABILITY_FEEDBACK_MESSAGE] = (
-            "Modelability Index calculation completed."
+            "Result restored from persisted analysis."
+            if restored
+            else "Modelability Index calculation completed."
         )
     elif status.status in {JobStatus.FAILED, JobStatus.CANCELLED}:
         session_state[MODELABILITY_RUNNING] = False
@@ -93,7 +95,11 @@ def launch_modelability_job(
             f"Modelability Index could not be started: {error}"
         )
         return None
-    _apply_status(session_state, status)
+    _apply_status(
+        session_state,
+        status,
+        restored=status.status == JobStatus.COMPLETED,
+    )
     return status
 
 

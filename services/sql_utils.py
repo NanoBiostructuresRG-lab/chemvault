@@ -10,6 +10,16 @@ def is_valid_table_name(table_name):
     return str(table_name).replace("_", "").isalnum() and not str(table_name)[0].isdigit()
 
 
+def is_user_facing_table_name(table_name):
+    """Return whether a physical SQLite table belongs in user workflows."""
+    name = str(table_name)
+    return not (
+        name.startswith("_chemvault_")
+        or name.startswith("sqlite_")
+        or name in {"compound_assays", "compound_activities"}
+    )
+
+
 def table_exists(connection, table_name):
     cursor = connection.cursor()
     cursor.execute(
@@ -25,16 +35,13 @@ def get_tables_from_connection(connection):
         SELECT name
         FROM sqlite_master
         WHERE type='table'
-        AND name NOT LIKE 'sqlite_%'
-        AND name != '_chemvault_table_metadata'
-        AND name != '_chemvault_operation_log'
-        AND name != '_chemvault_harmonsmile_cache'
-        AND name != '_chemvault_jobs'
-        AND name != 'compound_assays'
-        AND name != 'compound_activities'
         ORDER BY name
     """)
-    return [row[0] for row in cursor.fetchall()]
+    return [
+        row[0]
+        for row in cursor.fetchall()
+        if is_user_facing_table_name(row[0])
+    ]
 
 
 def ensure_main_table(connection):

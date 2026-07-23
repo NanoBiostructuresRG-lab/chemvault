@@ -376,6 +376,11 @@ def test_user_table_profiles_exclude_internal_tables(tmp_path):
         cur.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
         cur.execute("CREATE TABLE compound_activities (CID TEXT, AID TEXT)")
         cur.execute("CREATE TABLE _chemvault_jobs (job_id TEXT)")
+        cur.execute(
+            "CREATE TABLE _chemvault_modelability_fingerprint_artifacts "
+            "(fingerprint_identity TEXT)"
+        )
+        cur.execute("CREATE TABLE _chemvault_future_support (id INTEGER)")
         cur.execute("INSERT INTO main (CID) VALUES ('1')")
         ensure_table_metadata(con)
 
@@ -423,6 +428,18 @@ def test_delete_user_table_rejects_main_and_internal_tables(tmp_path):
             delete_user_table(con, "compound_activities")
         with pytest.raises(ValueError, match="Internal SQLite or ChemVault"):
             delete_user_table(con, "sqlite_sequence")
+        cur.execute(
+            "CREATE TABLE _chemvault_modelability_fingerprint_artifacts "
+            "(fingerprint_identity TEXT)"
+        )
+        cur.execute("CREATE TABLE _chemvault_future_support (id INTEGER)")
+        with pytest.raises(ValueError, match="Internal SQLite or ChemVault"):
+            delete_user_table(
+                con,
+                "_chemvault_modelability_fingerprint_artifacts",
+            )
+        with pytest.raises(ValueError, match="Internal SQLite or ChemVault"):
+            delete_user_table(con, "_chemvault_future_support")
 
 
 def test_delete_user_table_rejects_missing_table(tmp_path):

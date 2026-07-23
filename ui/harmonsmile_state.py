@@ -44,7 +44,7 @@ def _success_message(table_name, result):
     processed = result.get("processed_cids", 0)
     merged = result.get("merged_rows", 0)
     return (
-        f"HARMONSMILE completed. Updated table '{table_name}'; "
+        f"SMILES calculations completed. Updated table '{table_name}'; "
         f"processed {processed} CIDs and merged {merged} rows."
     )
 
@@ -66,13 +66,13 @@ def _apply_terminal_status(
         _set_feedback(
             session_state,
             "warning",
-            status.message or "HARMONSMILE was cancelled.",
+            status.message or "SMILES calculations were cancelled.",
         )
     else:
         _set_feedback(
             session_state,
             "error",
-            status.error or status.message or "HARMONSMILE failed.",
+            status.error or status.message or "SMILES calculations failed.",
         )
     clear_harmonsmile_runtime(session_state)
 
@@ -118,7 +118,7 @@ def sync_harmonsmile_runtime(
             _set_feedback(
                 session_state,
                 "warning",
-                f"HARMONSMILE monitoring is temporarily unavailable: {error}",
+                f"Monitoring SMILES calculations is temporarily unavailable: {error}",
             )
         return None
 
@@ -166,7 +166,7 @@ def execute_harmonsmile_command(
         if session_state.get(HARMONSMILE_JOB_ID, ""):
             session_state[HARMONSMILE_RUNNING] = True
             message = (
-                "HARMONSMILE monitoring is temporarily unavailable; "
+                "Monitoring SMILES calculations is temporarily unavailable; "
                 f"the backend job may still be running: {error}"
             )
             kind = "warning"
@@ -174,7 +174,7 @@ def execute_harmonsmile_command(
             message = f"CHEMVAULT backend API is not available: {error}"
             kind = "error"
         else:
-            message = f"HARMONSMILE could not be completed: {error}"
+            message = f"SMILES calculations could not be completed: {error}"
             kind = "error"
         _set_feedback(session_state, kind, message)
         return None

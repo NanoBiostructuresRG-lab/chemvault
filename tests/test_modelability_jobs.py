@@ -7,7 +7,11 @@ import pytest
 
 from application import modelability_jobs
 from application.job_contracts import job_status_from_record
-from application.modelability_index import ModelabilityIndexUseCaseResult
+from application.modelability_index import (
+    POPULATION_POLICY,
+    ModelabilityIndexUseCaseResult,
+    PreparedModelabilityInput,
+)
 from application.modelability_jobs import (
     InvalidModelabilitySourceError,
     MODELABILITY_INTERRUPTED_MESSAGE,
@@ -24,6 +28,7 @@ from services.database_core import get_connection
 from services.db_audit import register_table_metadata
 from services.job_models import JobStatus, JobType
 from services.job_store import JobStore
+from services.modelability_fingerprint_artifacts import FINGERPRINT_ARTIFACTS_TABLE
 from services.sql_utils import get_tables_from_connection
 
 
@@ -47,11 +52,15 @@ def _create_database(
     for table in tables:
         connection.execute(
             f'CREATE TABLE "{table}" '
-            '(SMILES_Harmonized TEXT, Outcome TEXT)'
+            "(SMILES_Harmonized TEXT, Outcome TEXT, "
+            "Reference_Selection_Status TEXT)"
         )
         connection.executemany(
-            f'INSERT INTO "{table}" VALUES (?, ?)',
-            [("CCO", "Active"), ("CCC", "Inactive")],
+            f'INSERT INTO "{table}" VALUES (?, ?, ?)',
+            [
+                ("CCO", "Active", "selected"),
+                ("CCC", "Inactive", "selected"),
+            ],
         )
         if register_consolidated:
             source_table = _activity_subset_source(table)
@@ -113,11 +122,31 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
     monkeypatch,
 ):
     _create_database(tmp_path, monkeypatch)
-    calls = []
+    prepared = PreparedModelabilityInput(
+        smiles=("CCC", "CCO"),
+        outcomes=("Inactive", "Active"),
+        analysis_identity="analysis-v1",
+    )
+    preparation_calls = []
+    calculation_calls = []
+
+    def prepare(connection, table_name, *, database_id=None):
+        preparation_calls.append((connection, table_name, database_id))
+        return prepared
+
+    def calculate(connection, prepared_input, *, source_table):
+        calculation_calls.append((connection, prepared_input, source_table))
+        return _result()
+
     monkeypatch.setattr(
         modelability_jobs,
-        "calculate_table_modelability_index",
-        lambda *args: calls.append(args) or _result(),
+        "prepare_table_modelability_input",
+        prepare,
+    )
+    monkeypatch.setattr(
+        modelability_jobs,
+        "calculate_persisted_prepared_modelability_index",
+        calculate,
     )
 
     created = create_scientific_job(
@@ -131,13 +160,28 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
         created.job_id,
     )
     queried = get_scientific_job_status("test_db", created.job_id)
+    restored = create_modelability_job("test_db", MODELABILITY_TABLE)
 
     assert created.status == JobStatus.PENDING
     assert created.stage == "queued"
     assert created.cancellable is False
     assert completed.status == JobStatus.COMPLETED
     assert queried == completed
-    assert calls == [("test_db", MODELABILITY_TABLE)]
+    assert restored == completed
+    assert len(preparation_calls) == 3
+    assert all(
+        (table_name, database_id) == (MODELABILITY_TABLE, "test_db")
+        for _connection, table_name, database_id in preparation_calls
+    )
+
+    assert len(calculation_calls) == 1
+    calculation_connection, calculation_input, calculation_table = (
+        calculation_calls[0]
+    )
+    assert isinstance(calculation_connection, sqlite3.Connection)
+    assert calculation_input is prepared
+    assert calculation_table == MODELABILITY_TABLE
+
     assert completed.result["modelability_index"] == 0.0
     assert len(completed.result["diagnostics"]) == 2
     assert completed.result["provenance"]["similarity_metric"] == "tanimoto"
@@ -154,8 +198,58 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
         connection.close()
     assert record.metadata["table_name"] == MODELABILITY_TABLE
     assert record.metadata["cancellation_supported"] is False
+    assert record.metadata["analysis_identity"] == "analysis-v1"
+    assert record.metadata["analysis_contract"] == POPULATION_POLICY
     assert record.metadata["result"] == completed.result
     assert "fingerprints" not in record.metadata["result"]
+
+
+def test_restoring_completed_job_backfills_missing_fingerprint_artifact(
+    tmp_path,
+    monkeypatch,
+):
+    _create_database(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        modelability_jobs,
+        "calculate_persisted_prepared_modelability_index",
+        lambda *_args, **_kwargs: _result(),
+    )
+
+    created = create_modelability_job("test_db", MODELABILITY_TABLE)
+    completed = execute_modelability_job("test_db", created.job_id)
+
+    connection = get_connection("test_db")
+    try:
+        artifact_table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (FINGERPRINT_ARTIFACTS_TABLE,),
+        ).fetchone()
+        completed_record = JobStore(connection).get_job(created.job_id)
+    finally:
+        connection.close()
+
+    assert artifact_table is None
+    persisted_result = completed_record.metadata["result"]
+    persisted_provenance = persisted_result["provenance"]
+
+    restored = create_modelability_job("test_db", MODELABILITY_TABLE)
+
+    assert restored == completed
+    assert restored.result == persisted_result
+    assert restored.result["provenance"] == persisted_provenance
+
+    connection = get_connection("test_db")
+    try:
+        artifact_rows = connection.execute(
+            f"SELECT source_table FROM {FINGERPRINT_ARTIFACTS_TABLE}"
+        ).fetchall()
+        restored_record = JobStore(connection).get_job(created.job_id)
+    finally:
+        connection.close()
+
+    assert artifact_rows == [(MODELABILITY_TABLE,)]
+    assert restored_record.metadata["result"] == persisted_result
+    assert restored_record.metadata["result"]["provenance"] == persisted_provenance
 
 
 def test_duplicate_active_creation_returns_existing_job(tmp_path, monkeypatch):
@@ -247,8 +341,10 @@ def test_modelability_execution_failure_is_persisted(tmp_path, monkeypatch):
     _create_database(tmp_path, monkeypatch)
     monkeypatch.setattr(
         modelability_jobs,
-        "calculate_table_modelability_index",
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("calculation failed")),
+        "calculate_persisted_prepared_modelability_index",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("calculation failed")
+        ),
     )
 
     created = create_modelability_job("test_db", MODELABILITY_TABLE)

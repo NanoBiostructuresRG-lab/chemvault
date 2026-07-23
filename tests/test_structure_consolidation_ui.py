@@ -140,7 +140,7 @@ def test_card_is_disabled_without_required_harmonsmile_columns(monkeypatch):
 
     assert output["buttons"][0][1]["disabled"] is True
     assert output["captions"] == [
-        "Select a HARMONSMILE-enriched activity table to enable "
+        "Select a SMILES HARMONIZED activity table to enable "
         "consolidation."
     ]
 
@@ -166,7 +166,7 @@ def test_card_is_disabled_without_required_activity_columns(
 
     assert output["buttons"][0][1]["disabled"] is True
     assert output["captions"] == [
-        "Select a HARMONSMILE-enriched activity table to enable "
+        "Select a SMILES HARMONIZED activity table to enable "
         "consolidation."
     ]
 
@@ -305,5 +305,13 @@ def test_card_uses_only_gateway_for_consolidation_and_is_ordered_in_curate():
     consolidation_position = curate_source.index(
         "render_structure_consolidation_card()"
     )
-    assert curate_source.index("**HARMONSMILE**") < consolidation_position
+    assert curate_source.index("**SMILES HARMONIZED**") < consolidation_position
+    assert (
+        "Load or select a database to enable SMILES calculations."
+        in curate_source
+    )
+    assert (
+        "Select one CID column to enable SMILES calculations."
+        in curate_source
+    )
     assert consolidation_position < curate_source.index("**CHAMANP**")

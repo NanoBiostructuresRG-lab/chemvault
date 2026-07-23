@@ -1,8 +1,8 @@
 # FastAPI backend API
 
-CHEMVAULT provides a FastAPI API for supported database reads and controlled
-scientific backend jobs. HARMONSMILE is the only scientific job exposed in
-v0.10.0.
+CHEMVAULT provides a FastAPI API for supported database reads, controlled
+scientific backend jobs, structure consolidation, and binary Modelability
+fingerprint export.
 
 ## Run locally
 
@@ -43,21 +43,24 @@ When `CHEMVAULT_API_URL` is defined, its HTTP backend uses:
 - `GET /databases/{database_id}/tables/{table_name}/metrics`
 - `GET /databases/{database_id}/tables/{table_name}/preview`
 - `GET /databases/{database_id}/tables/{table_name}/export`
+- `POST /databases/{database_id}/scientific-runtime/activate`
 - `POST /databases/{database_id}/jobs/harmonsmile`
+- `POST /databases/{database_id}/jobs/modelability_index`
+- `GET /databases/{database_id}/jobs/harmonsmile/active`
 - `GET /databases/{database_id}/jobs/{job_id}`
+- `POST /databases/{database_id}/tables/{table_name}/structure-consolidation`
+- `GET /databases/{database_id}/tables/{table_name}/modelability-index/fingerprints/export`
 
 When `CHEMVAULT_API_URL` is not defined, the gateway delegates to the existing
 local application use cases and services. Streamlit screens do not select a
 backend themselves. If HTTP mode is selected and a request fails, the error is
 surfaced to Streamlit; the gateway never silently falls back to local access.
 
-HARMONSMILE uses the generic scientific job contract. The POST creates a queued
-job and returns its ID immediately; preparation, chunk processing, cache merge,
-and provenance continue outside the HTTP request. Streamlit polls the generic
-GET endpoint for persisted progress and terminal status. This is not a remote
-worker. PubChem, CHAMANP, cancellation, filtered subgroup and
-structured-activity exports, and general table mutations remain outside FastAPI
-in this cycle.
+SMILES HARMONIZED uses the external HARMONSMILE engine, and both HARMONSMILE
+and Modelability Index use the generic scientific job contract. Launch requests
+return persisted job status while execution continues in an in-process
+background thread when needed. Streamlit polls the generic GET endpoint for
+persisted progress and terminal status. This is not a remote worker.
 
 ## Current endpoints
 
@@ -68,12 +71,26 @@ in this cycle.
 - `GET /databases/{database_id}/tables/{table_name}/metrics`
 - `GET /databases/{database_id}/tables/{table_name}/preview`
 - `GET /databases/{database_id}/tables/{table_name}/export`
+- `POST /databases/{database_id}/scientific-runtime/activate`
 - `POST /databases/{database_id}/jobs/harmonsmile`
+- `POST /databases/{database_id}/jobs/modelability_index`
+- `GET /databases/{database_id}/jobs/harmonsmile/active`
 - `GET /databases/{database_id}/jobs/{job_id}`
+- `POST /databases/{database_id}/tables/{table_name}/structure-consolidation`
+- `GET /databases/{database_id}/tables/{table_name}/modelability-index/fingerprints/export`
 
-## HARMONSMILE job
+## Scientific runtime activation
 
-Launch a background job with:
+`POST /databases/{database_id}/scientific-runtime/activate` activates recovery
+once for the selected database in the current API process. It resolves orphaned
+Modelability jobs, recovers resumable HARMONSMILE jobs, and returns
+`database_id` plus the `recovered_jobs` list. A missing database returns HTTP
+404.
+
+## SMILES HARMONIZED job
+
+The SMILES HARMONIZED operation is implemented by the external HARMONSMILE
+engine. Launch it with `POST /databases/{database_id}/jobs/harmonsmile` and:
 
 ```json
 {
@@ -91,6 +108,48 @@ launch/poll/terminal semantics as API mode through the backend gateway.
 `GET /databases/{database_id}/jobs/{job_id}` is job-type-neutral. It reads the
 persisted job record from the selected database and does not dispatch to a
 HARMONSMILE-specific status function.
+
+### Active HARMONSMILE job lookup
+
+`GET /databases/{database_id}/jobs/harmonsmile/active` requires the
+`table_name` query parameter. It returns the equivalent active HARMONSMILE job
+for that table, or `null` when none exists. A missing database returns HTTP 404.
+
+## Modelability Index job
+
+Launch with `POST /databases/{database_id}/jobs/modelability_index` and:
+
+```json
+{
+  "table_name": "activity_subset_IC50_structure_consolidated"
+}
+```
+
+The source must be an eligible ACTIVITY LABELS consolidated table. The endpoint
+uses the generic persisted job contract and may return an exact compatible
+completed analysis immediately; otherwise the pending job executes through the
+scientific runtime. Missing databases or tables return HTTP 404, and an invalid
+Modelability source returns HTTP 422.
+
+## Structure consolidation
+
+`POST /databases/{database_id}/tables/{table_name}/structure-consolidation`
+creates the ACTIVITY LABELS consolidated structure table and returns its counts
+and generated table name. Missing databases or tables return HTTP 404; an
+ineligible source returns HTTP 422.
+
+## Modelability fingerprint NPZ export
+
+`GET /databases/{database_id}/tables/{table_name}/modelability-index/fingerprints/export`
+requires the `analysis_identity` query parameter. A successful response uses
+`application/octet-stream`; `Content-Disposition` preserves the filename
+generated by the backend, following
+`<database_id>_<activity_type>*fingerprints*<analysis8>.npz`.
+
+Missing databases or tables return HTTP 404. A stale `analysis_identity`, or a
+missing, corrupt, or incompatible fingerprint artifact, returns HTTP 409. The
+export reads the existing validated artifact only: it never calculates
+fingerprints.
 
 Backend transport failures are gateway/API-client errors, not persisted job
 failures. Persisted workflow failures are represented by `status=failed` and
@@ -147,8 +206,9 @@ part of this endpoint.
 ## Current limitations
 
 The API does not create databases, run PubChem or CHAMANP, expose cancellation,
-or launch remote workers. Only the HARMONSMILE scientific job crosses the
-mutation boundary in this milestone.
+or launch remote workers. Filtered subgroup and structured-activity exports and
+general table mutations other than structure consolidation remain outside this
+API surface.
 
 ## Architectural rule
 

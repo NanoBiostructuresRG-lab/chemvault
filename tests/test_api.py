@@ -16,12 +16,14 @@ from application.database_use_cases import (
     TableProvenance,
     TableNotFoundError,
 )
+from application.modelability_index import ModelabilityIndexUseCaseError
 from application.structure_consolidation import (
     StructureConsolidationSummary,
     StructureConsolidationTableResult,
 )
 from services.database import DatabaseState
 from services.structure_consolidation import StructureConsolidationError
+from services.modelability_fingerprint_artifacts import FingerprintArtifactError
 
 
 client = TestClient(api_main.app)
@@ -786,3 +788,86 @@ def test_table_export_reports_validation_errors(monkeypatch, error, status_code)
 
     assert response.status_code == status_code
     assert response.json() == {"detail": str(error)}
+
+
+def test_modelability_npz_export_returns_backend_filename_and_media_type(
+    monkeypatch,
+):
+    calls = []
+    filename = "test_db_IC50_fingerprints_12345678.npz"
+    monkeypatch.setattr(
+        api_main,
+        "export_table_modelability_fingerprints_npz",
+        lambda *args: calls.append(args) or (b"npz-bytes", filename),
+    )
+
+    response = client.get(
+        "/databases/test_db/tables/"
+        "activity_subset_IC50_structure_consolidated/"
+        "modelability-index/fingerprints/export",
+        params={"analysis_identity": "12345678analysis"},
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"npz-bytes"
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["content-disposition"] == (
+        f'attachment; filename="{filename}"'
+    )
+    assert calls == [
+        (
+            "test_db",
+            "activity_subset_IC50_structure_consolidated",
+            "12345678analysis",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (DatabaseNotFoundError("Database was not found."), 404),
+        (
+            ModelabilityIndexUseCaseError(
+                "Modelability source changed after the displayed result."
+            ),
+            409,
+        ),
+        (
+            FingerprintArtifactError(
+                "The persisted fingerprint artifact is corrupt."
+            ),
+            409,
+        ),
+    ],
+)
+def test_modelability_npz_export_reports_controlled_errors(
+    monkeypatch,
+    error,
+    status_code,
+):
+    monkeypatch.setattr(
+        api_main,
+        "export_table_modelability_fingerprints_npz",
+        lambda *args: (_ for _ in ()).throw(error),
+    )
+
+    response = client.get(
+        "/databases/test_db/tables/"
+        "activity_subset_IC50_structure_consolidated/"
+        "modelability-index/fingerprints/export",
+        params={"analysis_identity": "12345678analysis"},
+    )
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}
+
+
+def test_modelability_npz_export_requires_analysis_identity():
+    response = client.get(
+        "/databases/test_db/tables/"
+        "activity_subset_IC50_structure_consolidated/"
+        "modelability-index/fingerprints/export"
+    )
+
+    assert response.status_code == 422

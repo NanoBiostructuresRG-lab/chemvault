@@ -105,7 +105,7 @@ def render_modelability_card():
     )
     running = scope_matches and st.session_state.get(MODELABILITY_RUNNING, False)
     with st.container(border=True):
-        st.subheader("MODELABILITY INDEX")
+        st.markdown("**MODELABILITY INDEX**")
         run_requested = st.button(
             "Run",
             key="curate_run_modelability_index",

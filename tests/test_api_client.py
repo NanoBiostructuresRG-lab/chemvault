@@ -5,11 +5,19 @@ from clients.api_client import ChemVaultApiClient, ChemVaultApiError
 
 
 class StubResponse:
-    def __init__(self, payload, status_code=200, text="", content=b""):
+    def __init__(
+        self,
+        payload,
+        status_code=200,
+        text="",
+        content=b"",
+        headers=None,
+    ):
         self.payload = payload
         self.status_code = status_code
         self.text = text
         self.content = content
+        self.headers = headers or {}
 
     def json(self):
         return self.payload
@@ -121,6 +129,46 @@ def test_export_returns_bytes_and_sends_selected_columns(monkeypatch):
     assert calls[0][1]["params"] == [
         ("columns", "CID"),
         ("columns", "SMILES"),
+    ]
+
+
+def test_modelability_npz_export_forwards_identity_and_backend_filename(
+    monkeypatch,
+):
+    calls = []
+    filename = "test_db_IC50_fingerprints_12345678.npz"
+
+    def fake_get(_session, url, **kwargs):
+        calls.append((url, kwargs))
+        return StubResponse(
+            {},
+            content=b"npz-bytes",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            },
+        )
+
+    monkeypatch.setattr(requests.Session, "get", fake_get)
+
+    result = ChemVaultApiClient(
+        "http://api.example"
+    ).export_modelability_fingerprints(
+        "test db",
+        "activity_subset_IC50_structure_consolidated",
+        "12345678analysis",
+    )
+
+    assert result == (b"npz-bytes", filename)
+    assert calls == [
+        (
+            "http://api.example/databases/test%20db/tables/"
+            "activity_subset_IC50_structure_consolidated/"
+            "modelability-index/fingerprints/export",
+            {
+                "params": {"analysis_identity": "12345678analysis"},
+                "timeout": 10.0,
+            },
+        )
     ]
 
 

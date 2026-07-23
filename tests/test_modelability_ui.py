@@ -189,6 +189,29 @@ def test_async_job_state_is_scoped_to_database_and_table():
     assert calls[-1] == ("status", (DATABASE_ID, "job-1"))
 
 
+def test_immediate_completed_job_restores_persisted_result():
+    state = {}
+
+    class Gateway:
+        def launch_scientific_job(self, *_args):
+            return _status(JobStatus.COMPLETED, result=_result(), progress=1.0)
+
+    status = launch_modelability_job(
+        state,
+        Gateway(),
+        DATABASE_ID,
+        TABLE_NAME,
+    )
+
+    assert status.status == JobStatus.COMPLETED
+    assert state["modelability_running"] is False
+    assert state["modelability_result"] == _result()
+    assert state["modelability_feedback_kind"] == "success"
+    assert state["modelability_feedback_message"] == (
+        "Result restored from persisted analysis."
+    )
+
+
 def test_completed_and_failed_jobs_update_scoped_result_state():
     completed_state = {
         "modelability_job_id": "job-1",
@@ -210,6 +233,9 @@ def test_completed_and_failed_jobs_update_scoped_result_state():
     assert completed_state["modelability_running"] is False
     assert completed_state["modelability_result"] == _result()
     assert completed_state["modelability_feedback_kind"] == "success"
+    assert completed_state["modelability_feedback_message"] == (
+        "Modelability Index calculation completed."
+    )
 
     failed_state = {
         "modelability_job_id": "job-2",
@@ -247,7 +273,7 @@ def test_diagnostics_csv_is_generated_in_memory():
 def test_sidebar_execution_card_does_not_render_scientific_result():
     source = inspect.getsource(modelability_card.render_modelability_card)
 
-    assert 'st.subheader("MODELABILITY INDEX")' in source
+    assert 'st.markdown("**MODELABILITY INDEX**")' in source
     assert "st.caption(message)" in source
     assert "st.success(message)" not in source
     assert "MODELABILITY_RESULT" not in source
@@ -261,11 +287,20 @@ def test_sidebar_execution_card_does_not_render_scientific_result():
 def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     monkeypatch,
 ):
+    active_columns = []
+
     class Context:
+        def __init__(self, column=None):
+            self.column = column
+
         def __enter__(self):
+            if self.column is not None:
+                active_columns.append(self.column)
             return self
 
         def __exit__(self, *_args):
+            if self.column is not None:
+                active_columns.pop()
             return False
 
     rendered = {
@@ -274,12 +309,22 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "captions": [],
         "frames": [],
         "downloads": [],
+        "download_columns": [],
+        "column_calls": [],
         "expanders": [],
     }
     monkeypatch.setattr(
         modelability_result.st,
         "container",
         lambda **_kwargs: Context(),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "columns",
+        lambda spec: (
+            rendered["column_calls"].append(spec)
+            or (Context(0), Context(1))
+        ),
     )
 
     def markdown(value, **kwargs):
@@ -300,7 +345,10 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     monkeypatch.setattr(
         modelability_result.st,
         "download_button",
-        lambda *args, **kwargs: rendered["downloads"].append((args, kwargs)),
+        lambda *args, **kwargs: (
+            rendered["download_columns"].append(active_columns[-1])
+            or rendered["downloads"].append((args, kwargs))
+        ),
     )
     monkeypatch.setattr(
         modelability_result.st,
@@ -309,8 +357,31 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
             rendered["expanders"].append((label, kwargs)) or Context()
         ),
     )
+    gateway_calls = []
+
+    class Gateway:
+        def export_modelability_fingerprints(
+            self,
+            database_id,
+            table_name,
+            analysis_identity,
+        ):
+            gateway_calls.append(
+                (database_id, table_name, analysis_identity)
+            )
+            return (
+                b"npz-bytes",
+                "test_db_IC50_fingerprints_analysis.npz",
+            )
+
+    monkeypatch.setattr(
+        modelability_result,
+        "get_backend_gateway",
+        lambda: Gateway(),
+    )
 
     result = _result()
+    result["provenance"]["fingerprint_source"] = "restored"
     result["diagnostics"] = [
         {**result["diagnostics"][0], "smiles": f"structure-{index}"}
         for index in range(12)
@@ -423,6 +494,20 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "Download nearest-neighbor report",
     )
     assert rendered["downloads"][0][1]["data"] == diagnostics_csv(result)
+    assert rendered["downloads"][1] == (
+        ("Download fingerprints (.npz)",),
+        {
+            "data": b"npz-bytes",
+            "file_name": "test_db_IC50_fingerprints_analysis.npz",
+            "mime": "application/octet-stream",
+            "key": f"download_modelability_fingerprints_{TABLE_NAME}",
+        },
+    )
+    assert rendered["column_calls"] == [2]
+    assert rendered["download_columns"] == [0, 1]
+    assert gateway_calls == [
+        (DATABASE_ID, TABLE_NAME, "analysis-hash")
+    ]
     assert len(diagnostics_csv(result).splitlines()) == 13
     assert rendered["expanders"] == [
         ("Analysis details", {"expanded": False}),
@@ -439,6 +524,67 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     assert result["provenance"]["molraptor_profile_hash"] == "profile-hash"
     assert result["provenance"]["molraptor_ordered_input_hash"] == "input-hash"
     assert result["provenance"]["chemvault_analysis_hash"] == "analysis-hash"
+
+
+def test_modelability_npz_export_failure_is_visible(monkeypatch):
+    class Context:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FailingGateway:
+        def export_modelability_fingerprints(self, *_args):
+            raise modelability_result.BackendGatewayError(
+                "persisted fingerprint artifact is unavailable"
+            )
+
+    errors = []
+    monkeypatch.setattr(
+        modelability_result,
+        "get_backend_gateway",
+        lambda: FailingGateway(),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "container",
+        lambda **_kwargs: Context(),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "columns",
+        lambda _spec: (Context(), Context()),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "expander",
+        lambda *_args, **_kwargs: Context(),
+    )
+    monkeypatch.setattr(modelability_result.st, "markdown", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "caption", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "dataframe", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        modelability_result.st,
+        "download_button",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(modelability_result.st, "error", errors.append)
+    state = {
+        "modelability_job_database_id": DATABASE_ID,
+        "modelability_job_table_name": TABLE_NAME,
+        "modelability_result": _result(),
+    }
+
+    assert modelability_result.render_modelability_result_card(
+        state,
+        DATABASE_ID,
+        TABLE_NAME,
+    ) is True
+    assert errors == [
+        "Modelability fingerprint download could not be prepared: "
+        "persisted fingerprint artifact is unavailable"
+    ]
 
 
 def test_scope_mismatch_does_not_render_stale_result(monkeypatch):

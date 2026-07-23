@@ -314,6 +314,104 @@ def test_table_export_http_error_does_not_fall_back(monkeypatch):
     assert local_calls == []
 
 
+def test_modelability_npz_export_uses_local_application_backend(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    expected = (b"npz-bytes", "test_db_IC50_fingerprints_12345678.npz")
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "export_table_modelability_fingerprints_npz",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    result = backend_gateway.get_backend_gateway().export_modelability_fingerprints(
+        "test_db",
+        "activity_subset_IC50_structure_consolidated",
+        "12345678analysis",
+    )
+
+    assert result == expected
+    assert calls == [
+        (
+            "test_db",
+            "activity_subset_IC50_structure_consolidated",
+            "12345678analysis",
+        )
+    ]
+
+
+def test_modelability_npz_local_error_is_controlled(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+
+    def fail_export(*_args):
+        raise ValueError("displayed analysis is stale")
+
+    monkeypatch.setattr(
+        backend_gateway,
+        "export_table_modelability_fingerprints_npz",
+        fail_export,
+    )
+
+    with pytest.raises(
+        backend_gateway.BackendGatewayError,
+        match="displayed analysis is stale",
+    ) as raised:
+        backend_gateway.get_backend_gateway().export_modelability_fingerprints(
+            "test_db",
+            "activity_subset_IC50_structure_consolidated",
+            "12345678analysis",
+        )
+
+    assert isinstance(raised.value.__cause__, ValueError)
+
+
+def test_modelability_npz_export_uses_http_backend_and_preserves_filename(
+    monkeypatch,
+):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    expected = (b"npz-bytes", "test_db_IC50_fingerprints_12345678.npz")
+    calls = []
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def export_modelability_fingerprints(
+            self,
+            database_id,
+            table_name,
+            analysis_identity,
+        ):
+            calls.append(
+                (
+                    "export",
+                    database_id,
+                    table_name,
+                    analysis_identity,
+                )
+            )
+            return expected
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+
+    result = backend_gateway.get_backend_gateway().export_modelability_fingerprints(
+        "test_db",
+        "activity_subset_IC50_structure_consolidated",
+        "12345678analysis",
+    )
+
+    assert result == expected
+    assert calls == [
+        ("init", "http://api.example"),
+        (
+            "export",
+            "test_db",
+            "activity_subset_IC50_structure_consolidated",
+            "12345678analysis",
+        ),
+    ]
+
+
 def test_structure_consolidation_uses_local_application_backend(monkeypatch):
     monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
     expected = _structure_consolidation_result()
