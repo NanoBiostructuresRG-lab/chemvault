@@ -398,10 +398,26 @@ def render_structure_consolidation_card():
                 f"{metadata_error}"
             )
         elif not is_ready:
-            st.caption(
-                "Select a SMILES HARMONIZED activity table to enable "
-                "consolidation."
+            missing_required_columns = sorted(
+                STRUCTURE_CONSOLIDATION_REQUIRED_COLUMNS
+                - set(st.session_state.get(HEADERS, []))
             )
+            if {
+                "SMILES_Harmonized",
+                "SMILES_Harmonization_Status",
+            }.intersection(missing_required_columns):
+                st.caption(
+                    "Run SMILES HARMONIZED on a Structured activity table "
+                    "before using ACTIVITY LABELS."
+                )
+            else:
+                st.caption(
+                    "This table contains harmonized structures but is missing "
+                    "required Structured activity columns: "
+                    f"{', '.join(missing_required_columns)}. "
+                    "Select or create a Structured activity table, run SMILES "
+                    "HARMONIZED, then use ACTIVITY LABELS."
+                )
 
         if not run_consolidation:
             return None
