@@ -287,11 +287,20 @@ def test_sidebar_execution_card_does_not_render_scientific_result():
 def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     monkeypatch,
 ):
+    active_columns = []
+
     class Context:
+        def __init__(self, column=None):
+            self.column = column
+
         def __enter__(self):
+            if self.column is not None:
+                active_columns.append(self.column)
             return self
 
         def __exit__(self, *_args):
+            if self.column is not None:
+                active_columns.pop()
             return False
 
     rendered = {
@@ -300,12 +309,22 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "captions": [],
         "frames": [],
         "downloads": [],
+        "download_columns": [],
+        "column_calls": [],
         "expanders": [],
     }
     monkeypatch.setattr(
         modelability_result.st,
         "container",
         lambda **_kwargs: Context(),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "columns",
+        lambda spec: (
+            rendered["column_calls"].append(spec)
+            or (Context(0), Context(1))
+        ),
     )
 
     def markdown(value, **kwargs):
@@ -326,7 +345,10 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     monkeypatch.setattr(
         modelability_result.st,
         "download_button",
-        lambda *args, **kwargs: rendered["downloads"].append((args, kwargs)),
+        lambda *args, **kwargs: (
+            rendered["download_columns"].append(active_columns[-1])
+            or rendered["downloads"].append((args, kwargs))
+        ),
     )
     monkeypatch.setattr(
         modelability_result.st,
@@ -481,6 +503,8 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
             "key": f"download_modelability_fingerprints_{TABLE_NAME}",
         },
     )
+    assert rendered["column_calls"] == [2]
+    assert rendered["download_columns"] == [0, 1]
     assert gateway_calls == [
         (DATABASE_ID, TABLE_NAME, "analysis-hash")
     ]
@@ -526,6 +550,11 @@ def test_modelability_npz_export_failure_is_visible(monkeypatch):
         modelability_result.st,
         "container",
         lambda **_kwargs: Context(),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "columns",
+        lambda _spec: (Context(), Context()),
     )
     monkeypatch.setattr(
         modelability_result.st,

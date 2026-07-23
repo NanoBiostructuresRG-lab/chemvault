@@ -28,6 +28,7 @@ from services.database_core import get_connection
 from services.db_audit import register_table_metadata
 from services.job_models import JobStatus, JobType
 from services.job_store import JobStore
+from services.modelability_fingerprint_artifacts import FINGERPRINT_ARTIFACTS_TABLE
 from services.sql_utils import get_tables_from_connection
 
 
@@ -201,6 +202,54 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
     assert record.metadata["analysis_contract"] == POPULATION_POLICY
     assert record.metadata["result"] == completed.result
     assert "fingerprints" not in record.metadata["result"]
+
+
+def test_restoring_completed_job_backfills_missing_fingerprint_artifact(
+    tmp_path,
+    monkeypatch,
+):
+    _create_database(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        modelability_jobs,
+        "calculate_persisted_prepared_modelability_index",
+        lambda *_args, **_kwargs: _result(),
+    )
+
+    created = create_modelability_job("test_db", MODELABILITY_TABLE)
+    completed = execute_modelability_job("test_db", created.job_id)
+
+    connection = get_connection("test_db")
+    try:
+        artifact_table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (FINGERPRINT_ARTIFACTS_TABLE,),
+        ).fetchone()
+        completed_record = JobStore(connection).get_job(created.job_id)
+    finally:
+        connection.close()
+
+    assert artifact_table is None
+    persisted_result = completed_record.metadata["result"]
+    persisted_provenance = persisted_result["provenance"]
+
+    restored = create_modelability_job("test_db", MODELABILITY_TABLE)
+
+    assert restored == completed
+    assert restored.result == persisted_result
+    assert restored.result["provenance"] == persisted_provenance
+
+    connection = get_connection("test_db")
+    try:
+        artifact_rows = connection.execute(
+            f"SELECT source_table FROM {FINGERPRINT_ARTIFACTS_TABLE}"
+        ).fetchall()
+        restored_record = JobStore(connection).get_job(created.job_id)
+    finally:
+        connection.close()
+
+    assert artifact_rows == [(MODELABILITY_TABLE,)]
+    assert restored_record.metadata["result"] == persisted_result
+    assert restored_record.metadata["result"]["provenance"] == persisted_provenance
 
 
 def test_duplicate_active_creation_returns_existing_job(tmp_path, monkeypatch):

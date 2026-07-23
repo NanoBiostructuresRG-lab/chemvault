@@ -17,6 +17,7 @@ from application.job_contracts import JobStatusContract, job_status_from_record
 from application.modelability_index import (
     POPULATION_POLICY,
     calculate_persisted_prepared_modelability_index,
+    ensure_persisted_modelability_fingerprint_artifact,
     prepare_table_modelability_input,
 )
 from application.scientific_jobs import JobNotFoundError, register_scientific_job
@@ -153,9 +154,11 @@ def create_modelability_job(
     _validate_modelability_source(database_id, table_name)
     _fail_orphans_before_creation(database_id)
     creator_pid = os.getpid()
+    prepared_input = None
 
     def metadata_factory(connection):
-        prepared = prepare_table_modelability_input(
+        nonlocal prepared_input
+        prepared_input = prepare_table_modelability_input(
             connection,
             table_name,
             database_id=database_id,
@@ -164,7 +167,7 @@ def create_modelability_job(
             "table_name": table_name,
             "cancellation_supported": False,
             "creator_pid": creator_pid,
-            "analysis_identity": prepared.analysis_identity,
+            "analysis_identity": prepared_input.analysis_identity,
             "analysis_contract": POPULATION_POLICY,
         }
 
@@ -180,6 +183,14 @@ def create_modelability_job(
             include_completed=True,
         )
         if not created:
+            if record.status == JobStatus.COMPLETED.value:
+                if prepared_input is None:
+                    raise RuntimeError("Modelability input preparation did not complete.")
+                ensure_persisted_modelability_fingerprint_artifact(
+                    connection,
+                    prepared_input,
+                    source_table=table_name,
+                )
             return job_status_from_record(record)
         request_metadata = dict(record.metadata)
         queued = store.update_progress(

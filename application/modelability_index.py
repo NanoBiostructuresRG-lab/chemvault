@@ -398,20 +398,34 @@ def calculate_persisted_prepared_modelability_index(
     source_table: str,
 ) -> ModelabilityIndexUseCaseResult:
     """Calculate Modelability with a reusable SQLite fingerprint artifact."""
-    expectation = _fingerprint_artifact_expectation(
+    artifact, fingerprint_source = ensure_persisted_modelability_fingerprint_artifact(
+        connection,
         prepared,
         source_table=source_table,
-    )
-    artifact, fingerprint_source = restore_or_calculate_fingerprint_artifact(
-        connection,
-        expectation=expectation,
-        calculate=lambda: _calculate_fingerprint_artifact(prepared),
     )
     return _calculate_with_fingerprint_artifact(
         prepared,
         artifact,
         fingerprint_source=fingerprint_source,
         source_table=source_table,
+    )
+
+
+def ensure_persisted_modelability_fingerprint_artifact(
+    connection,
+    prepared: PreparedModelabilityInput,
+    *,
+    source_table: str,
+) -> tuple[FingerprintArtifact, str]:
+    """Restore or calculate the persisted fingerprint artifact only."""
+    expectation = _fingerprint_artifact_expectation(
+        prepared,
+        source_table=source_table,
+    )
+    return restore_or_calculate_fingerprint_artifact(
+        connection,
+        expectation=expectation,
+        calculate=lambda: _calculate_fingerprint_artifact(prepared),
     )
 
 

@@ -224,13 +224,15 @@ def render_modelability_result_card(session_state, database_id, table_name):
             hide_index=True,
             use_container_width=True,
         )
-        st.download_button(
-            "Download nearest-neighbor report",
-            data=diagnostics_csv(result),
-            file_name=f"{table_name}_modelability_diagnostics.csv",
-            mime="text/csv",
-            key=f"download_modelability_diagnostics_{table_name}",
-        )
+        diagnostics_column, fingerprints_column = st.columns(2)
+        with diagnostics_column:
+            st.download_button(
+                "Download nearest-neighbor report",
+                data=diagnostics_csv(result),
+                file_name=f"{table_name}_modelability_diagnostics.csv",
+                mime="text/csv",
+                key=f"download_modelability_diagnostics_{table_name}",
+            )
         analysis_identity = provenance.get("chemvault_analysis_hash")
         if isinstance(analysis_identity, str) and analysis_identity:
             try:
@@ -242,18 +244,20 @@ def render_modelability_result_card(session_state, database_id, table_name):
                     )
                 )
             except BackendGatewayError as error:
-                st.error(
-                    "Modelability fingerprint download could not be prepared: "
-                    f"{error}"
-                )
+                with fingerprints_column:
+                    st.error(
+                        "Modelability fingerprint download could not be prepared: "
+                        f"{error}"
+                    )
             else:
-                st.download_button(
-                    "Download fingerprints (.npz)",
-                    data=npz_bytes,
-                    file_name=npz_filename,
-                    mime="application/octet-stream",
-                    key=f"download_modelability_fingerprints_{table_name}",
-                )
+                with fingerprints_column:
+                    st.download_button(
+                        "Download fingerprints (.npz)",
+                        data=npz_bytes,
+                        file_name=npz_filename,
+                        mime="application/octet-stream",
+                        key=f"download_modelability_fingerprints_{table_name}",
+                    )
 
         with st.expander("Analysis details", expanded=False):
             st.dataframe(
