@@ -166,14 +166,13 @@ def test_card_is_disabled_without_required_activity_columns(
 
     assert output["buttons"][0][1]["disabled"] is True
     assert output["captions"] == [
-        "This table contains harmonized structures but is missing required "
-        f"Structured activity columns: {missing_column}. Select or create a "
-        "Structured activity table, run SMILES HARMONIZED, then use ACTIVITY "
-        "LABELS."
+        "Select a Structured activity table after running SMILES HARMONIZED."
     ]
 
 
-def test_card_lists_all_missing_activity_columns_deterministically(monkeypatch):
+def test_card_uses_short_guidance_when_multiple_activity_columns_are_missing(
+    monkeypatch,
+):
     state = _eligible_state()
     missing_columns = {
         "AID",
@@ -192,11 +191,7 @@ def test_card_lists_all_missing_activity_columns_deterministically(monkeypatch):
 
     assert output["buttons"][0][1]["disabled"] is True
     assert output["captions"] == [
-        "This table contains harmonized structures but is missing required "
-        "Structured activity columns: AID, Activity_Type, Activity_Value, "
-        "Activity_Value_Raw, Outcome, Relation, Unit. Select or create a "
-        "Structured activity table, run SMILES HARMONIZED, then use ACTIVITY "
-        "LABELS."
+        "Select a Structured activity table after running SMILES HARMONIZED."
     ]
 
 
