@@ -23,11 +23,12 @@ def fetch_cids_for_aid_batch(batch):
 
 
 def fetch_compound_titles_for_cid_batch(batch):
-    url = (
-        f"{BASE_URL}/compound/cid/"
-        f"{','.join(map(str, batch))}/property/Title/JSON"
+    url = f"{BASE_URL}/compound/cid/property/Title/JSON"
+    response = requests.post(
+        url,
+        data={"cid": ",".join(map(str, batch))},
+        timeout=REQUEST_TIMEOUT,
     )
-    response = requests.get(url, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     return response.json()
 

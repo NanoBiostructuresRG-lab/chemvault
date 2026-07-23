@@ -27,11 +27,11 @@ class FakeProgress:
 
 
 def test_fetch_compound_names_uses_configured_batch_size(monkeypatch):
-    requested_urls = []
+    requested_posts = []
 
-    def fake_get(url, timeout):
-        requested_urls.append(url)
-        cid_block = url.split("/compound/cid/")[1].split("/property/Title/JSON")[0]
+    def fake_post(url, data, timeout):
+        requested_posts.append((url, data, timeout))
+        cid_block = data["cid"]
         return FakeResponse(
             {
                 "PropertyTable": {
@@ -43,13 +43,20 @@ def test_fetch_compound_names_uses_configured_batch_size(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
 
     names = pubchem_loader._fetch_compound_names(range(1, 502))
 
-    assert len(requested_urls) == 2
-    assert "/compound/cid/1,2,3" in requested_urls[0]
-    assert "/compound/cid/501/property/Title/JSON" in requested_urls[1]
+    assert len(requested_posts) == 2
+    expected_url = f"{pubchem_client.BASE_URL}/compound/cid/property/Title/JSON"
+    assert all(url == expected_url for url, _, _ in requested_posts)
+    assert all(set(data) == {"cid"} for _, data, _ in requested_posts)
+    assert all(
+        timeout == pubchem_client.REQUEST_TIMEOUT
+        for _, _, timeout in requested_posts
+    )
+    assert len(requested_posts[0][1]["cid"].split(",")) == 500
+    assert requested_posts[1][1]["cid"] == "501"
     assert names["1"] == "Compound 1"
     assert names["500"] == "Compound 500"
     assert names["501"] == "Compound 501"
@@ -78,13 +85,17 @@ def test_obtener_cids_pubchem_enriches_main_table(monkeypatch):
             )
         if "/assay/aid/2339/CSV" in url:
             return FakeResponse(text=assay_csv)
-        if "/compound/cid/3779/property/Title/JSON" in url:
-            return FakeResponse(
-                {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
-            )
         raise AssertionError(f"Unexpected URL: {url}")
 
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        assert data["cid"] == "3779"
+        return FakeResponse(
+            {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
+        )
+
     monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
     progress = FakeProgress()
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], progress)
@@ -169,11 +180,14 @@ def test_obtener_cids_pubchem_uses_concurrent_activity_enrichment(monkeypatch):
             return FakeResponse(
                 {"InformationList": {"Information": [{"AID": 2339, "CID": [3779]}]}}
             )
-        if "/compound/cid/3779/property/Title/JSON" in url:
-            return FakeResponse(
-                {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
-            )
         raise AssertionError(f"Unexpected URL: {url}")
+
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        assert data["cid"] == "3779"
+        return FakeResponse(
+            {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
+        )
 
     def fake_activity_runner(connection, aid_jobs, activity_fetcher, **kwargs):
         captured["aid_jobs"] = aid_jobs
@@ -181,6 +195,7 @@ def test_obtener_cids_pubchem_uses_concurrent_activity_enrichment(monkeypatch):
         return {"successful_cid_values": ["3779"]}
 
     monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
     monkeypatch.setattr(
         pubchem_loader,
         "run_pubchem_activity_enrichment",
@@ -237,21 +252,24 @@ def test_obtener_cids_pubchem_enriches_activity_for_large_aid_sets(monkeypatch):
                 ]
             )
             return FakeResponse(text=assay_csv)
-        if "/compound/cid/" in url:
-            cid_block = url.split("/compound/cid/")[1].split("/property/Title/JSON")[0]
-            return FakeResponse(
-                {
-                    "PropertyTable": {
-                        "Properties": [
-                            {"CID": int(cid), "Title": f"Compound {cid}"}
-                            for cid in cid_block.split(",")
-                        ]
-                    }
-                }
-            )
         raise AssertionError(f"Unexpected URL: {url}")
 
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        cid_block = data["cid"]
+        return FakeResponse(
+            {
+                "PropertyTable": {
+                    "Properties": [
+                        {"CID": int(cid), "Title": f"Compound {cid}"}
+                        for cid in cid_block.split(",")
+                    ]
+                }
+            }
+        )
+
     monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
 
@@ -299,13 +317,17 @@ def test_obtener_cids_pubchem_preserves_cid_deduplication_and_assay_traceability
                 "RESULT_TYPE,,\n"
                 "1,3779,Active\n"
             )
-        if "/compound/cid/3779/property/Title/JSON" in url:
-            return FakeResponse(
-                {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
-            )
         raise AssertionError(f"Unexpected URL: {url}")
 
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        assert data["cid"] == "3779"
+        return FakeResponse(
+            {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
+        )
+
     monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
@@ -356,13 +378,17 @@ def test_compound_activities_stores_one_row_per_cid_aid_activity(monkeypatch):
                 "RESULT_UNIT,,,NANOMOLAR\n"
                 "1,3779,Active,20"
             )
-        if "/compound/cid/3779/property/Title/JSON" in url:
-            return FakeResponse(
-                {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
-            )
         raise AssertionError(f"Unexpected URL: {url}")
 
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        assert data["cid"] == "3779"
+        return FakeResponse(
+            {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
+        )
+
     monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
 
@@ -408,13 +434,17 @@ def test_compound_activities_allows_multiple_results_for_same_cid_aid(monkeypatc
             )
         if "/assay/aid/11/CSV" in url:
             return FakeResponse(text=assay_csv)
-        if "/compound/cid/3779/property/Title/JSON" in url:
-            return FakeResponse(
-                {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
-            )
         raise AssertionError(f"Unexpected URL: {url}")
 
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        assert data["cid"] == "3779"
+        return FakeResponse(
+            {"PropertyTable": {"Properties": [{"CID": 3779, "Title": "Isoproterenol"}]}}
+        )
+
     monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
 
     pubchem_loader.obtener_CIDs_Pubchem(connection, ["P21554"], FakeProgress())
 
