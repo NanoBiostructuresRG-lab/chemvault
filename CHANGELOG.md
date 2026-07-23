@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.11.3] - 2026-07-23
+
+### Changed
+
+- Replaced PubChem compound-title retrieval through long GET URLs with POST
+  form requests, while preserving the existing 500-CID batch size, response
+  contract, retries, cancellation checks, and persistence flow.
+- Refined the `ACTIVITY LABELS` guidance for harmonized tables that do not
+  satisfy the Structured activity eligibility requirements.
+- Preserved the existing scientific eligibility rules and structure-
+  consolidation behavior.
+
+### Fixed
+
+- Fixed missing `Compound_Name` values when PubChem rejected compound-title
+  GET requests containing large CID batches.
+- Replaced ambiguous eligibility guidance with the concise message:
+  `Select a Structured activity table after running SMILES HARMONIZED.`
+
+### Validation
+
+- Passed the complete test suite: 518 tests.
+- Completed a cold PubChem workflow with 1,038 of 1,038 compound names
+  recovered and no missing titles.
+- Retrieved the 1,038 compound titles in 1.542 seconds while keeping the
+  complete workflow below seven minutes.
+- Confirmed manually that ineligible harmonized tables remain blocked from
+  `ACTIVITY LABELS` without changing the scientific workflow.
+
+---
+
 ## [v0.11.2] - 2026-07-22
 
 ### Added
