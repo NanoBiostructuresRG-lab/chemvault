@@ -492,7 +492,7 @@ def render_activity_enrichment_action(connection):
         return
 
     protein_text = ", ".join(summary["proteins"]) if summary["proteins"] else "None"
-    with st.expander("Advanced maintenance", expanded=False):
+    with st.expander("Repair activity records", expanded=False):
         st.markdown("**Repair missing activity records**")
         st.caption(
             "Retry PubChem activity retrieval for persisted assay links. "
@@ -1358,14 +1358,17 @@ def render_table_manager_card(container):
             hide_index=True,
             use_container_width=True,
         )
-        render_table_manager_actions(database_id, profiles)
+        with st.container(border=True):
+            st.markdown("**Database maintenance**")
+            render_table_manager_actions(database_id, profiles)
+            with sqlite3.connect(db_path) as activity_conn:
+                render_activity_enrichment_action(activity_conn)
         with sqlite3.connect(db_path) as activity_conn:
             render_structured_activity_section(activity_conn)
             render_structure_consolidation_summary(
                 database_id,
                 st.session_state.get(CURRENT_TABLE, ""),
             )
-            render_activity_enrichment_action(activity_conn)
             render_modelability_result_card(
                 st.session_state,
                 database_id,

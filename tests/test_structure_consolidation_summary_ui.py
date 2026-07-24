@@ -262,7 +262,7 @@ def test_summary_is_reloaded_from_gateway_without_transient_run_state(
     assert "sqlite3" not in source
 
 
-def test_table_manager_places_summary_after_activity_filter_and_backfill():
+def test_table_manager_orders_manage_maintenance_structured_and_summary():
     activity_source = inspect.getsource(
         main_page.render_structured_activity_section
     )
@@ -271,13 +271,27 @@ def test_table_manager_places_summary_after_activity_filter_and_backfill():
     assert activity_source.index('st.markdown("##### Filter")') < (
         activity_source.index('"Create filtered activity table"')
     )
-    structured_position = manager_source.index(
-        "render_structured_activity_section(activity_conn)"
+    container_position = manager_source.index("st.container(border=True)")
+    maintenance_heading_position = manager_source.index(
+        'st.markdown("**Database maintenance**")'
+    )
+    manage_position = manager_source.index(
+        "render_table_manager_actions(database_id, profiles)"
     )
     maintenance_position = manager_source.index(
         "render_activity_enrichment_action(activity_conn)"
     )
+    structured_position = manager_source.index(
+        "render_structured_activity_section(activity_conn)"
+    )
     summary_position = manager_source.rindex(
         "render_structure_consolidation_summary("
     )
-    assert structured_position < summary_position < maintenance_position
+    assert (
+        container_position
+        < maintenance_heading_position
+        < manage_position
+        < maintenance_position
+        < structured_position
+        < summary_position
+    )
