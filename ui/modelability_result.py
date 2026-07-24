@@ -195,15 +195,21 @@ def _render_metrics(result):
 
 
 def render_modelability_result_card(session_state, database_id, table_name):
-    """Render only the completed result owned by the active table scope."""
-    if not modelability_scope_matches(session_state, database_id, table_name):
-        return False
-    result = session_state.get(MODELABILITY_RESULT)
-    if not isinstance(result, dict):
-        return False
-
+    """Render the Modelability Index result subcard for the active table."""
     with st.container(border=True):
         st.markdown("**Modelability Index result**")
+        scope_matches = modelability_scope_matches(
+            session_state,
+            database_id,
+            table_name,
+        )
+        result = session_state.get(MODELABILITY_RESULT)
+        if not scope_matches or not isinstance(result, dict):
+            st.caption(
+                "No Modelability Index result is available for this table."
+            )
+            return False
+
         provenance = result.get("provenance", {})
         source_table = provenance.get("source_table")
         if source_table:

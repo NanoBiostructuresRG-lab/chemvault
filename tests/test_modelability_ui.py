@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 
+from contextlib import nullcontext
 import inspect
 from types import SimpleNamespace
 
@@ -85,6 +86,33 @@ def _result():
 
 def _metadata(origin, source_table):
     return SimpleNamespace(origin=origin, source_table=source_table)
+
+
+def _patch_placeholder_rendering(monkeypatch):
+    rendered = {"containers": [], "markdown": [], "captions": []}
+    monkeypatch.setattr(
+        modelability_result.st,
+        "container",
+        lambda **kwargs: (
+            rendered["containers"].append(kwargs) or nullcontext()
+        ),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "markdown",
+        lambda value, **_kwargs: rendered["markdown"].append(value),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "caption",
+        rendered["captions"].append,
+    )
+    monkeypatch.setattr(
+        modelability_result,
+        "_render_metrics",
+        lambda _result: pytest.fail("unavailable result must not render"),
+    )
+    return rendered
 
 
 def test_activity_labels_consolidated_source_is_eligible():
@@ -588,11 +616,7 @@ def test_modelability_npz_export_failure_is_visible(monkeypatch):
 
 
 def test_scope_mismatch_does_not_render_stale_result(monkeypatch):
-    monkeypatch.setattr(
-        modelability_result.st,
-        "container",
-        lambda **_kwargs: pytest.fail("stale result must not render"),
-    )
+    rendered = _patch_placeholder_rendering(monkeypatch)
     state = {
         "modelability_job_database_id": DATABASE_ID,
         "modelability_job_table_name": TABLE_NAME,
@@ -604,6 +628,35 @@ def test_scope_mismatch_does_not_render_stale_result(monkeypatch):
         DATABASE_ID,
         "different_table",
     ) is False
+    assert rendered == {
+        "containers": [{"border": True}],
+        "markdown": ["**Modelability Index result**"],
+        "captions": [
+            "No Modelability Index result is available for this table."
+        ],
+    }
+
+
+def test_matching_scope_without_result_renders_placeholder(monkeypatch):
+    rendered = _patch_placeholder_rendering(monkeypatch)
+    state = {
+        "modelability_job_database_id": DATABASE_ID,
+        "modelability_job_table_name": TABLE_NAME,
+        "modelability_result": None,
+    }
+
+    assert modelability_result.render_modelability_result_card(
+        state,
+        DATABASE_ID,
+        TABLE_NAME,
+    ) is False
+    assert rendered == {
+        "containers": [{"border": True}],
+        "markdown": ["**Modelability Index result**"],
+        "captions": [
+            "No Modelability Index result is available for this table."
+        ],
+    }
 
 
 def test_table_manager_places_modelability_after_advanced_maintenance():

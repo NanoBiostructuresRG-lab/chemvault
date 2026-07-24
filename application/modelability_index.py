@@ -45,7 +45,7 @@ REQUIRED_COLUMNS = (
 )
 _FINGERPRINT_PROFILE = MorganFingerprintProfile()
 _BINARY_OUTCOMES = {"active": "Active", "inactive": "Inactive"}
-POPULATION_POLICY = "reference_selected_only/v1"
+POPULATION_POLICY = "consolidated_binary_outcomes/v1"
 MODELABILITY_INDEX_CONTRACT_VERSION = "modelability_index/v1"
 SIMILARITY_METRIC = "tanimoto"
 NEIGHBOR_RULE = "single_nearest_neighbor"
@@ -132,7 +132,7 @@ def _fingerprint_identity(population_identity: str) -> str:
 
 def _population_identity(smiles: tuple[str, ...]) -> str:
     payload = {
-        "ordered_selected_smiles_harmonized": list(smiles),
+        "ordered_smiles_harmonized": list(smiles),
         "population_policy": POPULATION_POLICY,
     }
     serialized = json.dumps(
@@ -179,8 +179,19 @@ def prepare_modelability_input(
     selection_status = prepared["Reference_Selection_Status"].map(
         lambda value: _clean_text(value).lower()
     )
+    eligible_status = selection_status.isin(
+        {"selected", "no_eligible_activity"}
+    )
+    if not eligible_status.all():
+        invalid_rows = ", ".join(
+            str(index) for index in selection_status.index[~eligible_status]
+        )
+        raise ModelabilityIndexUseCaseError(
+            "Reference_Selection_Status must contain only selected or "
+            f"no_eligible_activity; invalid rows: {invalid_rows}."
+        )
     prepared = prepared.loc[
-        selection_status == "selected",
+        eligible_status,
         ["SMILES_Harmonized", "Outcome"],
     ].copy()
     prepared["SMILES_Harmonized"] = prepared["SMILES_Harmonized"].map(
@@ -192,7 +203,7 @@ def prepare_modelability_input(
             sorted(set(prepared.loc[duplicates, "SMILES_Harmonized"]))
         )
         raise ModelabilityIndexUseCaseError(
-            "Selected SMILES_Harmonized values must be unique; duplicates: "
+            "SMILES_Harmonized values must be unique; duplicates: "
             f"{duplicate_smiles}."
         )
     normalized = prepared["Outcome"].map(
@@ -213,7 +224,7 @@ def prepare_modelability_input(
     ).reset_index(drop=True)
     if len(prepared) < 2:
         raise ModelabilityIndexUseCaseError(
-            "At least two selected structures are required."
+            "At least two consolidated structures are required."
         )
 
     smiles = tuple(prepared["SMILES_Harmonized"])
@@ -468,15 +479,19 @@ def export_modelability_fingerprints_npz(
     """Build an in-memory NPZ from an existing validated fingerprint artifact."""
     prefix = "activity_subset_"
     suffix = "_structure_consolidated"
+    parsed_table_name = source_table
+    table_name_base, separator, numeric_suffix = source_table.rpartition("_")
+    if separator and numeric_suffix.isdigit() and int(numeric_suffix) >= 2:
+        parsed_table_name = table_name_base
     if (
-        not source_table.startswith(prefix)
-        or not source_table.endswith(suffix)
-        or len(source_table) <= len(prefix) + len(suffix)
+        not parsed_table_name.startswith(prefix)
+        or not parsed_table_name.endswith(suffix)
+        or len(parsed_table_name) <= len(prefix) + len(suffix)
     ):
         raise ModelabilityIndexUseCaseError(
             "Modelability source table does not contain an activity type."
         )
-    activity_type = source_table[len(prefix):-len(suffix)]
+    activity_type = parsed_table_name[len(prefix):-len(suffix)]
     if len(prepared.outcomes) != len(prepared.smiles):
         raise ModelabilityIndexUseCaseError(
             "The number of outcomes must match the fingerprint rows."

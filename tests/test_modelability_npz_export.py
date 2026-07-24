@@ -37,10 +37,10 @@ def _prepared_input():
     return use_case.prepare_modelability_input(source)
 
 
-def _persist_artifact(connection, prepared):
+def _persist_artifact(connection, prepared, *, source_table=SOURCE_TABLE):
     expectation = use_case._fingerprint_artifact_expectation(
         prepared,
-        source_table=SOURCE_TABLE,
+        source_table=source_table,
     )
     matrix = np.zeros(
         (len(prepared.smiles), expectation.fp_size),
@@ -204,6 +204,33 @@ def test_exports_self_contained_npz_without_calling_molraptor(monkeypatch):
             "Inactive": 0,
             "Active": 1,
         }
+    finally:
+        connection.close()
+
+
+def test_export_accepts_numbered_consolidated_table_name():
+    connection = sqlite3.connect(":memory:")
+    source_table = "activity_subset_IC50_structure_consolidated_2"
+    try:
+        prepared = _prepared_input()
+        _persist_artifact(
+            connection,
+            prepared,
+            source_table=source_table,
+        )
+
+        payload, filename = use_case.export_modelability_fingerprints_npz(
+            connection,
+            prepared,
+            database_id=DATABASE_ID,
+            source_table=source_table,
+        )
+
+        assert payload
+        assert filename == (
+            f"P37231_IC50_fingerprints_"
+            f"{prepared.analysis_identity[:8]}.npz"
+        )
     finally:
         connection.close()
 

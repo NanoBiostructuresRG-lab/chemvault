@@ -676,7 +676,7 @@ def test_activity_repair_uses_collapsed_advanced_maintenance_presentation(
     main_page.render_activity_enrichment_action(connection)
 
     assert output["expanders"] == [
-        ("Advanced maintenance", {"expanded": False})
+        ("Repair activity records", {"expanded": False})
     ]
     assert output["markdown"] == ["**Repair missing activity records**"]
     assert output["captions"] == [
