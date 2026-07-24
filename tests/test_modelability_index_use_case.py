@@ -20,8 +20,8 @@ def _source():
             },
             {
                 "SMILES_Harmonized": "CCCO",
-                "Outcome": "Unknown",
-                "Reference_Selection_Status": "no_eligible_activity",
+                "Outcome": " ACTIVE ",
+                "Reference_Selection_Status": " No_Eligible_Activity ",
             },
             {
                 "SMILES_Harmonized": "c1ccccc1",
@@ -37,9 +37,10 @@ def _source():
     )
 
 
-def test_uses_only_normalized_selected_rows_with_fixed_provenance(
+def test_uses_normalized_consolidated_binary_rows_with_fixed_provenance(
     monkeypatch,
 ):
+    assert use_case.POPULATION_POLICY == "consolidated_binary_outcomes/v1"
     real_encode = use_case.encode_fingerprints
 
     def checked_encode(smiles, profile):
@@ -53,16 +54,18 @@ def test_uses_only_normalized_selected_rows_with_fixed_provenance(
         source_table="structures",
     )
 
-    assert result.structure_count == 2
-    assert result.active_count == 1
-    assert result.inactive_count == 1
+    assert result.structure_count == 4
+    assert result.active_count == 2
+    assert result.inactive_count == 2
     assert {item["outcome"] for item in result.diagnostics} == {
         "Active",
         "Inactive",
     }
     assert {item["smiles"] for item in result.diagnostics} == {
         "CCO",
+        "CCCO",
         "c1ccccc1",
+        "c1ccncc1",
     }
 
     provenance = result.provenance
@@ -199,8 +202,18 @@ def test_sqlite_reader_uses_all_required_columns_and_prepared_boundary(
         captured["prepared"],
         use_case.PreparedModelabilityInput,
     )
-    assert captured["prepared"].smiles == ("CCO", "c1ccccc1")
-    assert captured["prepared"].outcomes == ("Active", "Inactive")
+    assert captured["prepared"].smiles == (
+        "CCCO",
+        "CCO",
+        "c1ccccc1",
+        "c1ccncc1",
+    )
+    assert captured["prepared"].outcomes == (
+        "Active",
+        "Active",
+        "Inactive",
+        "Inactive",
+    )
     assert captured["source_table"] == "structures"
 
 
@@ -248,6 +261,38 @@ def test_rejects_missing_columns_and_non_binary_outcomes():
         )
 
 
+@pytest.mark.parametrize(
+    "invalid_status",
+    ["", "excluded"],
+    ids=["blank", "unexpected"],
+)
+def test_rejects_invalid_reference_status_before_encoding(
+    monkeypatch,
+    invalid_status,
+):
+    source = pd.DataFrame(
+        {
+            "SMILES_Harmonized": ["CCO", "CCC"],
+            "Outcome": ["Active", "Inactive"],
+            "Reference_Selection_Status": ["selected", invalid_status],
+        }
+    )
+
+    def must_not_encode(*_args, **_kwargs):
+        raise AssertionError("MOLRAPTOR was called")
+
+    monkeypatch.setattr(use_case, "encode_fingerprints", must_not_encode)
+
+    with pytest.raises(
+        ModelabilityIndexUseCaseError,
+        match=(
+            "Reference_Selection_Status must contain only selected or "
+            "no_eligible_activity"
+        ),
+    ):
+        use_case.calculate_dataframe_modelability_index(source)
+
+
 @pytest.mark.parametrize("row_count", [0, 1], ids=["empty", "one_row"])
 def test_rejects_too_few_structures_before_encoding(monkeypatch, row_count):
     source = pd.DataFrame(
@@ -267,13 +312,13 @@ def test_rejects_too_few_structures_before_encoding(monkeypatch, row_count):
         use_case.calculate_dataframe_modelability_index(source)
 
 
-def test_rejects_selected_population_without_both_classes_before_encoding(
+def test_rejects_consolidated_population_without_both_classes_before_encoding(
     monkeypatch,
 ):
     source = pd.DataFrame(
         {
             "SMILES_Harmonized": ["CCO", "CCC", "CCN"],
-            "Outcome": ["Active", "Active", "Inactive"],
+            "Outcome": ["Active", "Active", "Active"],
             "Reference_Selection_Status": [
                 "selected",
                 "selected",
@@ -292,3 +337,21 @@ def test_rejects_selected_population_without_both_classes_before_encoding(
         match="Both Active and Inactive",
     ):
         use_case.calculate_dataframe_modelability_index(source)
+
+
+def test_selected_active_and_no_eligible_activity_inactive_are_valid():
+    source = pd.DataFrame(
+        {
+            "SMILES_Harmonized": ["CCO", "CCC"],
+            "Outcome": ["Active", "Inactive"],
+            "Reference_Selection_Status": [
+                "selected",
+                "no_eligible_activity",
+            ],
+        }
+    )
+
+    prepared = use_case.prepare_modelability_input(source)
+
+    assert prepared.smiles == ("CCC", "CCO")
+    assert prepared.outcomes == ("Inactive", "Active")
