@@ -479,15 +479,19 @@ def export_modelability_fingerprints_npz(
     """Build an in-memory NPZ from an existing validated fingerprint artifact."""
     prefix = "activity_subset_"
     suffix = "_structure_consolidated"
+    parsed_table_name = source_table
+    table_name_base, separator, numeric_suffix = source_table.rpartition("_")
+    if separator and numeric_suffix.isdigit() and int(numeric_suffix) >= 2:
+        parsed_table_name = table_name_base
     if (
-        not source_table.startswith(prefix)
-        or not source_table.endswith(suffix)
-        or len(source_table) <= len(prefix) + len(suffix)
+        not parsed_table_name.startswith(prefix)
+        or not parsed_table_name.endswith(suffix)
+        or len(parsed_table_name) <= len(prefix) + len(suffix)
     ):
         raise ModelabilityIndexUseCaseError(
             "Modelability source table does not contain an activity type."
         )
-    activity_type = source_table[len(prefix):-len(suffix)]
+    activity_type = parsed_table_name[len(prefix):-len(suffix)]
     if len(prepared.outcomes) != len(prepared.smiles):
         raise ModelabilityIndexUseCaseError(
             "The number of outcomes must match the fingerprint rows."
