@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.11.4] - 2026-07-23
+
+### Changed
+
+- Expanded the Modelability Index population from reference-selected
+  structures to all consolidated structures with valid binary `Active` or
+  `Inactive` outcomes and a `Reference_Selection_Status` of either `selected`
+  or `no_eligible_activity`.
+- Updated the Modelability population policy from
+  `reference_selected_only/v1` to `consolidated_binary_outcomes/v1`, ensuring
+  incompatible persisted analyses and fingerprint artifacts are not reused.
+- Grouped table management and activity-record repair controls inside a
+  bordered `Database maintenance` section.
+- Renamed the `Advanced maintenance` expander to
+  `Repair activity records`.
+- Kept the `Modelability Index result` subcard visible for every active table,
+  displaying a placeholder when no table-specific result is available.
+
+### Fixed
+
+- Fixed Modelability Index rejection of consolidated datasets whose
+  `Inactive` structures had `Reference_Selection_Status` set to
+  `no_eligible_activity`.
+- Added explicit rejection of blank or unsupported
+  `Reference_Selection_Status` values before fingerprint encoding.
+- Fixed Modelability fingerprint `.npz` downloads for valid numbered
+  consolidation outputs such as
+  `activity_subset_IC50_structure_consolidated_2`.
+- Preserved the original consolidated table name for fingerprint artifact
+  lookup and exported provenance while using the normalized activity token
+  only for the existing filename contract.
+- Improved Modelability workflow discoverability by showing the result area
+  before the first calculation and while switching between tables.
+
+### Validation
+
+- Passed the complete test suite: 523 tests.
+- Confirmed the corrected Q7Z2W7 IC50 population contains 630 unique
+  structures: 563 Active and 67 Inactive.
+- Completed the Q7Z2W7 Modelability Index calculation with a result of
+  approximately 0.969 and preserved the existing Morgan fingerprint,
+  Tanimoto similarity, nearest-neighbor, and macro-average contracts.
+- Confirmed manually that fingerprint `.npz` download works for a numbered
+  consolidated table.
+- Completed cold visual validation of the `Database maintenance` grouping and
+  the persistent Modelability result placeholder for `main`, filtered
+  activity, consolidated activity, and completed-result states.
+
+---
+
 ## [v0.11.3] - 2026-07-23
 
 ### Changed
