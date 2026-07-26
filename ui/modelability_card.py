@@ -2,13 +2,16 @@
 """Streamlit card for asynchronous Modelability Index analysis."""
 
 import streamlit as st
+from molraptor import FINGERPRINT_TYPES, FingerprintType
 
+from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from state_keys import (
     CURRENT_TABLE,
     DATABASE_ID,
     MODELABILITY_FEEDBACK_KIND,
     MODELABILITY_FEEDBACK_MESSAGE,
+    MODELABILITY_FINGERPRINT_TYPE,
     MODELABILITY_RUNNING,
 )
 from ui.modelability_state import (
@@ -17,6 +20,16 @@ from ui.modelability_state import (
     modelability_scope_matches,
     poll_modelability_job,
 )
+
+FINGERPRINT_TYPE_LABELS = {
+    "morgan": "Morgan",
+    "featmorgan": "Feature Morgan",
+    "atompair": "Atom Pair",
+    "rdk": "RDKit Topological",
+    "torsion": "Topological Torsion",
+    "layered": "Layered",
+    "maccs": "MACCS",
+}
 
 
 def _output_name_matches(table_name, source_table):
@@ -60,19 +73,31 @@ def check_eligibility(gateway, database_id, table_name):
     return source_is_eligible(table_name, metadata, source_metadata), None
 
 
-def refresh_status_once(database_id, table_name, gateway=None):
+def refresh_status_once(
+    database_id,
+    table_name,
+    gateway=None,
+    *,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
+):
     gateway = gateway or get_backend_gateway()
     status = poll_modelability_job(
         st.session_state,
         gateway,
         database_id,
         table_name,
+        fingerprint_type,
     )
     if status is not None and status.status not in TERMINAL_JOB_STATUSES:
         st.progress(min(max(status.progress, 0.0), 1.0))
         st.caption(status.message or "Modelability Index is running in the backend.")
     elif (
-        modelability_scope_matches(st.session_state, database_id, table_name)
+        modelability_scope_matches(
+            st.session_state,
+            database_id,
+            table_name,
+            fingerprint_type,
+        )
         and st.session_state.get(MODELABILITY_RUNNING, False)
     ):
         st.caption("Modelability Index status is temporarily unavailable; retrying.")
@@ -80,8 +105,16 @@ def refresh_status_once(database_id, table_name, gateway=None):
 
 
 @st.fragment(run_every="2s")
-def render_job_status(database_id, table_name):
-    status = refresh_status_once(database_id, table_name)
+def render_job_status(
+    database_id,
+    table_name,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
+):
+    status = refresh_status_once(
+        database_id,
+        table_name,
+        fingerprint_type=fingerprint_type,
+    )
     if status is not None and status.status in TERMINAL_JOB_STATUSES:
         st.rerun()
 
@@ -98,14 +131,25 @@ def render_modelability_card():
             table_name,
         )
 
-    scope_matches = modelability_scope_matches(
-        st.session_state,
-        database_id,
-        table_name,
-    )
-    running = scope_matches and st.session_state.get(MODELABILITY_RUNNING, False)
     with st.container(border=True):
         st.markdown("**MODELABILITY INDEX**")
+        fingerprint_type = st.selectbox(
+            "Fingerprint type",
+            options=FINGERPRINT_TYPES,
+            index=None,
+            format_func=FINGERPRINT_TYPE_LABELS.__getitem__,
+            key=MODELABILITY_FINGERPRINT_TYPE,
+        )
+        scope_matches = modelability_scope_matches(
+            st.session_state,
+            database_id,
+            table_name,
+            fingerprint_type,
+        )
+        running = (
+            scope_matches
+            and st.session_state.get(MODELABILITY_RUNNING, False)
+        )
         run_requested = st.button(
             "Run",
             key="curate_run_modelability_index",
@@ -137,7 +181,11 @@ def render_modelability_card():
                 st.warning(message)
 
             if running:
-                render_job_status(database_id, table_name)
+                render_job_status(
+                    database_id,
+                    table_name,
+                    fingerprint_type,
+                )
 
         if run_requested:
             with st.spinner("Starting Modelability Index through the backend..."):
@@ -146,5 +194,6 @@ def render_modelability_card():
                     gateway,
                     database_id,
                     table_name,
+                    fingerprint_type,
                 )
             st.rerun()

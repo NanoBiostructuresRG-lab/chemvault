@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 from typing import Any
 
+from molraptor import FingerprintType
 from pydantic import BaseModel, Field
 
 from services.job_models import JobStatus
@@ -114,6 +115,7 @@ class HarmonsmileJobRequest(BaseModel):
 
 class ModelabilityIndexJobRequest(BaseModel):
     table_name: str = Field(min_length=1)
+    fingerprint_type: FingerprintType = "morgan"
 
 
 class JobStatusResponse(BaseModel):

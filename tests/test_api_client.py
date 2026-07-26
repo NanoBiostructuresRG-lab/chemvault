@@ -150,22 +150,43 @@ def test_modelability_npz_export_forwards_identity_and_backend_filename(
 
     monkeypatch.setattr(requests.Session, "get", fake_get)
 
-    result = ChemVaultApiClient(
-        "http://api.example"
-    ).export_modelability_fingerprints(
+    api_client = ChemVaultApiClient("http://api.example")
+    default_result = api_client.export_modelability_fingerprints(
         "test db",
         "activity_subset_IC50_structure_consolidated",
         "12345678analysis",
     )
+    selected_result = api_client.export_modelability_fingerprints(
+        "test db",
+        "activity_subset_IC50_structure_consolidated",
+        "12345678analysis",
+        fingerprint_type="maccs",
+    )
 
-    assert result == (b"npz-bytes", filename)
+    assert default_result == (b"npz-bytes", filename)
+    assert selected_result == (b"npz-bytes", filename)
     assert calls == [
         (
             "http://api.example/databases/test%20db/tables/"
             "activity_subset_IC50_structure_consolidated/"
             "modelability-index/fingerprints/export",
             {
-                "params": {"analysis_identity": "12345678analysis"},
+                "params": {
+                    "analysis_identity": "12345678analysis",
+                    "fingerprint_type": "morgan",
+                },
+                "timeout": 10.0,
+            },
+        ),
+        (
+            "http://api.example/databases/test%20db/tables/"
+            "activity_subset_IC50_structure_consolidated/"
+            "modelability-index/fingerprints/export",
+            {
+                "params": {
+                    "analysis_identity": "12345678analysis",
+                    "fingerprint_type": "maccs",
+                },
                 "timeout": 10.0,
             },
         )

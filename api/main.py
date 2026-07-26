@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Path, Query
 from fastapi.responses import Response
+from molraptor import FingerprintType
 
 from api.job_runtime import start_scientific_background_job
 from api.schemas import (
@@ -150,7 +151,10 @@ def launch_modelability_index(
         created = create_scientific_job(
             database_id,
             JobType.MODELABILITY_INDEX,
-            {"table_name": request.table_name},
+            {
+                "table_name": request.table_name,
+                "fingerprint_type": request.fingerprint_type,
+            },
         )
         start_scientific_background_job(
             database_id,
@@ -377,12 +381,14 @@ def modelability_fingerprint_export(
     database_id: DatabaseId,
     table_name: TableName,
     analysis_identity: Annotated[str, Query(min_length=1)],
+    fingerprint_type: Annotated[FingerprintType, Query()] = "morgan",
 ):
     try:
         npz_bytes, filename = export_table_modelability_fingerprints_npz(
             database_id,
             table_name,
             analysis_identity,
+            fingerprint_type=fingerprint_type,
         )
     except (DatabaseNotFoundError, TableNotFoundError) as error:
         raise _not_found(error) from error

@@ -6,11 +6,15 @@ from __future__ import annotations
 import csv
 import io
 
+from molraptor import FingerprintType
+
+from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from services.job_models import JobStatus
 from state_keys import (
     MODELABILITY_FEEDBACK_KIND,
     MODELABILITY_FEEDBACK_MESSAGE,
     MODELABILITY_JOB_DATABASE_ID,
+    MODELABILITY_JOB_FINGERPRINT_TYPE,
     MODELABILITY_JOB_ID,
     MODELABILITY_JOB_TABLE_NAME,
     MODELABILITY_RESULT,
@@ -33,16 +37,32 @@ DIAGNOSTIC_COLUMNS = (
 )
 
 
-def modelability_scope_matches(session_state, database_id, table_name) -> bool:
+def modelability_scope_matches(
+    session_state,
+    database_id,
+    table_name,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
+) -> bool:
     return (
         session_state.get(MODELABILITY_JOB_DATABASE_ID, "") == database_id
         and session_state.get(MODELABILITY_JOB_TABLE_NAME, "") == table_name
+        and session_state.get(
+            MODELABILITY_JOB_FINGERPRINT_TYPE,
+            DEFAULT_FINGERPRINT_TYPE,
+        )
+        == fingerprint_type
     )
 
 
-def _set_scope(session_state, database_id, table_name) -> None:
+def _set_scope(
+    session_state,
+    database_id,
+    table_name,
+    fingerprint_type: FingerprintType,
+) -> None:
     session_state[MODELABILITY_JOB_DATABASE_ID] = database_id
     session_state[MODELABILITY_JOB_TABLE_NAME] = table_name
+    session_state[MODELABILITY_JOB_FINGERPRINT_TYPE] = fingerprint_type
 
 
 def _apply_status(session_state, status, *, restored=False) -> None:
@@ -74,9 +94,10 @@ def launch_modelability_job(
     gateway,
     database_id,
     table_name,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
 ):
     """Launch or deduplicate one scoped job and return immediately."""
-    _set_scope(session_state, database_id, table_name)
+    _set_scope(session_state, database_id, table_name, fingerprint_type)
     session_state[MODELABILITY_JOB_ID] = ""
     session_state[MODELABILITY_RUNNING] = True
     session_state[MODELABILITY_RESULT] = None
@@ -86,7 +107,10 @@ def launch_modelability_job(
         status = gateway.launch_scientific_job(
             database_id,
             "modelability_index",
-            {"table_name": table_name},
+            {
+                "table_name": table_name,
+                "fingerprint_type": fingerprint_type,
+            },
         )
     except Exception as error:
         session_state[MODELABILITY_RUNNING] = False
@@ -108,6 +132,7 @@ def poll_modelability_job(
     gateway,
     database_id,
     table_name,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
 ):
     """Read one status snapshot only when the persisted scope matches."""
     job_id = session_state.get(MODELABILITY_JOB_ID, "")
@@ -118,6 +143,7 @@ def poll_modelability_job(
             session_state,
             database_id,
             table_name,
+            fingerprint_type,
         )
     ):
         return None

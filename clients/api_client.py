@@ -3,6 +3,7 @@ from typing import Any
 from email.message import Message
 from urllib.parse import quote
 
+from molraptor import FingerprintType
 import requests
 
 
@@ -191,13 +192,18 @@ class ChemVaultApiClient:
         database_id: str,
         table_name: str,
         analysis_identity: str,
+        *,
+        fingerprint_type: FingerprintType = "morgan",
     ) -> tuple[bytes, str]:
         database_id = self._segment(database_id)
         table_name = self._segment(table_name)
         return self._get_download(
             f"/databases/{database_id}/tables/{table_name}/"
             "modelability-index/fingerprints/export",
-            params={"analysis_identity": analysis_identity},
+            params={
+                "analysis_identity": analysis_identity,
+                "fingerprint_type": fingerprint_type,
+            },
         )
 
     def consolidate_structure_table(

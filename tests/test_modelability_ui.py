@@ -5,13 +5,16 @@ import inspect
 from types import SimpleNamespace
 
 import pytest
+from molraptor import FINGERPRINT_TYPES
 
+from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from application.job_contracts import JobStatusContract
 from services.job_models import JobStatus
 from ui import main_page, modelability_card, modelability_result
 from ui.modelability_state import (
     diagnostics_csv,
     launch_modelability_job,
+    modelability_scope_matches,
     poll_modelability_job,
 )
 
@@ -184,7 +187,7 @@ def test_unrelated_sources_are_not_eligible(
     ) is False
 
 
-def test_async_job_state_is_scoped_to_database_and_table():
+def test_async_job_state_is_scoped_to_database_table_and_fingerprint_type():
     state = {}
     calls = []
 
@@ -198,23 +201,90 @@ def test_async_job_state_is_scoped_to_database_and_table():
             return _status(JobStatus.RUNNING, progress=0.4)
 
     gateway = Gateway()
-    launch_modelability_job(state, gateway, DATABASE_ID, TABLE_NAME)
+    launch_modelability_job(
+        state,
+        gateway,
+        DATABASE_ID,
+        TABLE_NAME,
+        "maccs",
+    )
 
     assert state["modelability_job_id"] == "job-1"
     assert state["modelability_job_database_id"] == DATABASE_ID
     assert state["modelability_job_table_name"] == TABLE_NAME
+    assert state["modelability_job_fingerprint_type"] == "maccs"
     assert state["modelability_running"] is True
     assert poll_modelability_job(
         state,
         gateway,
         DATABASE_ID,
         "different_table",
+        "maccs",
+    ) is None
+    assert poll_modelability_job(
+        state,
+        gateway,
+        DATABASE_ID,
+        TABLE_NAME,
+        "morgan",
     ) is None
     assert [call[0] for call in calls] == ["launch"]
+    assert calls[0] == (
+        "launch",
+        (
+            DATABASE_ID,
+            "modelability_index",
+            {
+                "table_name": TABLE_NAME,
+                "fingerprint_type": "maccs",
+            },
+        ),
+    )
 
-    status = poll_modelability_job(state, gateway, DATABASE_ID, TABLE_NAME)
+    status = poll_modelability_job(
+        state,
+        gateway,
+        DATABASE_ID,
+        TABLE_NAME,
+        "maccs",
+    )
     assert status.status == JobStatus.RUNNING
     assert calls[-1] == ("status", (DATABASE_ID, "job-1"))
+
+
+def test_modelability_selector_uses_all_public_types_and_defaults_to_morgan():
+    assert modelability_card.FINGERPRINT_TYPES is FINGERPRINT_TYPES
+    assert tuple(modelability_card.FINGERPRINT_TYPE_LABELS) == FINGERPRINT_TYPES
+    assert modelability_card.FINGERPRINT_TYPE_LABELS == {
+        "morgan": "Morgan",
+        "featmorgan": "Feature Morgan",
+        "atompair": "Atom Pair",
+        "rdk": "RDKit Topological",
+        "torsion": "Topological Torsion",
+        "layered": "Layered",
+        "maccs": "MACCS",
+    }
+    assert DEFAULT_FINGERPRINT_TYPE == "morgan"
+
+
+def test_legacy_scope_without_fingerprint_type_defaults_to_morgan():
+    state = {
+        "modelability_job_database_id": DATABASE_ID,
+        "modelability_job_table_name": TABLE_NAME,
+    }
+
+    assert modelability_scope_matches(
+        state,
+        DATABASE_ID,
+        TABLE_NAME,
+        "morgan",
+    )
+    assert not modelability_scope_matches(
+        state,
+        DATABASE_ID,
+        TABLE_NAME,
+        "maccs",
+    )
 
 
 def test_immediate_completed_job_restores_persisted_result():
@@ -302,6 +372,10 @@ def test_sidebar_execution_card_does_not_render_scientific_result():
     source = inspect.getsource(modelability_card.render_modelability_card)
 
     assert 'st.markdown("**MODELABILITY INDEX**")' in source
+    assert 'st.selectbox(' in source
+    assert "options=FINGERPRINT_TYPES" in source
+    assert "index=None" in source
+    assert source.index("st.selectbox(") < source.index("st.button(")
     assert "st.caption(message)" in source
     assert "st.success(message)" not in source
     assert "MODELABILITY_RESULT" not in source
@@ -393,9 +467,16 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
             database_id,
             table_name,
             analysis_identity,
+            *,
+            fingerprint_type="morgan",
         ):
             gateway_calls.append(
-                (database_id, table_name, analysis_identity)
+                (
+                    database_id,
+                    table_name,
+                    analysis_identity,
+                    fingerprint_type,
+                )
             )
             return (
                 b"npz-bytes",
@@ -534,7 +615,7 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     assert rendered["column_calls"] == [2]
     assert rendered["download_columns"] == [0, 1]
     assert gateway_calls == [
-        (DATABASE_ID, TABLE_NAME, "analysis-hash")
+        (DATABASE_ID, TABLE_NAME, "analysis-hash", "morgan")
     ]
     assert len(diagnostics_csv(result).splitlines()) == 13
     assert rendered["expanders"] == [
@@ -563,7 +644,7 @@ def test_modelability_npz_export_failure_is_visible(monkeypatch):
             return False
 
     class FailingGateway:
-        def export_modelability_fingerprints(self, *_args):
+        def export_modelability_fingerprints(self, *_args, **_kwargs):
             raise modelability_result.BackendGatewayError(
                 "persisted fingerprint artifact is unavailable"
             )
@@ -635,6 +716,26 @@ def test_scope_mismatch_does_not_render_stale_result(monkeypatch):
             "No Modelability Index result is available for this table."
         ],
     }
+
+
+def test_fingerprint_selection_change_hides_incompatible_result(monkeypatch):
+    rendered = _patch_placeholder_rendering(monkeypatch)
+    state = {
+        "modelability_job_database_id": DATABASE_ID,
+        "modelability_job_table_name": TABLE_NAME,
+        "modelability_job_fingerprint_type": "morgan",
+        "modelability_fingerprint_type": "maccs",
+        "modelability_result": _result(),
+    }
+
+    assert modelability_result.render_modelability_result_card(
+        state,
+        DATABASE_ID,
+        TABLE_NAME,
+    ) is False
+    assert rendered["captions"] == [
+        "No Modelability Index result is available for this table."
+    ]
 
 
 def test_matching_scope_without_result_renders_placeholder(monkeypatch):

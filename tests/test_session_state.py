@@ -38,6 +38,8 @@ def test_initialize_session_state_sets_current_defaults_when_database_is_missing
     assert session_state["modelability_job_id"] == ""
     assert session_state["modelability_job_database_id"] == ""
     assert session_state["modelability_job_table_name"] == ""
+    assert session_state["modelability_job_fingerprint_type"] == "morgan"
+    assert session_state["modelability_fingerprint_type"] == "morgan"
     assert session_state["modelability_running"] is False
     assert session_state["modelability_result"] is None
     assert session_state["scientific_recovery_notice"] == ""

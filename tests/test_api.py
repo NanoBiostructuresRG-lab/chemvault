@@ -200,7 +200,10 @@ def test_modelability_launch_endpoint_uses_application_runtime(monkeypatch):
         (
             "test_db",
             api_main.JobType.MODELABILITY_INDEX,
-            {"table_name": "structures"},
+            {
+                "table_name": "structures",
+                "fingerprint_type": "morgan",
+            },
         )
     ]
     assert background_calls == [
@@ -213,6 +216,52 @@ def test_modelability_launch_endpoint_uses_application_runtime(monkeypatch):
             {"name": "chemvault-modelability-index"},
         )
     ]
+
+
+def test_modelability_launch_forwards_maccs_and_rejects_unsupported(
+    monkeypatch,
+):
+    expected = job_status_from_payload(_pending_modelability_job())
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "create_scientific_job",
+        lambda *args: calls.append(args) or expected,
+    )
+    monkeypatch.setattr(
+        api_main,
+        "start_scientific_background_job",
+        lambda *_args, **_kwargs: None,
+    )
+
+    response = client.post(
+        "/databases/test_db/jobs/modelability_index",
+        json={
+            "table_name": "structures",
+            "fingerprint_type": "maccs",
+        },
+    )
+    unsupported = client.post(
+        "/databases/test_db/jobs/modelability_index",
+        json={
+            "table_name": "structures",
+            "fingerprint_type": "unsupported",
+        },
+    )
+
+    assert response.status_code == 201
+    assert calls == [
+        (
+            "test_db",
+            api_main.JobType.MODELABILITY_INDEX,
+            {
+                "table_name": "structures",
+                "fingerprint_type": "maccs",
+            },
+        )
+    ]
+    assert unsupported.status_code == 422
+    assert "fingerprint_type" in str(unsupported.json()["detail"])
 
 
 def test_modelability_launch_rejects_non_consolidated_source(monkeypatch):
@@ -798,7 +847,9 @@ def test_modelability_npz_export_returns_backend_filename_and_media_type(
     monkeypatch.setattr(
         api_main,
         "export_table_modelability_fingerprints_npz",
-        lambda *args: calls.append(args) or (b"npz-bytes", filename),
+        lambda *args, **kwargs: (
+            calls.append((args, kwargs)) or (b"npz-bytes", filename)
+        ),
     )
 
     response = client.get(
@@ -816,9 +867,12 @@ def test_modelability_npz_export_returns_backend_filename_and_media_type(
     )
     assert calls == [
         (
-            "test_db",
-            "activity_subset_IC50_structure_consolidated",
-            "12345678analysis",
+            (
+                "test_db",
+                "activity_subset_IC50_structure_consolidated",
+                "12345678analysis",
+            ),
+            {"fingerprint_type": "morgan"},
         )
     ]
 
@@ -849,7 +903,7 @@ def test_modelability_npz_export_reports_controlled_errors(
     monkeypatch.setattr(
         api_main,
         "export_table_modelability_fingerprints_npz",
-        lambda *args: (_ for _ in ()).throw(error),
+        lambda *args, **kwargs: (_ for _ in ()).throw(error),
     )
 
     response = client.get(
@@ -871,3 +925,27 @@ def test_modelability_npz_export_requires_analysis_identity():
     )
 
     assert response.status_code == 422
+
+
+def test_modelability_npz_export_forwards_maccs(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "export_table_modelability_fingerprints_npz",
+        lambda *args, **kwargs: (
+            calls.append((args, kwargs)) or (b"npz-bytes", "fingerprints.npz")
+        ),
+    )
+
+    response = client.get(
+        "/databases/test_db/tables/"
+        "activity_subset_IC50_structure_consolidated/"
+        "modelability-index/fingerprints/export",
+        params={
+            "analysis_identity": "12345678analysis",
+            "fingerprint_type": "maccs",
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls[0][1] == {"fingerprint_type": "maccs"}

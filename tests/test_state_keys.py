@@ -18,6 +18,14 @@ def test_existing_core_session_key_strings_are_preserved():
         state_keys.SCIENTIFIC_RECOVERY_NOTICE
         == "scientific_recovery_notice"
     )
+    assert (
+        state_keys.MODELABILITY_JOB_FINGERPRINT_TYPE
+        == "modelability_job_fingerprint_type"
+    )
+    assert (
+        state_keys.MODELABILITY_FINGERPRINT_TYPE
+        == "modelability_fingerprint_type"
+    )
 
 
 def test_existing_widget_session_key_strings_are_preserved():
