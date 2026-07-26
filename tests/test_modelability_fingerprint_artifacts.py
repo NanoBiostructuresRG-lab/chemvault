@@ -28,7 +28,7 @@ def _expectation(
         profile={"algorithm": "morgan", "fp_size": 4},
         profile_hash="profile-hash",
         ordered_input_hash="input-hash",
-        molraptor_version="0.3.0",
+        molraptor_version="0.4.1",
         rdkit_version="test-rdkit",
         ordered_smiles=("CCC", "CCO"),
         row_count=2,
@@ -153,11 +153,9 @@ def test_outcome_change_reuses_same_fingerprint_artifact(monkeypatch):
         == second_input.fingerprint_identity
     )
 
+    resolved = use_case.resolve_fingerprint_profile("morgan")
     matrix = np.zeros(
-        (
-            len(first_input.smiles),
-            use_case._FINGERPRINT_PROFILE.fp_size,
-        ),
+        (len(first_input.smiles), resolved.fp_size),
         dtype=np.uint8,
     )
     matrix[0, 0] = 1
@@ -166,8 +164,8 @@ def test_outcome_change_reuses_same_fingerprint_artifact(monkeypatch):
     calculated_artifact = build_fingerprint_artifact(
         matrix,
         first_input.smiles,
-        profile=use_case._FINGERPRINT_PROFILE.serialize(),
-        profile_hash=use_case._molraptor_profile_hash(),
+        profile=resolved.profile,
+        profile_hash=resolved.profile_hash,
         ordered_input_hash=use_case._molraptor_ordered_input_hash(
             first_input.smiles
         ),
@@ -178,6 +176,7 @@ def test_outcome_change_reuses_same_fingerprint_artifact(monkeypatch):
     calculation_calls = []
 
     def calculate(prepared):
+        assert prepared.fingerprint_type == "morgan"
         calculation_calls.append(prepared)
         return calculated_artifact
 
@@ -213,6 +212,77 @@ def test_outcome_change_reuses_same_fingerprint_artifact(monkeypatch):
     )
 
     connection.close()
+
+
+def test_fingerprint_types_coexist_and_restore_for_the_same_source_table():
+    source = pd.DataFrame(
+        {
+            "SMILES_Harmonized": ["CCO", "CCC"],
+            "Outcome": ["Active", "Inactive"],
+            "Reference_Selection_Status": ["selected", "selected"],
+        }
+    )
+    morgan = use_case.prepare_modelability_input(
+        source,
+        fingerprint_type="morgan",
+    )
+    maccs = use_case.prepare_modelability_input(
+        source,
+        fingerprint_type="maccs",
+    )
+    connection = sqlite3.connect(":memory:")
+
+    try:
+        first_morgan = (
+            use_case.calculate_persisted_prepared_modelability_index(
+                connection,
+                morgan,
+                source_table="structures",
+            )
+        )
+        first_maccs = (
+            use_case.calculate_persisted_prepared_modelability_index(
+                connection,
+                maccs,
+                source_table="structures",
+            )
+        )
+        repeated_morgan = (
+            use_case.calculate_persisted_prepared_modelability_index(
+                connection,
+                morgan,
+                source_table="structures",
+            )
+        )
+        repeated_maccs = (
+            use_case.calculate_persisted_prepared_modelability_index(
+                connection,
+                maccs,
+                source_table="structures",
+            )
+        )
+
+        stored = connection.execute(
+            f"""
+            SELECT fingerprint_identity, fp_size
+            FROM {FINGERPRINT_ARTIFACTS_TABLE}
+            WHERE source_table = ?
+            """,
+            ("structures",),
+        ).fetchall()
+
+        assert first_morgan.provenance["fingerprint_source"] == "calculated"
+        assert first_maccs.provenance["fingerprint_source"] == "calculated"
+        assert repeated_morgan.provenance["fingerprint_source"] == "restored"
+        assert repeated_maccs.provenance["fingerprint_source"] == "restored"
+        assert {
+            first_morgan.provenance["fingerprint_identity"],
+            first_maccs.provenance["fingerprint_identity"],
+        } == {row[0] for row in stored}
+        assert {row[1] for row in stored} == {167, 2048}
+        assert len(stored) == 2
+    finally:
+        connection.close()
 
 
 def test_corrupt_artifact_is_recalculated_and_replaced():

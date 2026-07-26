@@ -26,7 +26,7 @@ DATABASE_ID = "P37231"
 SOURCE_TABLE = "activity_subset_EC50_structure_consolidated"
 
 
-def _prepared_input():
+def _prepared_input(*, fingerprint_type="morgan"):
     source = pd.DataFrame(
         {
             "SMILES_Harmonized": ["CCO", "CCC"],
@@ -34,10 +34,18 @@ def _prepared_input():
             "Reference_Selection_Status": ["selected", "selected"],
         }
     )
-    return use_case.prepare_modelability_input(source)
+    return use_case.prepare_modelability_input(
+        source,
+        fingerprint_type=fingerprint_type,
+    )
 
 
-def _persist_artifact(connection, prepared, *, source_table=SOURCE_TABLE):
+def _persist_artifact(
+    connection,
+    prepared,
+    *,
+    source_table=SOURCE_TABLE,
+):
     expectation = use_case._fingerprint_artifact_expectation(
         prepared,
         source_table=source_table,
@@ -157,6 +165,7 @@ def test_exports_self_contained_npz_without_calling_molraptor(monkeypatch):
             "analysis_identity",
             "fingerprint_artifact_sha256",
             "fingerprint_profile",
+            "fingerprint_type",
             "molraptor_profile_hash",
             "molraptor_ordered_input_hash",
             "molraptor_version",
@@ -181,6 +190,7 @@ def test_exports_self_contained_npz_without_calling_molraptor(monkeypatch):
         )
         assert metadata["analysis_identity"] == prepared.analysis_identity
         assert metadata["fingerprint_artifact_sha256"] == artifact.sha256
+        assert metadata["fingerprint_type"] == "morgan"
         assert metadata["fingerprint_profile"] == dict(expectation.profile)
         assert metadata["molraptor_profile_hash"] == (
             expectation.profile_hash
@@ -204,6 +214,48 @@ def test_exports_self_contained_npz_without_calling_molraptor(monkeypatch):
             "Inactive": 0,
             "Active": 1,
         }
+    finally:
+        connection.close()
+
+
+def test_exports_maccs_width_and_metadata_without_calling_molraptor(
+    monkeypatch,
+):
+    connection = sqlite3.connect(":memory:")
+    try:
+        prepared = _prepared_input(fingerprint_type="maccs")
+        expectation, artifact = _persist_artifact(
+            connection,
+            prepared,
+        )
+
+        def must_not_encode(*_args, **_kwargs):
+            raise AssertionError("MOLRAPTOR was called during NPZ export")
+
+        monkeypatch.setattr(
+            use_case,
+            "encode_fingerprints",
+            must_not_encode,
+        )
+
+        payload, _filename = use_case.export_modelability_fingerprints_npz(
+            connection,
+            prepared,
+            database_id=DATABASE_ID,
+            source_table=SOURCE_TABLE,
+        )
+
+        with np.load(io.BytesIO(payload), allow_pickle=False) as exported:
+            metadata = json.loads(exported["metadata_json"].item())
+            assert exported["X"].shape == (len(prepared.smiles), 167)
+            np.testing.assert_array_equal(exported["X"], artifact.matrix)
+
+        assert expectation.fp_size == 167
+        assert metadata["fingerprint_type"] == "maccs"
+        assert metadata["fingerprint_profile"]["fp_size"] == 167
+        assert metadata["molraptor_profile_hash"] == (
+            expectation.profile_hash
+        )
     finally:
         connection.close()
 
