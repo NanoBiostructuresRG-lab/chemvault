@@ -8,7 +8,7 @@ import streamlit as st
 
 from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
-from state_keys import MODELABILITY_FINGERPRINT_TYPE, MODELABILITY_RESULT
+from ui.state_keys import MODELABILITY_FINGERPRINT_TYPE, MODELABILITY_RESULT
 from ui.modelability_state import diagnostics_csv, modelability_scope_matches
 
 

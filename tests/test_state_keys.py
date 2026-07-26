@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-import state_keys
+from ui import state_keys
 
 
 def test_all_session_keys_are_unique():

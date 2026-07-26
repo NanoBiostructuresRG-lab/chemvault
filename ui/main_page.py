@@ -35,7 +35,7 @@ from services.database import (
     get_connection,
 )
 from services.sql_utils import quote_identifier, table_exists
-from state_keys import (
+from ui.state_keys import (
     ALL_TABLES,
     CURRENT_TABLE,
     DATABASE_ID,

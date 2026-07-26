@@ -6,7 +6,7 @@ from application.database_use_cases import (
 from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.database import DatabaseState
-from state_keys import (
+from ui.state_keys import (
     ALL_TABLES,
     CUSTOM_QUERY,
     CURRENT_TABLE,

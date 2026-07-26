@@ -10,7 +10,7 @@ from molraptor import FingerprintType
 
 from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from services.job_models import JobStatus
-from state_keys import (
+from ui.state_keys import (
     MODELABILITY_FEEDBACK_KIND,
     MODELABILITY_FEEDBACK_MESSAGE,
     MODELABILITY_JOB_DATABASE_ID,

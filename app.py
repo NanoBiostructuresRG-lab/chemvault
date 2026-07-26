@@ -13,7 +13,7 @@ from services.sql_utils import (
     is_valid_table_name,
     quote_identifier,
 )
-from state_keys import (
+from ui.state_keys import (
     CURRENT_TABLE,
     CUSTOM_QUERY,
     DATABASE_ID,

@@ -9,7 +9,7 @@ from services.pubchem_job_service import (
     register_completed_pubchem_job,
     start_pubchem_search,
 )
-from state_keys import (
+from ui.state_keys import (
     CURRENT_TABLE,
     DATABASE_ID,
     INPUT_PROTEIN,

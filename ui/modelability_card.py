@@ -6,7 +6,7 @@ from molraptor import FINGERPRINT_TYPES, FingerprintType
 
 from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
-from state_keys import (
+from ui.state_keys import (
     CURRENT_TABLE,
     DATABASE_ID,
     MODELABILITY_FEEDBACK_KIND,

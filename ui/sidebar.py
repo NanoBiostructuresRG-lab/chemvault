@@ -18,7 +18,7 @@ from services.builders import build_from_csv
 from services.database import count_rows, get_connection
 from services.db_audit import register_operation, register_table_metadata
 from services.sql_utils import table_exists
-from state_keys import (
+from ui.state_keys import (
     CODIGO_BUSCAR,
     CURRENT_TABLE,
     CUSTOM_QUERY,
