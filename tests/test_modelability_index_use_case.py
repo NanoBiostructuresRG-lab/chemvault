@@ -43,9 +43,9 @@ def test_uses_normalized_consolidated_binary_rows_with_fixed_provenance(
     assert use_case.POPULATION_POLICY == "consolidated_binary_outcomes/v1"
     real_encode = use_case.encode_fingerprints
 
-    def checked_encode(smiles, profile):
-        assert profile is use_case._FINGERPRINT_PROFILE
-        return real_encode(smiles, profile)
+    def checked_encode(smiles, *, fingerprint_type):
+        assert fingerprint_type == use_case.DEFAULT_FINGERPRINT_TYPE
+        return real_encode(smiles, fingerprint_type=fingerprint_type)
 
     monkeypatch.setattr(use_case, "encode_fingerprints", checked_encode)
 
@@ -70,6 +70,7 @@ def test_uses_normalized_consolidated_binary_rows_with_fixed_provenance(
 
     provenance = result.provenance
     assert provenance["source_table"] == "structures"
+    assert provenance["fingerprint_type"] == "morgan"
     assert provenance["fingerprint_profile"] == {
         "profile_schema_version": "1.0",
         "algorithm": "morgan",
@@ -82,7 +83,7 @@ def test_uses_normalized_consolidated_binary_rows_with_fixed_provenance(
         "include_redundant_environments": False,
         "invariant_policy": "rdkit-default",
     }
-    assert provenance["molraptor_version"] == "0.3.0"
+    assert provenance["molraptor_version"] == "0.4.1"
     assert provenance["rdkit_version"]
     assert provenance["molraptor_profile_hash"]
     assert provenance["molraptor_ordered_input_hash"]
@@ -91,6 +92,90 @@ def test_uses_normalized_consolidated_binary_rows_with_fixed_provenance(
     assert provenance["neighbor_rule"] == "single_nearest_neighbor"
     assert provenance["tie_policy"] == "lowest_ordered_index"
     assert provenance["aggregation"] == "macro_average"
+
+
+def test_default_fingerprint_type_matches_explicit_morgan():
+    default = use_case.calculate_dataframe_modelability_index(_source())
+    explicit = use_case.calculate_dataframe_modelability_index(
+        _source(),
+        fingerprint_type="morgan",
+    )
+
+    assert default == explicit
+    assert default.provenance["fingerprint_type"] == "morgan"
+
+
+def test_prepared_input_preserves_legacy_five_argument_position_order():
+    prepared = use_case.PreparedModelabilityInput(
+        ("CCC", "CCO"),
+        ("Inactive", "Active"),
+        "analysis-identity",
+        "fingerprint-identity",
+        "population-identity",
+    )
+
+    assert prepared.fingerprint_identity == "fingerprint-identity"
+    assert prepared.population_identity == "population-identity"
+    assert prepared.fingerprint_type == "morgan"
+
+
+def test_morgan_and_maccs_have_different_fingerprint_identities():
+    morgan = use_case.prepare_modelability_input(
+        _source(),
+        fingerprint_type="morgan",
+    )
+    maccs = use_case.prepare_modelability_input(
+        _source(),
+        fingerprint_type="maccs",
+    )
+
+    assert morgan.population_identity == maccs.population_identity
+    assert morgan.fingerprint_identity != maccs.fingerprint_identity
+    assert morgan.analysis_identity != maccs.analysis_identity
+
+
+def test_prepared_maccs_calculation_retains_type_width_and_identities(
+    monkeypatch,
+):
+    prepared = use_case.prepare_modelability_input(
+        _source(),
+        fingerprint_type="maccs",
+    )
+    real_calculate = use_case.calculate_modelability_index
+    matrix_widths = []
+
+    def capture_matrix(fingerprints, outcomes):
+        matrix_widths.append(fingerprints.shape[1])
+        return real_calculate(fingerprints, outcomes)
+
+    monkeypatch.setattr(
+        use_case,
+        "calculate_modelability_index",
+        capture_matrix,
+    )
+
+    result = use_case.calculate_prepared_modelability_index(prepared)
+
+    assert prepared.fingerprint_type == "maccs"
+    assert matrix_widths == [167]
+    assert result.provenance["fingerprint_type"] == "maccs"
+    assert result.provenance["fingerprint_profile"]["fp_size"] == 167
+    assert (
+        result.provenance["chemvault_analysis_hash"]
+        == prepared.analysis_identity
+    )
+    assert (
+        result.provenance["fingerprint_identity"]
+        == prepared.fingerprint_identity
+    )
+
+
+def test_unsupported_fingerprint_type_is_rejected_by_public_resolver():
+    with pytest.raises(ValueError, match="Unsupported fingerprint type"):
+        use_case.calculate_dataframe_modelability_index(
+            _source(),
+            fingerprint_type="unsupported",
+        )
 
 
 def test_source_row_order_does_not_change_result():
@@ -140,7 +225,7 @@ def test_any_molraptor_invalid_input_fails_without_partial_calculation(
     monkeypatch.setattr(
         use_case,
         "encode_fingerprints",
-        lambda smiles, profile: encoding,
+        lambda smiles, *, fingerprint_type: encoding,
     )
 
     def must_not_calculate(*args, **kwargs):
@@ -215,6 +300,7 @@ def test_sqlite_reader_uses_all_required_columns_and_prepared_boundary(
         "Inactive",
     )
     assert captured["source_table"] == "structures"
+    assert captured["prepared"].fingerprint_type == "morgan"
 
 
 def test_table_preparation_checks_real_schema_without_loading_rows(monkeypatch):

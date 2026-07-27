@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from state_keys import (
+from ui.state_keys import (
     CURRENT_TABLE,
     CUSTOM_QUERY,
     DATABASE_ID,

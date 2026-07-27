@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Protocol
 
+from molraptor import FingerprintType
 import pandas as pd
 
 from application.database_use_cases import (
@@ -130,6 +131,8 @@ class _Backend(Protocol):
         database_id: str,
         table_name: str,
         analysis_identity: str,
+        *,
+        fingerprint_type: FingerprintType = "morgan",
     ) -> tuple[bytes, str]: ...
 
     def consolidate_structure_table(
@@ -265,12 +268,15 @@ class _LocalBackend:
         database_id: str,
         table_name: str,
         analysis_identity: str,
+        *,
+        fingerprint_type: FingerprintType = "morgan",
     ) -> tuple[bytes, str]:
         try:
             return export_table_modelability_fingerprints_npz(
                 database_id,
                 table_name,
                 analysis_identity,
+                fingerprint_type=fingerprint_type,
             )
         except Exception as error:
             raise BackendGatewayError(str(error)) from error
@@ -471,12 +477,15 @@ class _HttpBackend:
         database_id: str,
         table_name: str,
         analysis_identity: str,
+        *,
+        fingerprint_type: FingerprintType = "morgan",
     ) -> tuple[bytes, str]:
         try:
             return self._client.export_modelability_fingerprints(
                 database_id,
                 table_name,
                 analysis_identity,
+                fingerprint_type=fingerprint_type,
             )
         except ChemVaultApiError as error:
             self._raise_gateway_error(error)
@@ -626,11 +635,14 @@ class BackendGateway:
         database_id: str,
         table_name: str,
         analysis_identity: str,
+        *,
+        fingerprint_type: FingerprintType = "morgan",
     ) -> tuple[bytes, str]:
         return self._backend.export_modelability_fingerprints(
             database_id,
             table_name,
             analysis_identity,
+            fingerprint_type=fingerprint_type,
         )
 
     def consolidate_structure_table(

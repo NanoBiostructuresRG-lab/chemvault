@@ -2,7 +2,7 @@
 """Streamlit-independent state cycle for the HARMONSMILE command UI."""
 
 from services.job_models import JobStatus
-from state_keys import (
+from ui.state_keys import (
     HARMONSMILE_FEEDBACK_KIND,
     HARMONSMILE_FEEDBACK_MESSAGE,
     HARMONSMILE_JOB_ID,

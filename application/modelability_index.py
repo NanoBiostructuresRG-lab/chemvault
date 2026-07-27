@@ -12,9 +12,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from molraptor import (
-    MorganFingerprintProfile,
+    FingerprintType,
     __version__ as MOLRAPTOR_VERSION,
     encode_fingerprints,
+    resolve_fingerprint_profile,
 )
 from rdkit import __version__ as RDKIT_VERSION
 
@@ -43,7 +44,7 @@ REQUIRED_COLUMNS = (
     "Outcome",
     "Reference_Selection_Status",
 )
-_FINGERPRINT_PROFILE = MorganFingerprintProfile()
+DEFAULT_FINGERPRINT_TYPE: FingerprintType = "morgan"
 _BINARY_OUTCOMES = {"active": "Active", "inactive": "Inactive"}
 POPULATION_POLICY = "consolidated_binary_outcomes/v1"
 MODELABILITY_INDEX_CONTRACT_VERSION = "modelability_index/v1"
@@ -79,6 +80,7 @@ class PreparedModelabilityInput:
     analysis_identity: str
     fingerprint_identity: str = ""
     population_identity: str = ""
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE
 
 
 def _clean_text(value) -> str:
@@ -88,10 +90,16 @@ def _clean_text(value) -> str:
 def _analysis_identity(
     smiles: tuple[str, ...],
     outcomes: tuple[str, ...],
+    *,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
 ) -> str:
+    resolved = resolve_fingerprint_profile(fingerprint_type)
     payload = {
         "aggregation": AGGREGATION_METHOD,
-        "fingerprint_profile": _FINGERPRINT_PROFILE.serialize(),
+        "fingerprint_type": resolved.fingerprint_type,
+        "fingerprint_profile": dict(resolved.profile),
+        "fingerprint_profile_hash": resolved.profile_hash,
+        "fingerprint_size": resolved.fp_size,
         "modelability_index_contract_version": (
             MODELABILITY_INDEX_CONTRACT_VERSION
         ),
@@ -112,11 +120,19 @@ def _analysis_identity(
     return hashlib.sha256(serialized).hexdigest()
 
 
-def _fingerprint_identity(population_identity: str) -> str:
+def _fingerprint_identity(
+    population_identity: str,
+    *,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
+) -> str:
+    resolved = resolve_fingerprint_profile(fingerprint_type)
     payload = {
         "artifact_contract": FINGERPRINT_ARTIFACT_CONTRACT,
         "artifact_contract_version": FINGERPRINT_ARTIFACT_CONTRACT_VERSION,
-        "fingerprint_profile": _FINGERPRINT_PROFILE.serialize(),
+        "fingerprint_type": resolved.fingerprint_type,
+        "fingerprint_profile": dict(resolved.profile),
+        "fingerprint_profile_hash": resolved.profile_hash,
+        "fingerprint_size": resolved.fp_size,
         "molraptor_version": MOLRAPTOR_VERSION,
         "population_identity": population_identity,
         "rdkit_version": RDKIT_VERSION,
@@ -144,16 +160,6 @@ def _population_identity(smiles: tuple[str, ...]) -> str:
     return hashlib.sha256(serialized).hexdigest()
 
 
-def _molraptor_profile_hash() -> str:
-    serialized = json.dumps(
-        _FINGERPRINT_PROFILE.serialize(),
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    return hashlib.sha256(serialized).hexdigest()
-
-
 def _molraptor_ordered_input_hash(smiles: tuple[str, ...]) -> str:
     serialized = json.dumps(
         smiles,
@@ -166,6 +172,8 @@ def _molraptor_ordered_input_hash(smiles: tuple[str, ...]) -> str:
 
 def prepare_modelability_input(
     dataframe: pd.DataFrame,
+    *,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
 ) -> PreparedModelabilityInput:
     missing = [
         column for column in REQUIRED_COLUMNS if column not in dataframe.columns
@@ -233,12 +241,22 @@ def prepare_modelability_input(
         raise ModelabilityIndexUseCaseError(
             "Both Active and Inactive outcomes are required."
         )
+    resolved = resolve_fingerprint_profile(fingerprint_type)
+    canonical_fingerprint_type = resolved.fingerprint_type
     population_identity = _population_identity(smiles)
     return PreparedModelabilityInput(
         smiles=smiles,
         outcomes=outcomes,
-        analysis_identity=_analysis_identity(smiles, outcomes),
-        fingerprint_identity=_fingerprint_identity(population_identity),
+        analysis_identity=_analysis_identity(
+            smiles,
+            outcomes,
+            fingerprint_type=canonical_fingerprint_type,
+        ),
+        fingerprint_type=canonical_fingerprint_type,
+        fingerprint_identity=_fingerprint_identity(
+            population_identity,
+            fingerprint_type=canonical_fingerprint_type,
+        ),
         population_identity=population_identity,
     )
 
@@ -248,6 +266,7 @@ def prepare_table_modelability_input(
     source_table: str,
     *,
     database_id: str | None = None,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
 ) -> PreparedModelabilityInput:
     if source_table not in get_tables_from_connection(connection):
         database_detail = (
@@ -274,7 +293,10 @@ def prepare_table_modelability_input(
         f"SELECT {columns_sql} FROM {quote_identifier(source_table)}",
         connection,
     )
-    return prepare_modelability_input(source)
+    return prepare_modelability_input(
+        source,
+        fingerprint_type=fingerprint_type,
+    )
 
 
 def _invalid_encoding_message(encoding) -> str:
@@ -290,9 +312,13 @@ def calculate_dataframe_modelability_index(
     dataframe: pd.DataFrame,
     *,
     source_table: str | None = None,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
 ) -> ModelabilityIndexUseCaseResult:
     """Calculate a complete Modelability Index for a consolidated table."""
-    prepared = prepare_modelability_input(dataframe)
+    prepared = prepare_modelability_input(
+        dataframe,
+        fingerprint_type=fingerprint_type,
+    )
     return calculate_prepared_modelability_index(
         prepared,
         source_table=source_table,
@@ -318,7 +344,10 @@ def _calculate_fingerprint_artifact(
     prepared: PreparedModelabilityInput,
 ) -> FingerprintArtifact:
     smiles = prepared.smiles
-    encoding = encode_fingerprints(smiles, _FINGERPRINT_PROFILE)
+    encoding = encode_fingerprints(
+        smiles,
+        fingerprint_type=prepared.fingerprint_type,
+    )
 
     if encoding.invalid_count:
         raise ModelabilityIndexUseCaseError(
@@ -345,6 +374,17 @@ def _calculate_with_fingerprint_artifact(
 ) -> ModelabilityIndexUseCaseResult:
     smiles = prepared.smiles
     outcomes = prepared.outcomes
+    resolved = resolve_fingerprint_profile(prepared.fingerprint_type)
+    population_identity = (
+        prepared.population_identity or _population_identity(smiles)
+    )
+    fingerprint_identity = (
+        prepared.fingerprint_identity
+        or _fingerprint_identity(
+            population_identity,
+            fingerprint_type=prepared.fingerprint_type,
+        )
+    )
 
     try:
         numerical = calculate_modelability_index(
@@ -367,22 +407,16 @@ def _calculate_with_fingerprint_artifact(
     )
     provenance = {
         "source_table": source_table,
-        "fingerprint_profile": dict(_FINGERPRINT_PROFILE.serialize()),
-        "molraptor_profile_hash": artifact.profile_hash,
+        "fingerprint_type": resolved.fingerprint_type,
+        "fingerprint_profile": dict(resolved.profile),
+        "molraptor_profile_hash": resolved.profile_hash,
         "molraptor_ordered_input_hash": artifact.ordered_input_hash,
         "chemvault_analysis_hash": prepared.analysis_identity,
         "molraptor_version": MOLRAPTOR_VERSION,
         "rdkit_version": RDKIT_VERSION,
         "fingerprint_source": fingerprint_source,
-        "fingerprint_identity": (
-            prepared.fingerprint_identity
-            or _fingerprint_identity(
-                prepared.population_identity or _population_identity(smiles)
-            )
-        ),
-        "population_identity": (
-            prepared.population_identity or _population_identity(smiles)
-        ),
+        "fingerprint_identity": fingerprint_identity,
+        "population_identity": population_identity,
         "fingerprint_artifact_sha256": artifact.sha256,
         "similarity_metric": SIMILARITY_METRIC,
         "neighbor_rule": NEIGHBOR_RULE,
@@ -445,12 +479,16 @@ def _fingerprint_artifact_expectation(
     *,
     source_table: str,
 ) -> FingerprintArtifactExpectation:
+    resolved = resolve_fingerprint_profile(prepared.fingerprint_type)
     population_identity = (
         prepared.population_identity or _population_identity(prepared.smiles)
     )
     fingerprint_identity = (
         prepared.fingerprint_identity
-        or _fingerprint_identity(population_identity)
+        or _fingerprint_identity(
+            population_identity,
+            fingerprint_type=prepared.fingerprint_type,
+        )
     )
     return FingerprintArtifactExpectation(
         source_table=source_table,
@@ -458,14 +496,14 @@ def _fingerprint_artifact_expectation(
         artifact_contract=FINGERPRINT_ARTIFACT_CONTRACT,
         artifact_contract_version=FINGERPRINT_ARTIFACT_CONTRACT_VERSION,
         population_identity=population_identity,
-        profile=_FINGERPRINT_PROFILE.serialize(),
-        profile_hash=_molraptor_profile_hash(),
+        profile=dict(resolved.profile),
+        profile_hash=resolved.profile_hash,
         ordered_input_hash=_molraptor_ordered_input_hash(prepared.smiles),
         molraptor_version=MOLRAPTOR_VERSION,
         rdkit_version=RDKIT_VERSION,
         ordered_smiles=prepared.smiles,
         row_count=len(prepared.smiles),
-        fp_size=_FINGERPRINT_PROFILE.fp_size,
+        fp_size=resolved.fp_size,
     )
 
 
@@ -477,6 +515,7 @@ def export_modelability_fingerprints_npz(
     source_table: str,
 ) -> tuple[bytes, str]:
     """Build an in-memory NPZ from an existing validated fingerprint artifact."""
+    resolved = resolve_fingerprint_profile(prepared.fingerprint_type)
     prefix = "activity_subset_"
     suffix = "_structure_consolidated"
     parsed_table_name = source_table
@@ -497,7 +536,11 @@ def export_modelability_fingerprints_npz(
             "The number of outcomes must match the fingerprint rows."
         )
     if (
-        _analysis_identity(prepared.smiles, prepared.outcomes)
+        _analysis_identity(
+            prepared.smiles,
+            prepared.outcomes,
+            fingerprint_type=prepared.fingerprint_type,
+        )
         != prepared.analysis_identity
     ):
         raise ModelabilityIndexUseCaseError(
@@ -530,11 +573,12 @@ def export_modelability_fingerprints_npz(
         "database_id": database_id,
         "fingerprint_artifact_sha256": artifact.sha256,
         "fingerprint_identity": expectation.fingerprint_identity,
-        "fingerprint_profile": dict(artifact.profile),
+        "fingerprint_type": resolved.fingerprint_type,
+        "fingerprint_profile": dict(resolved.profile),
         "matrix_format": MATRIX_FORMAT,
         "matrix_format_version": MATRIX_FORMAT_VERSION,
         "molraptor_ordered_input_hash": artifact.ordered_input_hash,
-        "molraptor_profile_hash": artifact.profile_hash,
+        "molraptor_profile_hash": resolved.profile_hash,
         "molraptor_version": artifact.molraptor_version,
         "outcome_mapping": dict(_OUTCOME_MAPPING),
         "population_identity": expectation.population_identity,
@@ -582,6 +626,7 @@ def export_table_modelability_fingerprints_npz(
     analysis_identity: str,
     *,
     db_dir="SQL",
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
 ) -> tuple[bytes, str]:
     """Export fingerprints only when the current table matches the result."""
     db_path = resolve_database_path(database_id, db_dir=db_dir)
@@ -591,6 +636,7 @@ def export_table_modelability_fingerprints_npz(
             connection,
             source_table,
             database_id=database_id,
+            fingerprint_type=fingerprint_type,
         )
         if prepared.analysis_identity != analysis_identity:
             raise ModelabilityIndexUseCaseError(
@@ -611,6 +657,7 @@ def calculate_table_modelability_index(
     source_table: str,
     *,
     db_dir="SQL",
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
 ) -> ModelabilityIndexUseCaseResult:
     """Read the two analysis columns from SQLite and calculate modelability."""
     db_path = resolve_database_path(database_id, db_dir=db_dir)
@@ -620,6 +667,7 @@ def calculate_table_modelability_index(
             connection,
             source_table,
             database_id=database_id,
+            fingerprint_type=fingerprint_type,
         )
         return calculate_persisted_prepared_modelability_index(
             connection,

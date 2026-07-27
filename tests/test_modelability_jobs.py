@@ -130,8 +130,16 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
     preparation_calls = []
     calculation_calls = []
 
-    def prepare(connection, table_name, *, database_id=None):
-        preparation_calls.append((connection, table_name, database_id))
+    def prepare(
+        connection,
+        table_name,
+        *,
+        database_id=None,
+        fingerprint_type="morgan",
+    ):
+        preparation_calls.append(
+            (connection, table_name, database_id, fingerprint_type)
+        )
         return prepared
 
     def calculate(connection, prepared_input, *, source_table):
@@ -170,8 +178,14 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
     assert restored == completed
     assert len(preparation_calls) == 3
     assert all(
-        (table_name, database_id) == (MODELABILITY_TABLE, "test_db")
-        for _connection, table_name, database_id in preparation_calls
+        (table_name, database_id, fingerprint_type)
+        == (MODELABILITY_TABLE, "test_db", "morgan")
+        for (
+            _connection,
+            table_name,
+            database_id,
+            fingerprint_type,
+        ) in preparation_calls
     )
 
     assert len(calculation_calls) == 1
@@ -197,11 +211,139 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
     finally:
         connection.close()
     assert record.metadata["table_name"] == MODELABILITY_TABLE
+    assert record.metadata["fingerprint_type"] == "morgan"
     assert record.metadata["cancellation_supported"] is False
     assert record.metadata["analysis_identity"] == "analysis-v1"
     assert record.metadata["analysis_contract"] == POPULATION_POLICY
     assert record.metadata["result"] == completed.result
     assert "fingerprints" not in record.metadata["result"]
+
+
+def test_maccs_job_persists_and_executes_canonical_fingerprint_type(
+    tmp_path,
+    monkeypatch,
+):
+    _create_database(tmp_path, monkeypatch)
+
+    created = create_modelability_job(
+        "test_db",
+        MODELABILITY_TABLE,
+        fingerprint_type="maccs",
+    )
+    connection = get_connection("test_db")
+    try:
+        queued_record = JobStore(connection).get_job(created.job_id)
+    finally:
+        connection.close()
+
+    completed = execute_modelability_job("test_db", created.job_id)
+
+    assert queued_record.metadata["fingerprint_type"] == "maccs"
+    assert completed.status == JobStatus.COMPLETED
+    assert completed.result["provenance"]["fingerprint_type"] == "maccs"
+    assert completed.result["provenance"]["fingerprint_profile"]["fp_size"] == 167
+
+    connection = get_connection("test_db")
+    try:
+        artifact_width = connection.execute(
+            f"SELECT fp_size FROM {FINGERPRINT_ARTIFACTS_TABLE}"
+        ).fetchone()[0]
+        completed_record = JobStore(connection).get_job(created.job_id)
+    finally:
+        connection.close()
+
+    assert artifact_width == 167
+    assert completed_record.metadata["fingerprint_type"] == "maccs"
+
+
+def test_omitted_fingerprint_type_remains_morgan_through_restoration(
+    tmp_path,
+    monkeypatch,
+):
+    _create_database(tmp_path, monkeypatch)
+
+    created = create_modelability_job("test_db", MODELABILITY_TABLE)
+    completed = execute_modelability_job("test_db", created.job_id)
+    restored = create_modelability_job("test_db", MODELABILITY_TABLE)
+
+    assert completed.status == JobStatus.COMPLETED
+    assert completed.result["provenance"]["fingerprint_type"] == "morgan"
+    assert restored == completed
+    connection = get_connection("test_db")
+    try:
+        record = JobStore(connection).get_job(created.job_id)
+    finally:
+        connection.close()
+    assert record.metadata["fingerprint_type"] == "morgan"
+
+
+def test_old_job_metadata_without_fingerprint_type_executes_as_morgan(
+    tmp_path,
+    monkeypatch,
+):
+    _create_database(tmp_path, monkeypatch)
+    created = create_modelability_job("test_db", MODELABILITY_TABLE)
+
+    connection = get_connection("test_db")
+    try:
+        store = JobStore(connection)
+        record = store.get_job(created.job_id)
+        legacy_metadata = dict(record.metadata)
+        legacy_metadata.pop("fingerprint_type")
+        store.update_progress(
+            created.job_id,
+            record.current_stage,
+            record.progress,
+            metadata=legacy_metadata,
+        )
+    finally:
+        connection.close()
+
+    completed = execute_modelability_job("test_db", created.job_id)
+
+    assert completed.status == JobStatus.COMPLETED
+    assert completed.result["provenance"]["fingerprint_type"] == "morgan"
+    connection = get_connection("test_db")
+    try:
+        completed_record = JobStore(connection).get_job(created.job_id)
+    finally:
+        connection.close()
+    assert completed_record.metadata["fingerprint_type"] == "morgan"
+
+
+def test_same_table_with_morgan_and_maccs_creates_distinct_jobs(
+    tmp_path,
+    monkeypatch,
+):
+    _create_database(tmp_path, monkeypatch)
+
+    morgan = create_modelability_job(
+        "test_db",
+        MODELABILITY_TABLE,
+        fingerprint_type="morgan",
+    )
+    maccs = create_modelability_job(
+        "test_db",
+        MODELABILITY_TABLE,
+        fingerprint_type="maccs",
+    )
+
+    assert morgan.job_id != maccs.job_id
+    connection = get_connection("test_db")
+    try:
+        records = [
+            JobStore(connection).get_job(job_id)
+            for job_id in (morgan.job_id, maccs.job_id)
+        ]
+    finally:
+        connection.close()
+    assert {record.metadata["fingerprint_type"] for record in records} == {
+        "morgan",
+        "maccs",
+    }
+    assert len(
+        {record.metadata["analysis_identity"] for record in records}
+    ) == 2
 
 
 def test_restoring_completed_job_backfills_missing_fingerprint_artifact(

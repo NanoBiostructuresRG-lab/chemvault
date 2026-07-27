@@ -3,9 +3,10 @@ from application.database_use_cases import (
     create_database,
     open_database,
 )
+from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.database import DatabaseState
-from state_keys import (
+from ui.state_keys import (
     ALL_TABLES,
     CUSTOM_QUERY,
     CURRENT_TABLE,
@@ -20,7 +21,9 @@ from state_keys import (
     INPUT_DATABASE_ID,
     MODELABILITY_FEEDBACK_KIND,
     MODELABILITY_FEEDBACK_MESSAGE,
+    MODELABILITY_FINGERPRINT_TYPE,
     MODELABILITY_JOB_DATABASE_ID,
+    MODELABILITY_JOB_FINGERPRINT_TYPE,
     MODELABILITY_JOB_ID,
     MODELABILITY_JOB_TABLE_NAME,
     MODELABILITY_RESULT,
@@ -64,6 +67,8 @@ def initialize_session_state(session_state, verify_directories_callback):
         MODELABILITY_JOB_ID: "",
         MODELABILITY_JOB_DATABASE_ID: "",
         MODELABILITY_JOB_TABLE_NAME: "",
+        MODELABILITY_JOB_FINGERPRINT_TYPE: DEFAULT_FINGERPRINT_TYPE,
+        MODELABILITY_FINGERPRINT_TYPE: DEFAULT_FINGERPRINT_TYPE,
         MODELABILITY_RUNNING: False,
         MODELABILITY_RESULT: None,
         MODELABILITY_FEEDBACK_KIND: "",

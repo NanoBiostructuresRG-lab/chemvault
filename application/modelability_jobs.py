@@ -8,6 +8,8 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import asdict
 
+from molraptor import FingerprintType
+
 from application.database_use_cases import (
     TableNotFoundError,
     get_table_provenance,
@@ -15,6 +17,7 @@ from application.database_use_cases import (
 )
 from application.job_contracts import JobStatusContract, job_status_from_record
 from application.modelability_index import (
+    DEFAULT_FINGERPRINT_TYPE,
     POPULATION_POLICY,
     calculate_persisted_prepared_modelability_index,
     ensure_persisted_modelability_fingerprint_artifact,
@@ -149,6 +152,7 @@ def _fail_orphans_before_creation(database_id: str) -> None:
 def create_modelability_job(
     database_id: str,
     table_name: str,
+    fingerprint_type: FingerprintType = DEFAULT_FINGERPRINT_TYPE,
 ) -> JobStatusContract:
     """Validate and persist one queued Modelability Index job."""
     _validate_modelability_source(database_id, table_name)
@@ -162,9 +166,11 @@ def create_modelability_job(
             connection,
             table_name,
             database_id=database_id,
+            fingerprint_type=fingerprint_type,
         )
         return {
             "table_name": table_name,
+            "fingerprint_type": prepared_input.fingerprint_type,
             "cancellation_supported": False,
             "creator_pid": creator_pid,
             "analysis_identity": prepared_input.analysis_identity,
@@ -228,6 +234,10 @@ def execute_modelability_job(
 
     try:
         table_name = str(request_metadata["table_name"])
+        fingerprint_type = request_metadata.get(
+            "fingerprint_type",
+            DEFAULT_FINGERPRINT_TYPE,
+        )
         store.update_progress(
             job_id,
             "calculating",
@@ -239,7 +249,9 @@ def execute_modelability_job(
             connection,
             table_name,
             database_id=database_id,
+            fingerprint_type=fingerprint_type,
         )
+        request_metadata["fingerprint_type"] = prepared.fingerprint_type
         if (
             request_metadata.get("analysis_contract") != POPULATION_POLICY
             or request_metadata.get("analysis_identity")

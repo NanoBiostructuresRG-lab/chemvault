@@ -321,21 +321,25 @@ def test_modelability_npz_export_uses_local_application_backend(monkeypatch):
     monkeypatch.setattr(
         backend_gateway,
         "export_table_modelability_fingerprints_npz",
-        lambda *args: calls.append(args) or expected,
+        lambda *args, **kwargs: calls.append((args, kwargs)) or expected,
     )
 
     result = backend_gateway.get_backend_gateway().export_modelability_fingerprints(
         "test_db",
         "activity_subset_IC50_structure_consolidated",
         "12345678analysis",
+        fingerprint_type="maccs",
     )
 
     assert result == expected
     assert calls == [
         (
-            "test_db",
-            "activity_subset_IC50_structure_consolidated",
-            "12345678analysis",
+            (
+                "test_db",
+                "activity_subset_IC50_structure_consolidated",
+                "12345678analysis",
+            ),
+            {"fingerprint_type": "maccs"},
         )
     ]
 
@@ -343,7 +347,7 @@ def test_modelability_npz_export_uses_local_application_backend(monkeypatch):
 def test_modelability_npz_local_error_is_controlled(monkeypatch):
     monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
 
-    def fail_export(*_args):
+    def fail_export(*_args, **_kwargs):
         raise ValueError("displayed analysis is stale")
 
     monkeypatch.setattr(
@@ -381,6 +385,8 @@ def test_modelability_npz_export_uses_http_backend_and_preserves_filename(
             database_id,
             table_name,
             analysis_identity,
+            *,
+            fingerprint_type="morgan",
         ):
             calls.append(
                 (
@@ -388,6 +394,7 @@ def test_modelability_npz_export_uses_http_backend_and_preserves_filename(
                     database_id,
                     table_name,
                     analysis_identity,
+                    fingerprint_type,
                 )
             )
             return expected
@@ -398,6 +405,7 @@ def test_modelability_npz_export_uses_http_backend_and_preserves_filename(
         "test_db",
         "activity_subset_IC50_structure_consolidated",
         "12345678analysis",
+        fingerprint_type="maccs",
     )
 
     assert result == expected
@@ -408,6 +416,7 @@ def test_modelability_npz_export_uses_http_backend_and_preserves_filename(
             "test_db",
             "activity_subset_IC50_structure_consolidated",
             "12345678analysis",
+            "maccs",
         ),
     ]
 

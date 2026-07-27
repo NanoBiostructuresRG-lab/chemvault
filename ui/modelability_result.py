@@ -6,8 +6,9 @@ from textwrap import dedent
 
 import streamlit as st
 
+from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
-from state_keys import MODELABILITY_RESULT
+from ui.state_keys import MODELABILITY_FINGERPRINT_TYPE, MODELABILITY_RESULT
 from ui.modelability_state import diagnostics_csv, modelability_scope_matches
 
 
@@ -198,10 +199,15 @@ def render_modelability_result_card(session_state, database_id, table_name):
     """Render the Modelability Index result subcard for the active table."""
     with st.container(border=True):
         st.markdown("**Modelability Index result**")
+        fingerprint_type = session_state.get(
+            MODELABILITY_FINGERPRINT_TYPE,
+            DEFAULT_FINGERPRINT_TYPE,
+        )
         scope_matches = modelability_scope_matches(
             session_state,
             database_id,
             table_name,
+            fingerprint_type,
         )
         result = session_state.get(MODELABILITY_RESULT)
         if not scope_matches or not isinstance(result, dict):
@@ -240,6 +246,10 @@ def render_modelability_result_card(session_state, database_id, table_name):
                 key=f"download_modelability_diagnostics_{table_name}",
             )
         analysis_identity = provenance.get("chemvault_analysis_hash")
+        result_fingerprint_type = provenance.get(
+            "fingerprint_type",
+            DEFAULT_FINGERPRINT_TYPE,
+        )
         if isinstance(analysis_identity, str) and analysis_identity:
             try:
                 npz_bytes, npz_filename = (
@@ -247,6 +257,7 @@ def render_modelability_result_card(session_state, database_id, table_name):
                         database_id,
                         table_name,
                         analysis_identity,
+                        fingerprint_type=result_fingerprint_type,
                     )
                 )
             except BackendGatewayError as error:
