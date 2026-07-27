@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.12.0] - 2026-07-27
+
+### Added
+
+- Added Modelability Index support for Morgan, Feature Morgan, Atom Pair,
+  RDKit Topological, Topological Torsion, Layered, and MACCS fingerprints
+  through MOLRAPTOR 0.4.1.
+- Added fingerprint selection to the Modelability Index card while preserving
+  Morgan as the default representation.
+- Added fingerprint-specific Modelability job execution, result restoration,
+  provenance display, persisted artifact reuse, and `.npz` export across
+  local and HTTP backend modes.
+
+### Changed
+
+- Scoped Modelability analyses and visible results by database, source table,
+  and fingerprint type, allowing multiple fingerprint representations to
+  coexist without overwriting or restoring incompatible results.
+- Derived analysis identities, fingerprint artifact identities, representation
+  profiles, vector sizes, and export metadata from the canonical MOLRAPTOR
+  fingerprint configuration.
+- Preserved backward compatibility for existing Morgan analyses, legacy
+  persisted jobs, backend gateway calls, and positional export consumers.
+- Moved shared Streamlit Session State keys from the project root into the
+  `ui` presentation package.
+
+### Validation
+
+- Passed the complete test suite: 539 tests.
+- Completed local-default visual and manual validation with P21554 and P34971.
+- Confirmed fingerprint selection, job execution, result restoration,
+  fingerprint-specific provenance, stale-result hiding, persisted artifact
+  reuse, and `.npz` download behavior.
+- Confirmed correct application behavior and a consistent, satisfactory UI/UX
+  across the manually tested workflows.
+
+---
+
 ## [v0.11.4] - 2026-07-23
 
 ### Changed
