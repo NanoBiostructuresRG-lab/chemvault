@@ -26,6 +26,9 @@ def test_initialize_session_state_sets_current_defaults_when_database_is_missing
     assert session_state["selected_headers"] == []
     assert session_state["selected_proteins"] == []
     assert session_state["current_table"] == ""
+    assert session_state["pubchem_job_id"] == ""
+    assert session_state["pubchem_job_completion_handled"] is False
+    assert "pubchem_job_db_path" not in session_state
     assert session_state["all_tables"] == []
     assert session_state["grupo_a_contar"] == ""
     assert session_state["custom_query"] == ""

@@ -1,20 +1,13 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-import sqlite3
-
 import streamlit as st
 
-from services.pubchem_job_service import (
-    cancel_pubchem_job,
-    load_pubchem_job,
-    register_completed_pubchem_job,
-    start_pubchem_search,
-)
+from clients.backend_gateway import BackendGatewayError, get_backend_gateway
+from services.job_models import JobStatus
 from ui.state_keys import (
     CURRENT_TABLE,
     DATABASE_ID,
     INPUT_PROTEIN,
     PUBCHEM_JOB_COMPLETION_HANDLED,
-    PUBCHEM_JOB_DB_PATH,
     PUBCHEM_JOB_ID,
     SELECTED_PROTEINS,
 )
@@ -28,7 +21,6 @@ def _is_database_locked_error(error):
 
 def _clear_pubchem_job_state():
     st.session_state[PUBCHEM_JOB_ID] = ""
-    st.session_state[PUBCHEM_JOB_DB_PATH] = ""
     st.session_state[PUBCHEM_JOB_COMPLETION_HANDLED] = False
     st.session_state[SELECTED_PROTEINS] = []
 
@@ -40,42 +32,55 @@ def _render_job_dialog_exit(label):
 
 
 def _render_job_snapshot(job):
-    st.info("Building the protein database. This can take a few minutes for targets with many BioAssays.")
+    st.info(
+        "Building the protein database. This can take a few minutes "
+        "for targets with many BioAssays."
+    )
     st.progress(min(max(job.progress, 0.0), 1.0))
-    stage = job.current_stage.replace("_", " ").title() if job.current_stage else "Preparing"
-    st.caption(f"Status: {job.status.title()} · Stage: {stage}")
+    stage = job.stage.replace("_", " ").title() if job.stage else "Preparing"
+    st.caption(
+        f"Status: {job.status.value.title()} · Stage: {stage}"
+    )
     if job.message:
         st.write(job.message)
 
 
-def _render_terminal_pubchem_job(db_path, job):
+def _render_terminal_pubchem_job(database_id, job, gateway=None):
     _render_job_snapshot(job)
-    if job.is_cancelled:
+    if job.status == JobStatus.CANCELLED:
         st.info("Protein search cancelled.")
         _render_job_dialog_exit("Close")
         return
 
-    if job.is_failed:
-        if job.is_stale_failure:
-            st.error(job.error_message)
-        else:
-            st.error(f"The protein search failed: {job.error_message}")
+    if job.status == JobStatus.FAILED:
+        message = job.error or "Unknown backend error."
+        st.error(f"The protein search failed: {message}")
         _render_job_dialog_exit("Close")
         return
 
-    if job.is_completed and not st.session_state.get(
-        PUBCHEM_JOB_COMPLETION_HANDLED,
-        False,
+    if (
+        job.status == JobStatus.COMPLETED
+        and not st.session_state.get(
+            PUBCHEM_JOB_COMPLETION_HANDLED,
+            False,
+        )
     ):
+        gateway = gateway or get_backend_gateway()
         try:
-            register_completed_pubchem_job(db_path, job)
-        except Exception as error:
-            st.error(f"The completed search could not be registered: {error}")
+            gateway.finalize_pubchem_protein_search(
+                database_id,
+                job.job_id,
+            )
+        except BackendGatewayError as error:
+            st.error(
+                "The completed search could not be registered: "
+                f"{error}"
+            )
             return
         st.session_state[PUBCHEM_JOB_COMPLETION_HANDLED] = True
         refresh_database_state(st.session_state)
 
-    if job.is_completed:
+    if job.status == JobStatus.COMPLETED:
         st.success("Protein search completed.")
         _render_job_dialog_exit("Continue")
 
@@ -83,29 +88,49 @@ def _render_terminal_pubchem_job(db_path, job):
 @st.fragment(run_every="2s")
 def render_pubchem_job_status():
     job_id = st.session_state.get(PUBCHEM_JOB_ID, "")
-    db_path = st.session_state.get(PUBCHEM_JOB_DB_PATH, "")
-    if not job_id or not db_path:
+    database_id = st.session_state.get(DATABASE_ID, "")
+    if not job_id or not database_id:
         return
 
+    gateway = get_backend_gateway()
     try:
-        job = load_pubchem_job(db_path, job_id)
-    except sqlite3.OperationalError as error:
+        job = gateway.get_pubchem_protein_search_status(
+            database_id,
+            job_id,
+        )
+    except BackendGatewayError as error:
         if _is_database_locked_error(error):
-            st.info("The protein search database is busy. ChemVault will retry automatically.")
-            return
-        st.rerun()
-    except Exception:
-        st.rerun()
-    if job is None:
-        st.rerun()
+            st.info(
+                "The protein search database is busy. "
+                "ChemVault will retry automatically."
+            )
+        else:
+            st.info(
+                "The protein search status is temporarily unavailable. "
+                "ChemVault will retry automatically."
+            )
+        return
 
-    if not job.is_active:
+    if job.status not in {JobStatus.PENDING, JobStatus.RUNNING}:
         st.rerun()
     _render_job_snapshot(job)
-    if st.button("Cancel search", key="pubchem_job_cancel"):
-        cancelled = cancel_pubchem_job(db_path, job_id)
-        if cancelled is not None:
-            st.info("Cancellation requested. The worker will stop at the next safe checkpoint.")
+    if (
+        job.cancellable
+        and st.button("Cancel search", key="pubchem_job_cancel")
+    ):
+        try:
+            cancelled = gateway.cancel_pubchem_protein_search(
+                database_id,
+                job_id,
+            )
+        except BackendGatewayError as error:
+            st.error(f"The protein search could not be cancelled: {error}")
+            return
+        if cancelled.status == JobStatus.CANCELLED:
+            st.info(
+                "Cancellation requested. The worker will stop at the "
+                "next safe checkpoint."
+            )
         else:
             st.info("The protein search is no longer active.")
         st.rerun()
@@ -113,57 +138,78 @@ def render_pubchem_job_status():
 
 @st.dialog("Select Proteins", dismissible=False)
 def select_proteins():
+    database_id = st.session_state.get(DATABASE_ID, "")
+    gateway = get_backend_gateway()
+
     if st.session_state.get(PUBCHEM_JOB_ID, ""):
         job_id = st.session_state[PUBCHEM_JOB_ID]
-        db_path = st.session_state.get(PUBCHEM_JOB_DB_PATH, "")
         try:
-            job = load_pubchem_job(db_path, job_id)
-        except sqlite3.OperationalError as error:
+            job = gateway.get_pubchem_protein_search_status(
+                database_id,
+                job_id,
+            )
+        except BackendGatewayError as error:
             if _is_database_locked_error(error):
-                st.info("The protein search database is busy while the worker finishes writing. ChemVault will retry automatically.")
+                st.info(
+                    "The protein search database is busy while the "
+                    "worker finishes writing. ChemVault will retry "
+                    "automatically."
+                )
                 render_pubchem_job_status()
                 return
-            st.error(f"The protein search status could not be read: {error}")
+            st.error(
+                "The protein search status could not be read: "
+                f"{error}"
+            )
             _render_job_dialog_exit("Close")
             return
-        except Exception as error:
-            st.error(f"The protein search status could not be read: {error}")
-            _render_job_dialog_exit("Close")
-            return
-        if job is None:
-            st.error("The protein search status is unavailable.")
-            _render_job_dialog_exit("Close")
-            return
-        if job.is_active:
+        if job.status in {JobStatus.PENDING, JobStatus.RUNNING}:
             render_pubchem_job_status()
         else:
-            _render_terminal_pubchem_job(db_path, job)
+            _render_terminal_pubchem_job(
+                database_id,
+                job,
+                gateway,
+            )
         return
 
     st.write("Search CIDs by BioAssays, using a protein as target.")
     st.text_input(label="Protein", key=INPUT_PROTEIN, value="P34971")
     if st.button("Add to selection"):
-        st.session_state[SELECTED_PROTEINS].append(st.session_state[INPUT_PROTEIN])
-        st.markdown(f"Selected proteins: {st.session_state[SELECTED_PROTEINS]}.")
+        st.session_state[SELECTED_PROTEINS].append(
+            st.session_state[INPUT_PROTEIN]
+        )
+        st.markdown(
+            f"Selected proteins: "
+            f"{st.session_state[SELECTED_PROTEINS]}."
+        )
     if st.button("Confirm selection"):
         if len(st.session_state[SELECTED_PROTEINS]) == 0:
             st.toast("Select at least one protein")
-        elif st.session_state[DATABASE_ID] == "":
+        elif database_id == "":
             st.toast("First, enter a name for your SQL database")
         else:
-            st.info("Building the protein database. This can take a few minutes for targets with many BioAssays.")
-            st.toast(f"Building database with proteins: {st.session_state[SELECTED_PROTEINS]}")
+            st.info(
+                "Building the protein database. This can take a few "
+                "minutes for targets with many BioAssays."
+            )
+            st.toast(
+                "Building database with proteins: "
+                f"{st.session_state[SELECTED_PROTEINS]}"
+            )
             try:
                 st.session_state[CURRENT_TABLE] = "main"
-                job, db_path = start_pubchem_search(
-                    st.session_state[DATABASE_ID],
+                job = gateway.launch_pubchem_protein_search(
+                    database_id,
                     list(st.session_state[SELECTED_PROTEINS]),
                 )
-            except Exception as error:
-                st.error(f"The protein search could not be started: {error}")
+            except BackendGatewayError as error:
+                st.error(
+                    "The protein search could not be started: "
+                    f"{error}"
+                )
                 return
             st.session_state[PUBCHEM_JOB_ID] = job.job_id
-            st.session_state[PUBCHEM_JOB_DB_PATH] = str(db_path)
             st.session_state[PUBCHEM_JOB_COMPLETION_HANDLED] = False
             st.rerun(scope="fragment")
             return

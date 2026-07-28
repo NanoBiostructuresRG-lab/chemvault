@@ -12,6 +12,13 @@ def test_existing_core_session_key_strings_are_preserved():
     assert state_keys.HEADERS == "headers"
     assert state_keys.SELECTED_HEADERS == "selected_headers"
     assert state_keys.SELECTED_PROTEINS == "selected_proteins"
+    assert state_keys.PUBCHEM_JOB_ID == "pubchem_job_id"
+    assert (
+        state_keys.PUBCHEM_JOB_COMPLETION_HANDLED
+        == "pubchem_job_completion_handled"
+    )
+    assert not hasattr(state_keys, "PUBCHEM_JOB_DB_PATH")
+    assert "pubchem_job_db_path" not in state_keys.ALL_SESSION_KEYS
     assert state_keys.ALL_TABLES == "all_tables"
     assert state_keys.CUSTOM_QUERY == "custom_query"
     assert (
