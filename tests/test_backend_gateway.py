@@ -766,6 +766,102 @@ def _completed_job(job_id="job-1", status=JobStatus.COMPLETED):
     )
 
 
+def test_pubchem_commands_use_local_application_backend(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    expected = _completed_job(status=JobStatus.PENDING)
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "launch_pubchem_protein_search",
+        lambda *args: calls.append(("launch", *args)) or expected,
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_pubchem_protein_search_status",
+        lambda *args: calls.append(("status", *args)) or expected,
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "cancel_pubchem_protein_search",
+        lambda *args: calls.append(("cancel", *args)) or expected,
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "finalize_pubchem_protein_search",
+        lambda *args: calls.append(("finalize", *args)) or expected,
+    )
+    gateway = backend_gateway.get_backend_gateway()
+
+    assert gateway.launch_pubchem_protein_search(
+        "test_db", ["P34971"]
+    ) is expected
+    assert gateway.get_pubchem_protein_search_status(
+        "test_db", "job-1"
+    ) is expected
+    assert gateway.cancel_pubchem_protein_search(
+        "test_db", "job-1"
+    ) is expected
+    assert gateway.finalize_pubchem_protein_search(
+        "test_db", "job-1"
+    ) is expected
+    assert calls == [
+        ("launch", "test_db", ["P34971"]),
+        ("status", "test_db", "job-1"),
+        ("cancel", "test_db", "job-1"),
+        ("finalize", "test_db", "job-1"),
+    ]
+
+
+def test_pubchem_commands_use_http_backend(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    expected = _completed_job(status=JobStatus.PENDING)
+    payload = {**expected.__dict__, "status": expected.status.value}
+    calls = []
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def launch_pubchem_protein_search(self, *args):
+            calls.append(("launch", *args))
+            return payload
+
+        def get_pubchem_protein_search_status(self, *args):
+            calls.append(("status", *args))
+            return payload
+
+        def cancel_pubchem_protein_search(self, *args):
+            calls.append(("cancel", *args))
+            return payload
+
+        def finalize_pubchem_protein_search(self, *args):
+            calls.append(("finalize", *args))
+            return payload
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+    gateway = backend_gateway.get_backend_gateway()
+
+    assert gateway.launch_pubchem_protein_search(
+        "test_db", ["P34971"]
+    ) == expected
+    assert gateway.get_pubchem_protein_search_status(
+        "test_db", "job-1"
+    ) == expected
+    assert gateway.cancel_pubchem_protein_search(
+        "test_db", "job-1"
+    ) == expected
+    assert gateway.finalize_pubchem_protein_search(
+        "test_db", "job-1"
+    ) == expected
+    assert calls == [
+        ("init", "http://api.example"),
+        ("launch", "test_db", ["P34971"]),
+        ("status", "test_db", "job-1"),
+        ("cancel", "test_db", "job-1"),
+        ("finalize", "test_db", "job-1"),
+    ]
+
+
 def test_harmonsmile_command_uses_local_application_backend(monkeypatch):
     monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
     expected = _completed_job(status=JobStatus.PENDING)

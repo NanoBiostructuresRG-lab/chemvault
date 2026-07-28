@@ -185,6 +185,26 @@ def register_operation(
     return operation_id
 
 
+def operation_exists(
+    connection,
+    operation_type: str,
+    query_used: str,
+) -> bool:
+    """Return whether one exact idempotency key is already registered."""
+    ensure_operation_log(connection, commit=False)
+    cursor = connection.cursor()
+    cursor.execute(
+        f"""
+        SELECT 1
+        FROM {quote_identifier(OPERATION_LOG_TABLE)}
+        WHERE operation_type = ? AND query_used = ?
+        LIMIT 1
+        """,
+        (operation_type, query_used),
+    )
+    return cursor.fetchone() is not None
+
+
 def get_operation_log(db_path: Path) -> list[dict[str, object]]:
     """Return registered ChemVault operations, newest first."""
     if not db_path.exists():

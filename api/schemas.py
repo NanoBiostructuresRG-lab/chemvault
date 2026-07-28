@@ -108,6 +108,10 @@ class StructureConsolidationResponse(BaseModel):
     no_eligible_activity_count: int
 
 
+class PubChemProteinSearchRequest(BaseModel):
+    proteins: list[str] = Field(min_length=1)
+
+
 class HarmonsmileJobRequest(BaseModel):
     table_name: str = Field(min_length=1)
     cid_column: str = Field(min_length=1)

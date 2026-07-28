@@ -219,6 +219,56 @@ class ChemVaultApiClient:
             timeout=self.timeout,
         )
 
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        return self._post(
+            f"/databases/{database_id}/jobs/pubchem_protein_search",
+            json={"proteins": list(proteins)},
+            timeout=self.timeout,
+        )
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        job_id = self._segment(job_id)
+        return self._get(
+            f"/databases/{database_id}/jobs/"
+            f"pubchem_protein_search/{job_id}"
+        )
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        job_id = self._segment(job_id)
+        return self._post(
+            f"/databases/{database_id}/jobs/"
+            f"pubchem_protein_search/{job_id}/cancel",
+            timeout=self.timeout,
+        )
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        job_id = self._segment(job_id)
+        return self._post(
+            f"/databases/{database_id}/jobs/"
+            f"pubchem_protein_search/{job_id}/finalize",
+            timeout=self.timeout,
+        )
+
     def launch_harmonsmile_job(
         self,
         database_id: str,

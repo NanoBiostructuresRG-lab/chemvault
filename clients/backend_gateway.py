@@ -31,6 +31,12 @@ from application.structure_consolidation import (
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
 import application.modelability_jobs  # noqa: F401 - registers Modelability hooks
+from application.pubchem_jobs import (
+    cancel_pubchem_protein_search,
+    finalize_pubchem_protein_search,
+    get_pubchem_protein_search_status,
+    launch_pubchem_protein_search,
+)
 from application.job_contracts import (
     JobStatusContract,
     RecoveredJobContract,
@@ -140,6 +146,30 @@ class _Backend(Protocol):
         database_id: str,
         source_table: str,
     ) -> StructureConsolidationTableResult: ...
+
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+    ) -> JobStatusContract: ...
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract: ...
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract: ...
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract: ...
 
     def launch_harmonsmile_job(
         self,
@@ -289,6 +319,46 @@ class _LocalBackend:
         try:
             return consolidate_local_structure_table(database_id, source_table)
         except StructureConsolidationError as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+    ) -> JobStatusContract:
+        try:
+            return launch_pubchem_protein_search(database_id, proteins)
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            return get_pubchem_protein_search_status(database_id, job_id)
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            return cancel_pubchem_protein_search(database_id, job_id)
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            return finalize_pubchem_protein_search(database_id, job_id)
+        except Exception as error:
             raise BackendGatewayError(str(error)) from error
 
     def launch_harmonsmile_job(
@@ -504,6 +574,62 @@ class _HttpBackend:
             self._raise_gateway_error(error)
         return StructureConsolidationTableResult(**response)
 
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+    ) -> JobStatusContract:
+        try:
+            response = self._client.launch_pubchem_protein_search(
+                database_id,
+                proteins,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            response = self._client.get_pubchem_protein_search_status(
+                database_id,
+                job_id,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            response = self._client.cancel_pubchem_protein_search(
+                database_id,
+                job_id,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            response = self._client.finalize_pubchem_protein_search(
+                database_id,
+                job_id,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
+
     def launch_harmonsmile_job(
         self,
         database_id: str,
@@ -653,6 +779,46 @@ class BackendGateway:
         return self._backend.consolidate_structure_table(
             database_id,
             source_table,
+        )
+
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+    ) -> JobStatusContract:
+        return self._backend.launch_pubchem_protein_search(
+            database_id,
+            proteins,
+        )
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        return self._backend.get_pubchem_protein_search_status(
+            database_id,
+            job_id,
+        )
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        return self._backend.cancel_pubchem_protein_search(
+            database_id,
+            job_id,
+        )
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        return self._backend.finalize_pubchem_protein_search(
+            database_id,
+            job_id,
         )
 
     def launch_harmonsmile_job(

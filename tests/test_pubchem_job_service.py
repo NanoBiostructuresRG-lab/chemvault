@@ -280,3 +280,50 @@ def test_start_pubchem_search_launches_job_with_explicit_inputs(tmp_path, monkey
         "protein_db",
     )
     assert connection.closed is True
+
+
+def test_completed_record_registration_is_idempotent_by_job_id(tmp_path):
+    db_path = tmp_path / "completed-idempotent.db"
+    connection = sqlite3.connect(db_path)
+    connection.execute("CREATE TABLE main (primary_id INTEGER PRIMARY KEY)")
+    connection.commit()
+    connection.close()
+    job = JobRecord(
+        job_id="job-1",
+        job_type="pubchem_protein_search",
+        status=JobStatus.COMPLETED.value,
+        database_id="protein_db",
+        metadata={"proteins": ["P34971"]},
+    )
+
+    first = pubchem_job_service.register_completed_pubchem_job_record(
+        db_path,
+        job,
+    )
+    second = pubchem_job_service.register_completed_pubchem_job_record(
+        db_path,
+        job,
+    )
+
+    connection = sqlite3.connect(db_path)
+    count = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM _chemvault_operation_log
+        WHERE operation_type = ? AND query_used = ?
+        """,
+        ("protein_search_loaded", "pubchem_job:job-1"),
+    ).fetchone()[0]
+    metadata = connection.execute(
+        """
+        SELECT origin
+        FROM _chemvault_table_metadata
+        WHERE table_name = 'main'
+        """
+    ).fetchone()[0]
+    connection.close()
+
+    assert first is True
+    assert second is False
+    assert count == 1
+    assert metadata == "protein_search"

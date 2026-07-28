@@ -297,3 +297,59 @@ def test_client_gets_active_harmonsmile_job(monkeypatch):
             {"params": {"table_name": "active table"}, "timeout": 10.0},
         )
     ]
+
+
+def test_client_uses_pubchem_job_routes(monkeypatch):
+    calls = []
+
+    def fake_post(_session, url, **kwargs):
+        calls.append(("post", url, kwargs))
+        return StubResponse({"job_id": "job-1"}, status_code=201)
+
+    def fake_get(_session, url, **kwargs):
+        calls.append(("get", url, kwargs))
+        return StubResponse({"job_id": "job-1"})
+
+    monkeypatch.setattr(requests.Session, "post", fake_post)
+    monkeypatch.setattr(requests.Session, "get", fake_get)
+    client = ChemVaultApiClient("http://api.example/")
+
+    client.launch_pubchem_protein_search("test db", ["P34971"])
+    client.get_pubchem_protein_search_status("test db", "job 1")
+    client.cancel_pubchem_protein_search("test db", "job 1")
+    client.finalize_pubchem_protein_search("test db", "job 1")
+
+    assert calls == [
+        (
+            "post",
+            (
+                "http://api.example/databases/test%20db/jobs/"
+                "pubchem_protein_search"
+            ),
+            {"json": {"proteins": ["P34971"]}, "timeout": 10.0},
+        ),
+        (
+            "get",
+            (
+                "http://api.example/databases/test%20db/jobs/"
+                "pubchem_protein_search/job%201"
+            ),
+            {"params": None, "timeout": 10.0},
+        ),
+        (
+            "post",
+            (
+                "http://api.example/databases/test%20db/jobs/"
+                "pubchem_protein_search/job%201/cancel"
+            ),
+            {"json": None, "timeout": 10.0},
+        ),
+        (
+            "post",
+            (
+                "http://api.example/databases/test%20db/jobs/"
+                "pubchem_protein_search/job%201/finalize"
+            ),
+            {"json": None, "timeout": 10.0},
+        ),
+    ]
