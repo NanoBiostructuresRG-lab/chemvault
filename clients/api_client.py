@@ -8,6 +8,7 @@ import requests
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+UNIPROT_RESOLUTION_TIMEOUT_SECONDS = 25.0
 
 
 class ChemVaultApiError(RuntimeError):
@@ -25,13 +26,18 @@ class ChemVaultApiClient:
         self.timeout = timeout
         self.session = session or requests.Session()
 
-    def _get_response(self, path: str, params=None) -> requests.Response:
+    def _get_response(
+        self,
+        path: str,
+        params=None,
+        timeout: float | None = None,
+    ) -> requests.Response:
         url = f"{self.base_url}{path}"
         try:
             response = self.session.get(
                 url,
                 params=params,
-                timeout=self.timeout,
+                timeout=self.timeout if timeout is None else timeout,
             )
         except requests.RequestException as error:
             raise ChemVaultApiError(
@@ -53,8 +59,17 @@ class ChemVaultApiClient:
 
         return response
 
-    def _get(self, path: str, params=None) -> dict[str, Any]:
-        response = self._get_response(path, params=params)
+    def _get(
+        self,
+        path: str,
+        params=None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        response = self._get_response(
+            path,
+            params=params,
+            timeout=timeout,
+        )
 
         try:
             return response.json()
@@ -115,6 +130,26 @@ class ChemVaultApiClient:
 
     def health(self) -> dict[str, Any]:
         return self._get("/health")
+
+    def list_uniprot_organisms(self) -> dict[str, Any]:
+        return self._get("/protein-identifiers/uniprot/organisms")
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> dict[str, Any]:
+        return self._get(
+            "/protein-identifiers/uniprot",
+            params={
+                "gene_symbol": gene_symbol,
+                "organism_id": organism_id,
+            },
+            timeout=max(
+                self.timeout,
+                UNIPROT_RESOLUTION_TIMEOUT_SECONDS,
+            ),
+        )
 
     def activate_scientific_runtime(self, database_id: str) -> dict[str, Any]:
         database_id = self._segment(database_id)

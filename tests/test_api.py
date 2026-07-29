@@ -156,6 +156,11 @@ def test_openapi_schema_exposes_read_only_contract():
         "/databases/{database_id}/scientific-runtime/activate"
         in schema["paths"]
     )
+    assert "/protein-identifiers/uniprot" in schema["paths"]
+    assert (
+        "/protein-identifiers/uniprot/organisms"
+        in schema["paths"]
+    )
 
 
 def test_harmonsmile_launch_endpoint_uses_application_runtime(monkeypatch):
@@ -1066,3 +1071,92 @@ def test_modelability_npz_export_forwards_maccs(monkeypatch):
 
     assert response.status_code == 200
     assert calls[0][1] == {"fingerprint_type": "maccs"}
+
+
+def test_supported_uniprot_organisms_endpoint_uses_application_catalog(
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "list_supported_organisms",
+        lambda: calls.append("list") or (
+            {
+                "organism_id": 9606,
+                "scientific_name": "Homo sapiens",
+                "common_name": "Human",
+            },
+        ),
+    )
+
+    response = client.get("/protein-identifiers/uniprot/organisms")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "organisms": [
+            {
+                "organism_id": 9606,
+                "scientific_name": "Homo sapiens",
+                "common_name": "Human",
+            }
+        ]
+    }
+    assert calls == ["list"]
+
+
+def test_uniprot_resolution_endpoint_uses_application_boundary(monkeypatch):
+    expected = {
+        "gene_symbol": "LEPR",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "accession": "P48357",
+        "entry_name": "LEPR_HUMAN",
+        "protein_name": "Leptin receptor",
+        "reviewed": True,
+    }
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "resolve_gene_symbol",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    response = client.get(
+        "/protein-identifiers/uniprot",
+        params={"gene_symbol": "LEPR", "organism_id": 9606},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert calls == [("LEPR", 9606)]
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (api_main.InvalidGeneSymbolError("invalid gene"), 422),
+        (api_main.UnsupportedOrganismError("unsupported organism"), 422),
+        (api_main.ProteinIdentifierNotFoundError("not found"), 404),
+        (api_main.AmbiguousProteinIdentifierError("ambiguous"), 409),
+        (api_main.UniProtClientError("service unavailable"), 502),
+    ],
+)
+def test_uniprot_resolution_endpoint_maps_controlled_errors(
+    monkeypatch,
+    error,
+    status_code,
+):
+    monkeypatch.setattr(
+        api_main,
+        "resolve_gene_symbol",
+        lambda *_args: (_ for _ in ()).throw(error),
+    )
+
+    response = client.get(
+        "/protein-identifiers/uniprot",
+        params={"gene_symbol": "LEPR", "organism_id": 9606},
+    )
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}

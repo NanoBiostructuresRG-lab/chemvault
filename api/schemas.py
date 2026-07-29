@@ -108,6 +108,27 @@ class StructureConsolidationResponse(BaseModel):
     no_eligible_activity_count: int
 
 
+class SupportedOrganismResponse(BaseModel):
+    organism_id: int
+    scientific_name: str
+    common_name: str
+
+
+class SupportedOrganismsResponse(BaseModel):
+    organisms: list[SupportedOrganismResponse]
+
+
+class UniProtResolutionResponse(BaseModel):
+    gene_symbol: str
+    organism_id: int
+    organism_name: str
+    common_name: str
+    accession: str
+    entry_name: str
+    protein_name: str
+    reviewed: bool
+
+
 class PubChemProteinSearchRequest(BaseModel):
     proteins: list[str] = Field(min_length=1)
 

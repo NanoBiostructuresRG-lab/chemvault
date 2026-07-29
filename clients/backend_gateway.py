@@ -37,6 +37,14 @@ from application.pubchem_jobs import (
     get_pubchem_protein_search_status,
     launch_pubchem_protein_search,
 )
+from application.protein_identifiers import (
+    ProteinIdentifierResolution,
+    SupportedOrganism,
+    list_supported_organisms as list_local_supported_organisms,
+    protein_identifier_resolution_from_payload,
+    resolve_gene_symbol as resolve_local_gene_symbol,
+    supported_organisms_from_payload,
+)
 from application.job_contracts import (
     JobStatusContract,
     RecoveredJobContract,
@@ -90,6 +98,14 @@ class _Backend(Protocol):
         self,
         database_id: str,
     ) -> tuple[RecoveredJobContract, ...]: ...
+
+    def list_uniprot_organisms(self) -> tuple[SupportedOrganism, ...]: ...
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> ProteinIdentifierResolution: ...
 
     def list_tables(self, database_id: str) -> tuple[str, ...]: ...
 
@@ -214,6 +230,19 @@ class _LocalBackend:
     ) -> tuple[RecoveredJobContract, ...]:
         try:
             return activate_scientific_runtime(database_id)
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def list_uniprot_organisms(self) -> tuple[SupportedOrganism, ...]:
+        return list_local_supported_organisms()
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> ProteinIdentifierResolution:
+        try:
+            return resolve_local_gene_symbol(gene_symbol, organism_id)
         except Exception as error:
             raise BackendGatewayError(str(error)) from error
 
@@ -427,6 +456,33 @@ class _HttpBackend:
             recovered_job_from_payload(payload)
             for payload in response.get("recovered_jobs", [])
         )
+
+    def list_uniprot_organisms(self) -> tuple[SupportedOrganism, ...]:
+        try:
+            response = self._client.list_uniprot_organisms()
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        try:
+            return supported_organisms_from_payload(response)
+        except ValueError as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> ProteinIdentifierResolution:
+        try:
+            response = self._client.resolve_gene_symbol(
+                gene_symbol,
+                organism_id,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        try:
+            return protein_identifier_resolution_from_payload(response)
+        except ValueError as error:
+            raise BackendGatewayError(str(error)) from error
 
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         try:
@@ -694,6 +750,16 @@ class BackendGateway:
         database_id: str,
     ) -> tuple[RecoveredJobContract, ...]:
         return self._backend.activate_scientific_runtime(database_id)
+
+    def list_uniprot_organisms(self) -> tuple[SupportedOrganism, ...]:
+        return self._backend.list_uniprot_organisms()
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> ProteinIdentifierResolution:
+        return self._backend.resolve_gene_symbol(gene_symbol, organism_id)
 
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return self._backend.list_tables(database_id)

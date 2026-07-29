@@ -353,3 +353,53 @@ def test_client_uses_pubchem_job_routes(monkeypatch):
             {"json": None, "timeout": 10.0},
         ),
     ]
+
+
+def test_client_uses_uniprot_identifier_routes(monkeypatch):
+    calls = []
+    organisms = {
+        "organisms": [
+            {
+                "organism_id": 9606,
+                "scientific_name": "Homo sapiens",
+                "common_name": "Human",
+            }
+        ]
+    }
+    resolution = {
+        "gene_symbol": "LEPR",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "accession": "P48357",
+        "entry_name": "LEPR_HUMAN",
+        "protein_name": "Leptin receptor",
+        "reviewed": True,
+    }
+
+    def fake_get(_session, url, **kwargs):
+        calls.append((url, kwargs))
+        payload = organisms if url.endswith("/organisms") else resolution
+        return StubResponse(payload)
+
+    monkeypatch.setattr(requests.Session, "get", fake_get)
+    client = ChemVaultApiClient("http://api.example/")
+
+    assert client.list_uniprot_organisms() == organisms
+    assert client.resolve_gene_symbol("LEPR", 9606) == resolution
+    assert calls == [
+        (
+            "http://api.example/protein-identifiers/uniprot/organisms",
+            {"params": None, "timeout": 10.0},
+        ),
+        (
+            "http://api.example/protein-identifiers/uniprot",
+            {
+                "params": {
+                    "gene_symbol": "LEPR",
+                    "organism_id": 9606,
+                },
+                "timeout": 25.0,
+            },
+        ),
+    ]

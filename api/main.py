@@ -17,8 +17,10 @@ from api.schemas import (
     RecoveredJobResponse,
     ScientificRuntimeActivationResponse,
     StructureConsolidationResponse,
+    SupportedOrganismsResponse,
     TableMetadataResponse,
     TableMetricsResponse,
+    UniProtResolutionResponse,
     TablePreviewResponse,
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
@@ -28,6 +30,15 @@ from application.modelability_index import (
     export_table_modelability_fingerprints_npz,
 )
 from application.modelability_jobs import InvalidModelabilitySourceError
+from application.protein_identifiers import (
+    AmbiguousProteinIdentifierError,
+    InvalidGeneSymbolError,
+    InvalidOrganismIdError,
+    ProteinIdentifierNotFoundError,
+    UnsupportedOrganismError,
+    list_supported_organisms,
+    resolve_gene_symbol,
+)
 from application.pubchem_jobs import (
     InvalidPubChemProteinSearchError,
     PubChemJobStateError,
@@ -70,6 +81,7 @@ from services.job_models import (
     JobType,
 )
 from services.modelability_fingerprint_artifacts import FingerprintArtifactError
+from services.uniprot_client import UniProtClientError
 
 
 app = FastAPI(title="ChemVault API", version="0.1.0")
@@ -95,6 +107,38 @@ def _table_state_or_404(database_id, table_name):
 @app.get("/health", response_model=HealthResponse)
 def health():
     return HealthResponse(status="ok")
+
+
+@app.get(
+    "/protein-identifiers/uniprot/organisms",
+    response_model=SupportedOrganismsResponse,
+)
+def supported_uniprot_organisms():
+    return {"organisms": list_supported_organisms()}
+
+
+@app.get(
+    "/protein-identifiers/uniprot",
+    response_model=UniProtResolutionResponse,
+)
+def resolve_uniprot_gene_symbol(
+    gene_symbol: Annotated[str, Query(min_length=1)],
+    organism_id: Annotated[int, Query(ge=1)],
+):
+    try:
+        return resolve_gene_symbol(gene_symbol, organism_id)
+    except (
+        InvalidGeneSymbolError,
+        InvalidOrganismIdError,
+        UnsupportedOrganismError,
+    ) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except ProteinIdentifierNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except AmbiguousProteinIdentifierError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except UniProtClientError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
 
 
 @app.post(
