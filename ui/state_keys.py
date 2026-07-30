@@ -18,6 +18,10 @@ ALL_TABLES = "all_tables"
 GROUP_COUNT_COLUMN = "grupo_a_contar"
 CUSTOM_QUERY = "custom_query"
 
+TARGET_INPUT_MODE = "target_input_mode"
+INPUT_GENE_SYMBOL = "input_gene_symbol"
+SELECTED_ORGANISM_ID = "selected_organism_id"
+RESOLVED_TARGET = "resolved_target"
 INPUT_PROTEIN = "input_protein"
 INPUT_DATABASE_ID = "input_database_id"
 EXISTING_DB_SELECT = "existing_db_select"
@@ -71,6 +75,10 @@ ALL_SESSION_KEYS = (
     ALL_TABLES,
     GROUP_COUNT_COLUMN,
     CUSTOM_QUERY,
+    TARGET_INPUT_MODE,
+    INPUT_GENE_SYMBOL,
+    SELECTED_ORGANISM_ID,
+    RESOLVED_TARGET,
     INPUT_PROTEIN,
     INPUT_DATABASE_ID,
     EXISTING_DB_SELECT,

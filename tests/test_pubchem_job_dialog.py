@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import ast
+from types import SimpleNamespace
 
 from application.job_contracts import JobStatusContract
 from services.job_models import JobStatus, JobType
@@ -49,12 +50,17 @@ def test_protein_dialog_uses_backend_gateway_without_local_job_service():
     )
 
     assert "services.pubchem_job_service" not in imported_modules
+    assert "services.uniprot_client" not in imported_modules
+    assert "application.protein_identifiers" not in imported_modules
     assert "sqlite3" not in imported_modules
     assert "get_backend_gateway" in source
     assert "launch_pubchem_protein_search" in source
     assert "get_pubchem_protein_search_status" in source
     assert "cancel_pubchem_protein_search" in source
     assert "finalize_pubchem_protein_search" in source
+    assert "list_uniprot_organisms" in source
+    assert "resolve_gene_symbol" in source
+    assert "Add to selection" not in source
 
 
 def test_clear_pubchem_job_state_resets_dialog_tracking(monkeypatch):
@@ -62,6 +68,7 @@ def test_clear_pubchem_job_state_resets_dialog_tracking(monkeypatch):
         "pubchem_job_id": "job-1",
         "pubchem_job_completion_handled": True,
         "selected_proteins": ["P34971"],
+        "resolved_target": {"accession": "P34971"},
     }
     monkeypatch.setattr(dialogs.st, "session_state", session_state)
 
@@ -71,7 +78,110 @@ def test_clear_pubchem_job_state_resets_dialog_tracking(monkeypatch):
         "pubchem_job_id": "",
         "pubchem_job_completion_handled": False,
         "selected_proteins": [],
+        "resolved_target": None,
     }
+
+
+def test_gene_resolution_state_is_singular_and_traceable(monkeypatch):
+    session_state = {
+        "selected_proteins": [],
+        "resolved_target": None,
+    }
+    monkeypatch.setattr(dialogs.st, "session_state", session_state)
+    resolution = SimpleNamespace(
+        gene_symbol="LEPR",
+        organism_id=9606,
+        organism_name="Homo sapiens",
+        common_name="Human",
+        accession="P48357",
+        entry_name="LEPR_HUMAN",
+        protein_name="Leptin receptor",
+        reviewed=True,
+    )
+
+    payload = dialogs._store_resolved_target(resolution)
+
+    assert payload["accession"] == "P48357"
+    assert payload["gene_symbol"] == "LEPR"
+    assert payload["organism_id"] == 9606
+    assert session_state["selected_proteins"] == ["P48357"]
+
+
+def test_current_target_accession_rejects_stale_gene_resolution(monkeypatch):
+    session_state = {
+        "target_input_mode": dialogs.GENE_SYMBOL_MODE,
+        "input_gene_symbol": "LEPR",
+        "selected_organism_id": 9606,
+        "resolved_target": {
+            "gene_symbol": "LEPR",
+            "organism_id": 9606,
+            "accession": "P48357",
+        },
+    }
+    monkeypatch.setattr(dialogs.st, "session_state", session_state)
+
+    assert dialogs._current_target_accession() == "P48357"
+    session_state["input_gene_symbol"] = "MC4R"
+    assert dialogs._current_target_accession() == ""
+
+
+def test_direct_uniprot_accession_is_normalized(monkeypatch):
+    monkeypatch.setattr(
+        dialogs.st,
+        "session_state",
+        {
+            "target_input_mode": dialogs.UNIPROT_ACCESSION_MODE,
+            "input_protein": " p48357 ",
+        },
+    )
+
+    assert dialogs._current_target_accession() == "P48357"
+
+
+def test_accession_input_uses_non_stale_helper_text(monkeypatch):
+    captions = []
+    monkeypatch.setattr(
+        dialogs.st,
+        "text_input",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(dialogs.st, "caption", captions.append)
+
+    dialogs._render_accession_target_input()
+
+    assert captions == [
+        "Enter one UniProt accession. CHEMVAULT will normalize it to "
+        "uppercase and use it to search PubChem BioAssays."
+    ]
+
+
+def test_single_target_launch_never_accumulates_proteins(monkeypatch):
+    calls = []
+
+    class FakeGateway:
+        def launch_pubchem_protein_search(self, database_id, proteins):
+            calls.append((database_id, proteins))
+            return SimpleNamespace(job_id="job-target")
+
+    session_state = {
+        "selected_proteins": ["OLD1", "OLD2"],
+        "current_table": "",
+        "pubchem_job_id": "",
+        "pubchem_job_completion_handled": True,
+    }
+    monkeypatch.setattr(dialogs.st, "session_state", session_state)
+
+    dialogs._launch_single_target_search(
+        "target_db",
+        " p48357 ",
+        FakeGateway(),
+    )
+
+    assert calls == [("target_db", ["P48357"])]
+    assert session_state["selected_proteins"] == ["P48357"]
+    assert session_state["current_table"] == "main"
+    assert session_state["pubchem_job_id"] == "job-target"
+    assert session_state["pubchem_job_completion_handled"] is False
 
 
 def test_database_locked_errors_are_detected_as_transient():

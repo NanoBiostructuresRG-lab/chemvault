@@ -21,6 +21,10 @@ def test_existing_core_session_key_strings_are_preserved():
     assert "pubchem_job_db_path" not in state_keys.ALL_SESSION_KEYS
     assert state_keys.ALL_TABLES == "all_tables"
     assert state_keys.CUSTOM_QUERY == "custom_query"
+    assert state_keys.TARGET_INPUT_MODE == "target_input_mode"
+    assert state_keys.INPUT_GENE_SYMBOL == "input_gene_symbol"
+    assert state_keys.SELECTED_ORGANISM_ID == "selected_organism_id"
+    assert state_keys.RESOLVED_TARGET == "resolved_target"
     assert (
         state_keys.SCIENTIFIC_RECOVERY_NOTICE
         == "scientific_recovery_notice"
@@ -37,6 +41,7 @@ def test_existing_core_session_key_strings_are_preserved():
 
 def test_existing_widget_session_key_strings_are_preserved():
     assert state_keys.INPUT_DATABASE_ID == "input_database_id"
+    assert state_keys.INPUT_PROTEIN == "input_protein"
     assert state_keys.EXISTING_DB_SELECT == "existing_db_select"
     assert state_keys.NEW_TABLE_NAME == "new_table_name"
     assert state_keys.TYPE_OF_FILTER == "type_of_filter"

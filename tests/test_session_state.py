@@ -32,6 +32,11 @@ def test_initialize_session_state_sets_current_defaults_when_database_is_missing
     assert session_state["all_tables"] == []
     assert session_state["grupo_a_contar"] == ""
     assert session_state["custom_query"] == ""
+    assert session_state["target_input_mode"] == "Gene symbol"
+    assert session_state["input_gene_symbol"] == ""
+    assert session_state["input_protein"] == ""
+    assert session_state["selected_organism_id"] is None
+    assert session_state["resolved_target"] is None
     assert session_state["selecting_harmonsmile"] == ""
     assert session_state["selecting_chamanp"] == ""
     assert session_state["harmonsmile_running"] is False
@@ -55,6 +60,8 @@ def test_initialize_session_state_preserves_existing_values():
         "selected_headers": ["CID"],
         "current_table": "main",
         "selecting_harmonsmile": True,
+        "target_input_mode": "UniProt accession",
+        "input_protein": "P48357",
     }
     calls = []
 
@@ -66,6 +73,8 @@ def test_initialize_session_state_preserves_existing_values():
     assert session_state["selected_headers"] == ["CID"]
     assert session_state["current_table"] == "main"
     assert session_state["selecting_harmonsmile"] is True
+    assert session_state["target_input_mode"] == "UniProt accession"
+    assert session_state["input_protein"] == "P48357"
     assert session_state["selecting_chamanp"] == ""
 
 
