@@ -5,6 +5,7 @@ import sqlite3
 import pandas as pd
 
 from application.database_use_cases import DatabaseMetrics
+from application.target_identity import TargetIdentity
 from clients.backend_gateway import BackendGatewayError
 from services.database import DatabaseState
 from ui import main_page
@@ -14,13 +15,16 @@ from ui.main_page import (
     STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT,
     _apply_pending_structured_activity_subset_selection,
     _created_filtered_activity_table,
+    _database_summary_metric_html,
     _filter_visible_column_options,
     _get_activity_enrichment_job_summary,
     _get_protein_traceability_summary,
     _has_explicit_activity_filter,
     _refresh_database_state,
     _structured_activity_filter_signature,
+    _target_identity_metrics,
     load_database_metrics,
+    load_database_target_identity,
     load_selected_columns_preview,
     load_table_schema,
 )
@@ -356,6 +360,89 @@ def test_database_metrics_returns_visible_api_error(monkeypatch):
     )
 
 
+def test_database_target_identity_uses_main_table_metadata(monkeypatch):
+    expected = TargetIdentity(
+        input_mode="gene_symbol",
+        uniprot_accession="P32245",
+        gene_symbol="MC4R",
+        organism_id=9606,
+        organism_name="Homo sapiens",
+        common_name="Human",
+        uniprot_entry_name="MC4R_HUMAN",
+        protein_name="Melanocortin receptor 4",
+        reviewed=True,
+    )
+    calls = []
+
+    class Metadata:
+        target_identity = expected
+
+    class FakeGateway:
+        def get_table_metadata(self, database_id, table_name):
+            calls.append((database_id, table_name))
+            return Metadata()
+
+    monkeypatch.setattr(
+        main_page,
+        "get_backend_gateway",
+        lambda: FakeGateway(),
+    )
+
+    identity, error = load_database_target_identity("test_db")
+
+    assert identity is expected
+    assert error is None
+    assert calls == [("test_db", "main")]
+
+
+def test_unlabelled_summary_metric_keeps_one_raw_html_block():
+    rendered = _database_summary_metric_html(
+        "",
+        "Target metadata was not recorded when this database was created.",
+    )
+
+    assert rendered.startswith(
+        '<div data-cv-summary-metric style="min-width: 0;">'
+    )
+    assert rendered.endswith("</div>")
+    assert all(line.strip() for line in rendered.splitlines())
+    assert "Target metadata was not recorded" in rendered
+
+
+def test_database_target_identity_returns_visible_backend_error(monkeypatch):
+    class FailingGateway:
+        def get_table_metadata(self, *_args, **_kwargs):
+            raise BackendGatewayError("request timed out")
+
+    monkeypatch.setattr(
+        main_page,
+        "get_backend_gateway",
+        lambda: FailingGateway(),
+    )
+
+    identity, error = load_database_target_identity("test_db")
+
+    assert identity is None
+    assert error == (
+        "Unable to load target identity from the "
+        "CHEMVAULT API: request timed out"
+    )
+
+
+def test_target_identity_metrics_preserve_direct_accession_scope():
+    metrics = _target_identity_metrics(
+        TargetIdentity(
+            input_mode="uniprot_accession",
+            uniprot_accession="P32245",
+        )
+    )
+
+    assert metrics == (
+        ("Input type", "UniProt accession"),
+        ("UniProt accession", "P32245"),
+    )
+
+
 def test_database_summary_uses_active_table_semantic_labels(monkeypatch):
     markdown_calls = []
     connection = sqlite3.connect(":memory:")
@@ -399,8 +486,15 @@ def test_database_summary_uses_active_table_semantic_labels(monkeypatch):
     assert ">Table</div>" not in rendered
     assert ">Rows</div>" not in rendered
     assert "Unique groups" not in rendered
-    assert rendered.count("data-cv-summary-section=") == 1
-    assert rendered.count("data-cv-summary-metric") == 4
+    assert rendered.count("data-cv-summary-section=") == 2
+    assert rendered.count("data-cv-summary-metric") == 5
+    active_marker = 'data-cv-summary-section="Active table"'
+    target_marker = 'data-cv-summary-section="Target identity"'
+    assert rendered.index(active_marker) < rendered.index(target_marker)
+    assert (
+        "Target metadata was not recorded when this database was created."
+        in rendered
+    )
     assert "Active table and row summary." not in inspect.getsource(
         main_page.render_database_card
     )
@@ -459,6 +553,17 @@ def test_database_summary_groups_pubchem_provenance_and_activity_status(
         2,
         "Outcome",
         connection,
+        target_identity=TargetIdentity(
+            input_mode="gene_symbol",
+            uniprot_accession="P32245",
+            gene_symbol="MC4R",
+            organism_id=9606,
+            organism_name="Homo sapiens",
+            common_name="Human",
+            uniprot_entry_name="MC4R_HUMAN",
+            protein_name="Melanocortin receptor 4",
+            reviewed=True,
+        ),
     )
 
     assert len(markdown_calls) == 1
@@ -467,6 +572,21 @@ def test_database_summary_groups_pubchem_provenance_and_activity_status(
     assert rendered.startswith("<div")
     assert rendered == rendered.strip()
     for text in (
+        "Target identity",
+        "Gene symbol",
+        "MC4R",
+        "Protein target",
+        "Melanocortin receptor 4",
+        "UniProt accession",
+        "P32245",
+        "Entry: MC4R_HUMAN",
+        "Organism",
+        "Homo sapiens",
+        "Common name: Human",
+        "NCBI taxonomy ID",
+        "9606",
+        "UniProt status",
+        "Reviewed",
         "PubChem assay coverage",
         "Compounds linked to assays",
         "Proteins represented",
@@ -479,6 +599,7 @@ def test_database_summary_groups_pubchem_provenance_and_activity_status(
         assert text in rendered
     section_titles = (
         "Active table",
+        "Target identity",
         "PubChem assay coverage",
         "Activity data availability",
     )
@@ -497,13 +618,18 @@ def test_database_summary_groups_pubchem_provenance_and_activity_status(
     assert [
         fragment.count("data-cv-summary-metric")
         for fragment in section_fragments
-    ] == [4, 4, 2]
-    assert rendered.count("border-top: 1px solid var(--cv-border)") == 3
-    assert rendered.count("padding: 0.75rem 0") == 3
-    assert rendered.count("margin-bottom: 0.45rem") == 3
-    assert rendered.count("data-cv-summary-grid") == 3
-    assert rendered.count("auto-fit") == 3
-    assert rendered.count("minmax(min(100%, 145px), 1fr)") == 3
+    ] == [4, 6, 4, 2]
+    assert rendered.count("border-top: 1px solid var(--cv-border)") == 4
+    assert rendered.count("padding: 0.75rem 0") == 4
+    assert rendered.count("margin-bottom: 0.45rem") == 4
+    assert rendered.count("data-cv-summary-grid") == 4
+    assert rendered.count("auto-fit") == 4
+    assert rendered.count("minmax(min(100%, 145px), 1fr)") == 4
+    section_positions = [
+        rendered.index(f'data-cv-summary-section="{title}"')
+        for title in section_titles
+    ]
+    assert section_positions == sorted(section_positions)
     assert "Compounds with activity data: 2" not in rendered
     assert "Compounds with incomplete activity data: 1" not in rendered
     activity_data_position = rendered.index("Compounds with activity data")
@@ -530,6 +656,53 @@ def test_database_summary_groups_pubchem_provenance_and_activity_status(
     assert "Latest activity retrieval status" not in rendered
     assert "partial_or_failed" not in rendered
     assert warnings == []
+
+
+def test_database_summary_shows_only_recorded_direct_accession_fields(
+    monkeypatch,
+):
+    markdown_calls = []
+    connection = sqlite3.connect(":memory:")
+
+    class Container:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(
+        main_page.st,
+        "markdown",
+        lambda value, **kwargs: markdown_calls.append((value, kwargs)),
+    )
+
+    main_page.render_database_summary(
+        Container(),
+        "test_db",
+        "main",
+        1,
+        1,
+        "CID",
+        connection,
+        target_identity=TargetIdentity(
+            input_mode="uniprot_accession",
+            uniprot_accession="P32245",
+        ),
+    )
+
+    rendered, kwargs = markdown_calls[0]
+    assert kwargs == {"unsafe_allow_html": True}
+    assert 'data-cv-summary-section="Active table"' in rendered
+    assert 'data-cv-summary-section="Target identity"' in rendered
+    assert "Input type" in rendered
+    assert "UniProt accession" in rendered
+    assert "P32245" in rendered
+    assert "Gene symbol" not in rendered
+    assert "Protein target" not in rendered
+    assert "Organism" not in rendered
+    assert "NCBI taxonomy ID" not in rendered
+    assert "UniProt status" not in rendered
 
 
 def test_table_schema_delegates_to_backend_gateway(monkeypatch):
