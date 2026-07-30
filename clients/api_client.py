@@ -8,6 +8,7 @@ import requests
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+UNIPROT_RESOLUTION_TIMEOUT_SECONDS = 25.0
 
 
 class ChemVaultApiError(RuntimeError):
@@ -25,13 +26,18 @@ class ChemVaultApiClient:
         self.timeout = timeout
         self.session = session or requests.Session()
 
-    def _get_response(self, path: str, params=None) -> requests.Response:
+    def _get_response(
+        self,
+        path: str,
+        params=None,
+        timeout: float | None = None,
+    ) -> requests.Response:
         url = f"{self.base_url}{path}"
         try:
             response = self.session.get(
                 url,
                 params=params,
-                timeout=self.timeout,
+                timeout=self.timeout if timeout is None else timeout,
             )
         except requests.RequestException as error:
             raise ChemVaultApiError(
@@ -53,8 +59,17 @@ class ChemVaultApiClient:
 
         return response
 
-    def _get(self, path: str, params=None) -> dict[str, Any]:
-        response = self._get_response(path, params=params)
+    def _get(
+        self,
+        path: str,
+        params=None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        response = self._get_response(
+            path,
+            params=params,
+            timeout=timeout,
+        )
 
         try:
             return response.json()
@@ -115,6 +130,26 @@ class ChemVaultApiClient:
 
     def health(self) -> dict[str, Any]:
         return self._get("/health")
+
+    def list_uniprot_organisms(self) -> dict[str, Any]:
+        return self._get("/protein-identifiers/uniprot/organisms")
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> dict[str, Any]:
+        return self._get(
+            "/protein-identifiers/uniprot",
+            params={
+                "gene_symbol": gene_symbol,
+                "organism_id": organism_id,
+            },
+            timeout=max(
+                self.timeout,
+                UNIPROT_RESOLUTION_TIMEOUT_SECONDS,
+            ),
+        )
 
     def activate_scientific_runtime(self, database_id: str) -> dict[str, Any]:
         database_id = self._segment(database_id)
@@ -216,6 +251,60 @@ class ChemVaultApiClient:
         return self._post(
             f"/databases/{database_id}/tables/{source_table}/"
             "structure-consolidation",
+            timeout=self.timeout,
+        )
+
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        payload: dict[str, Any] = {"proteins": list(proteins)}
+        if target_identity is not None:
+            payload["target_identity"] = dict(target_identity)
+        return self._post(
+            f"/databases/{database_id}/jobs/pubchem_protein_search",
+            json=payload,
+            timeout=self.timeout,
+        )
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        job_id = self._segment(job_id)
+        return self._get(
+            f"/databases/{database_id}/jobs/"
+            f"pubchem_protein_search/{job_id}"
+        )
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        job_id = self._segment(job_id)
+        return self._post(
+            f"/databases/{database_id}/jobs/"
+            f"pubchem_protein_search/{job_id}/cancel",
+            timeout=self.timeout,
+        )
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> dict[str, Any]:
+        database_id = self._segment(database_id)
+        job_id = self._segment(job_id)
+        return self._post(
+            f"/databases/{database_id}/jobs/"
+            f"pubchem_protein_search/{job_id}/finalize",
             timeout=self.timeout,
         )
 

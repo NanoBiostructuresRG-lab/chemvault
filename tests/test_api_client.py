@@ -297,3 +297,123 @@ def test_client_gets_active_harmonsmile_job(monkeypatch):
             {"params": {"table_name": "active table"}, "timeout": 10.0},
         )
     ]
+
+
+def test_client_uses_pubchem_job_routes(monkeypatch):
+    calls = []
+
+    def fake_post(_session, url, **kwargs):
+        calls.append(("post", url, kwargs))
+        return StubResponse({"job_id": "job-1"}, status_code=201)
+
+    def fake_get(_session, url, **kwargs):
+        calls.append(("get", url, kwargs))
+        return StubResponse({"job_id": "job-1"})
+
+    monkeypatch.setattr(requests.Session, "post", fake_post)
+    monkeypatch.setattr(requests.Session, "get", fake_get)
+    client = ChemVaultApiClient("http://api.example/")
+    target_identity = {
+        "input_mode": "uniprot_accession",
+        "uniprot_accession": "P34971",
+    }
+
+    client.launch_pubchem_protein_search(
+        "test db",
+        ["P34971"],
+        target_identity,
+    )
+    client.get_pubchem_protein_search_status("test db", "job 1")
+    client.cancel_pubchem_protein_search("test db", "job 1")
+    client.finalize_pubchem_protein_search("test db", "job 1")
+
+    assert calls == [
+        (
+            "post",
+            (
+                "http://api.example/databases/test%20db/jobs/"
+                "pubchem_protein_search"
+            ),
+            {
+                "json": {
+                    "proteins": ["P34971"],
+                    "target_identity": target_identity,
+                },
+                "timeout": 10.0,
+            },
+        ),
+        (
+            "get",
+            (
+                "http://api.example/databases/test%20db/jobs/"
+                "pubchem_protein_search/job%201"
+            ),
+            {"params": None, "timeout": 10.0},
+        ),
+        (
+            "post",
+            (
+                "http://api.example/databases/test%20db/jobs/"
+                "pubchem_protein_search/job%201/cancel"
+            ),
+            {"json": None, "timeout": 10.0},
+        ),
+        (
+            "post",
+            (
+                "http://api.example/databases/test%20db/jobs/"
+                "pubchem_protein_search/job%201/finalize"
+            ),
+            {"json": None, "timeout": 10.0},
+        ),
+    ]
+
+
+def test_client_uses_uniprot_identifier_routes(monkeypatch):
+    calls = []
+    organisms = {
+        "organisms": [
+            {
+                "organism_id": 9606,
+                "scientific_name": "Homo sapiens",
+                "common_name": "Human",
+            }
+        ]
+    }
+    resolution = {
+        "gene_symbol": "LEPR",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "accession": "P48357",
+        "entry_name": "LEPR_HUMAN",
+        "protein_name": "Leptin receptor",
+        "reviewed": True,
+    }
+
+    def fake_get(_session, url, **kwargs):
+        calls.append((url, kwargs))
+        payload = organisms if url.endswith("/organisms") else resolution
+        return StubResponse(payload)
+
+    monkeypatch.setattr(requests.Session, "get", fake_get)
+    client = ChemVaultApiClient("http://api.example/")
+
+    assert client.list_uniprot_organisms() == organisms
+    assert client.resolve_gene_symbol("LEPR", 9606) == resolution
+    assert calls == [
+        (
+            "http://api.example/protein-identifiers/uniprot/organisms",
+            {"params": None, "timeout": 10.0},
+        ),
+        (
+            "http://api.example/protein-identifiers/uniprot",
+            {
+                "params": {
+                    "gene_symbol": "LEPR",
+                    "organism_id": 9606,
+                },
+                "timeout": 25.0,
+            },
+        ),
+    ]

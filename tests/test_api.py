@@ -63,6 +63,15 @@ def _pending_harmonsmile_job():
     }
 
 
+def _pending_pubchem_job():
+    return {
+        **_pending_harmonsmile_job(),
+        "job_type": "pubchem_protein_search",
+        "stage": "",
+        "message": None,
+    }
+
+
 def _pending_modelability_job():
     return {
         **_pending_harmonsmile_job(),
@@ -123,9 +132,33 @@ def test_openapi_schema_exposes_read_only_contract():
         "/databases/{database_id}/jobs/modelability_index"
         in schema["paths"]
     )
+    assert (
+        "/databases/{database_id}/jobs/pubchem_protein_search"
+        in schema["paths"]
+    )
+    assert (
+        "/databases/{database_id}/jobs/"
+        "pubchem_protein_search/{job_id}"
+        in schema["paths"]
+    )
+    assert (
+        "/databases/{database_id}/jobs/"
+        "pubchem_protein_search/{job_id}/cancel"
+        in schema["paths"]
+    )
+    assert (
+        "/databases/{database_id}/jobs/"
+        "pubchem_protein_search/{job_id}/finalize"
+        in schema["paths"]
+    )
     assert "/databases/{database_id}/jobs/{job_id}" in schema["paths"]
     assert (
         "/databases/{database_id}/scientific-runtime/activate"
+        in schema["paths"]
+    )
+    assert "/protein-identifiers/uniprot" in schema["paths"]
+    assert (
+        "/protein-identifiers/uniprot/organisms"
         in schema["paths"]
     )
 
@@ -317,6 +350,109 @@ def test_job_status_endpoint_uses_application_runtime(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
     assert calls == [("test_db", "job-1")]
+
+
+def test_pubchem_job_endpoints_use_application_boundary(monkeypatch):
+    expected = job_status_from_payload(_pending_pubchem_job())
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "launch_pubchem_protein_search",
+        lambda *args: calls.append(("launch", *args)) or expected,
+    )
+    monkeypatch.setattr(
+        api_main,
+        "get_pubchem_protein_search_status",
+        lambda *args: calls.append(("status", *args)) or expected,
+    )
+    monkeypatch.setattr(
+        api_main,
+        "cancel_pubchem_protein_search",
+        lambda *args: calls.append(("cancel", *args)) or expected,
+    )
+    monkeypatch.setattr(
+        api_main,
+        "finalize_pubchem_protein_search",
+        lambda *args: calls.append(("finalize", *args)) or expected,
+    )
+
+    target_identity = {
+        "input_mode": "gene_symbol",
+        "gene_symbol": "MC4R",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "uniprot_accession": "P32245",
+        "uniprot_entry_name": "MC4R_HUMAN",
+        "protein_name": "Melanocortin receptor 4",
+        "reviewed": True,
+    }
+    launch = client.post(
+        "/databases/test_db/jobs/pubchem_protein_search",
+        json={
+            "proteins": ["P32245"],
+            "target_identity": target_identity,
+        },
+    )
+    status = client.get(
+        "/databases/test_db/jobs/pubchem_protein_search/job-1"
+    )
+    cancel = client.post(
+        "/databases/test_db/jobs/pubchem_protein_search/job-1/cancel"
+    )
+    finalize = client.post(
+        "/databases/test_db/jobs/pubchem_protein_search/job-1/finalize"
+    )
+
+    assert launch.status_code == 201
+    assert status.status_code == 200
+    assert cancel.status_code == 200
+    assert finalize.status_code == 200
+    assert launch.json()["job_type"] == "pubchem_protein_search"
+    assert calls == [
+        ("launch", "test_db", ["P32245"], target_identity),
+        ("status", "test_db", "job-1"),
+        ("cancel", "test_db", "job-1"),
+        ("finalize", "test_db", "job-1"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("function_name", "path", "error", "status_code"),
+    [
+        (
+            "launch_pubchem_protein_search",
+            "/databases/test_db/jobs/pubchem_protein_search",
+            api_main.InvalidPubChemProteinSearchError("invalid proteins"),
+            422,
+        ),
+        (
+            "finalize_pubchem_protein_search",
+            (
+                "/databases/test_db/jobs/"
+                "pubchem_protein_search/job-1/finalize"
+            ),
+            api_main.PubChemJobStateError("job is not completed"),
+            409,
+        ),
+    ],
+)
+def test_pubchem_job_endpoints_map_application_errors(
+    monkeypatch,
+    function_name,
+    path,
+    error,
+    status_code,
+):
+    monkeypatch.setattr(
+        api_main,
+        function_name,
+        lambda *_args: (_ for _ in ()).throw(error),
+    )
+    response = client.post(path, json={"proteins": ["P34971"]})
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}
 
 
 @pytest.mark.parametrize(
@@ -604,6 +740,7 @@ def test_table_metadata_endpoint_uses_application_layer(monkeypatch):
         "origin": None,
         "source_table": None,
         "structure_consolidation_summary": None,
+        "target_identity": None,
         "schema": [
             {
                 "cid": 0,
@@ -619,6 +756,63 @@ def test_table_metadata_endpoint_uses_application_layer(monkeypatch):
         ("test_db", "main", ""),
         ("test_db", "main"),
     ]
+
+
+def test_table_metadata_endpoint_returns_persisted_target_identity(
+    monkeypatch,
+):
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        headers=("CID",),
+    )
+    notes = json.dumps(
+        {
+            "artifact_contract": "protein_search_target_identity",
+            "version": 1,
+            "target_identity": {
+                "input_mode": "gene_symbol",
+                "gene_symbol": "MC4R",
+                "organism_id": 9606,
+                "organism_name": "Homo sapiens",
+                "common_name": "Human",
+                "uniprot_accession": "P32245",
+                "uniprot_entry_name": "MC4R_HUMAN",
+                "protein_name": "Melanocortin receptor 4",
+                "reviewed": True,
+            },
+        }
+    )
+    monkeypatch.setattr(api_main, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        api_main,
+        "get_table_metrics",
+        lambda *args: DatabaseMetrics(3, 0),
+    )
+    monkeypatch.setattr(api_main, "get_table_schema", lambda *args: ())
+    monkeypatch.setattr(
+        api_main,
+        "get_table_provenance",
+        lambda *args: TableProvenance(
+            origin="protein_search",
+            notes=notes,
+        ),
+    )
+
+    response = client.get("/databases/test_db/tables/main/metadata")
+
+    assert response.status_code == 200
+    assert response.json()["target_identity"] == {
+        "input_mode": "gene_symbol",
+        "gene_symbol": "MC4R",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "uniprot_accession": "P32245",
+        "uniprot_entry_name": "MC4R_HUMAN",
+        "protein_name": "Melanocortin receptor 4",
+        "reviewed": True,
+    }
 
 
 def test_table_metadata_endpoint_returns_persisted_consolidation_summary(
@@ -949,3 +1143,92 @@ def test_modelability_npz_export_forwards_maccs(monkeypatch):
 
     assert response.status_code == 200
     assert calls[0][1] == {"fingerprint_type": "maccs"}
+
+
+def test_supported_uniprot_organisms_endpoint_uses_application_catalog(
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "list_supported_organisms",
+        lambda: calls.append("list") or (
+            {
+                "organism_id": 9606,
+                "scientific_name": "Homo sapiens",
+                "common_name": "Human",
+            },
+        ),
+    )
+
+    response = client.get("/protein-identifiers/uniprot/organisms")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "organisms": [
+            {
+                "organism_id": 9606,
+                "scientific_name": "Homo sapiens",
+                "common_name": "Human",
+            }
+        ]
+    }
+    assert calls == ["list"]
+
+
+def test_uniprot_resolution_endpoint_uses_application_boundary(monkeypatch):
+    expected = {
+        "gene_symbol": "LEPR",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "accession": "P48357",
+        "entry_name": "LEPR_HUMAN",
+        "protein_name": "Leptin receptor",
+        "reviewed": True,
+    }
+    calls = []
+    monkeypatch.setattr(
+        api_main,
+        "resolve_gene_symbol",
+        lambda *args: calls.append(args) or expected,
+    )
+
+    response = client.get(
+        "/protein-identifiers/uniprot",
+        params={"gene_symbol": "LEPR", "organism_id": 9606},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert calls == [("LEPR", 9606)]
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [
+        (api_main.InvalidGeneSymbolError("invalid gene"), 422),
+        (api_main.UnsupportedOrganismError("unsupported organism"), 422),
+        (api_main.ProteinIdentifierNotFoundError("not found"), 404),
+        (api_main.AmbiguousProteinIdentifierError("ambiguous"), 409),
+        (api_main.UniProtClientError("service unavailable"), 502),
+    ],
+)
+def test_uniprot_resolution_endpoint_maps_controlled_errors(
+    monkeypatch,
+    error,
+    status_code,
+):
+    monkeypatch.setattr(
+        api_main,
+        "resolve_gene_symbol",
+        lambda *_args: (_ for _ in ()).throw(error),
+    )
+
+    response = client.get(
+        "/protein-identifiers/uniprot",
+        params={"gene_symbol": "LEPR", "organism_id": 9606},
+    )
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": str(error)}

@@ -165,6 +165,20 @@ def load_table_schema(database_id, table_name):
     return schema, None
 
 
+def load_database_target_identity(database_id):
+    try:
+        metadata = get_backend_gateway().get_table_metadata(
+            database_id,
+            "main",
+        )
+    except BackendGatewayError as error:
+        return None, (
+            "Unable to load target identity from the "
+            f"CHEMVAULT API: {error}"
+        )
+    return metadata.target_identity, None
+
+
 def create_main_layout():
     container0 = st.container(
         horizontal=True,
@@ -246,31 +260,28 @@ def render_app_identity(container):
 
 
 def _database_summary_metric_html(label, value, secondary_text=""):
-    secondary_html = ""
-    if secondary_text:
-        secondary_html = (
-            '<div style="font-size: 0.68rem; color: var(--cv-muted);">'
-            f"{html.escape(str(secondary_text))}</div>"
-        )
-    label_html = ""
+    lines = ['<div data-cv-summary-metric style="min-width: 0;">']
     if label:
-        label_html = (
+        lines.append(
             '<div style="font-size: 0.72rem; color: var(--cv-muted);">'
             f"{html.escape(str(label))}</div>"
         )
-    return dedent(
-        f"""
-        <div data-cv-summary-metric style="min-width: 0;">
-            {label_html}
-            <div style="
-                font-size: 0.93rem;
-                color: var(--cv-text);
-                overflow-wrap: anywhere;
-            ">{html.escape(str(value))}</div>
-            {secondary_html}
-        </div>
-        """
-    ).strip()
+    lines.extend(
+        (
+            '<div style="',
+            'font-size: 0.93rem;',
+            'color: var(--cv-text);',
+            'overflow-wrap: anywhere;',
+            f'">{html.escape(str(value))}</div>',
+        )
+    )
+    if secondary_text:
+        lines.append(
+            '<div style="font-size: 0.68rem; color: var(--cv-muted);">'
+            f"{html.escape(str(secondary_text))}</div>"
+        )
+    lines.append("</div>")
+    return "\n".join(lines)
 
 
 def _database_summary_section_html(title, metrics):
@@ -302,6 +313,58 @@ def _database_summary_section_html(title, metrics):
         """
     ).strip()
     return section_html.replace("__METRICS__", metric_html)
+
+
+def _target_identity_metrics(target_identity, error=None):
+    if error:
+        return (
+            (
+                "",
+                "Target identity metadata could not be loaded.",
+                error,
+            ),
+        )
+    if target_identity is None:
+        return (
+            (
+                "",
+                "Target metadata was not recorded when this database was "
+                "created.",
+            ),
+        )
+    if target_identity.input_mode == "uniprot_accession":
+        return (
+            ("Input type", "UniProt accession"),
+            ("UniProt accession", target_identity.uniprot_accession),
+        )
+
+    accession_secondary = (
+        f"Entry: {target_identity.uniprot_entry_name}"
+        if target_identity.uniprot_entry_name
+        else ""
+    )
+    organism_secondary = (
+        f"Common name: {target_identity.common_name}"
+        if target_identity.common_name
+        else ""
+    )
+    status = "Reviewed" if target_identity.reviewed else "Unreviewed"
+    return (
+        ("Gene symbol", target_identity.gene_symbol),
+        ("Protein target", target_identity.protein_name),
+        (
+            "UniProt accession",
+            target_identity.uniprot_accession,
+            accession_secondary,
+        ),
+        (
+            "Organism",
+            target_identity.organism_name,
+            organism_secondary,
+        ),
+        ("NCBI taxonomy ID", target_identity.organism_id),
+        ("UniProt status", status),
+    )
 
 
 def _get_protein_traceability_summary(connection):
@@ -356,6 +419,8 @@ def render_database_summary(
     group_count,
     group_column,
     connection,
+    target_identity=None,
+    target_identity_error=None,
 ):
     sections = [
         _database_summary_section_html(
@@ -372,6 +437,15 @@ def render_database_summary(
             ),
         )
     ]
+    sections.append(
+        _database_summary_section_html(
+            "Target identity",
+            _target_identity_metrics(
+                target_identity,
+                target_identity_error,
+            ),
+        )
+    )
     summary = _get_protein_traceability_summary(connection)
     if summary is not None:
         protein_text = (
@@ -1425,6 +1499,9 @@ def render_database_card(container):
     if metrics_error:
         container.error(metrics_error)
         return
+    target_identity, target_identity_error = load_database_target_identity(
+        st.session_state[DATABASE_ID]
+    )
     render_database_summary(
         container,
         st.session_state[DATABASE_ID],
@@ -1433,6 +1510,8 @@ def render_database_card(container):
         metrics.group_count,
         st.session_state.get(GROUP_COUNT_COLUMN, ""),
         conn,
+        target_identity=target_identity,
+        target_identity_error=target_identity_error,
     )
     container.markdown("#### Table controls")
     container.selectbox(

@@ -31,6 +31,25 @@ from application.structure_consolidation import (
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
 import application.modelability_jobs  # noqa: F401 - registers Modelability hooks
+from application.pubchem_jobs import (
+    cancel_pubchem_protein_search,
+    finalize_pubchem_protein_search,
+    get_pubchem_protein_search_status,
+    launch_pubchem_protein_search,
+)
+from application.target_identity import (
+    TargetIdentity,
+    target_identity_from_notes,
+    target_identity_from_payload,
+)
+from application.protein_identifiers import (
+    ProteinIdentifierResolution,
+    SupportedOrganism,
+    list_supported_organisms as list_local_supported_organisms,
+    protein_identifier_resolution_from_payload,
+    resolve_gene_symbol as resolve_local_gene_symbol,
+    supported_organisms_from_payload,
+)
 from application.job_contracts import (
     JobStatusContract,
     RecoveredJobContract,
@@ -67,6 +86,7 @@ class TableMetadata:
     origin: str | None = None
     source_table: str | None = None
     structure_consolidation_summary: StructureConsolidationSummary | None = None
+    target_identity: TargetIdentity | None = None
 
 
 def _structure_summary_from_payload(payload):
@@ -79,11 +99,28 @@ def _structure_summary_from_payload(payload):
     return summary if summary.has_valid_invariants() else None
 
 
+def _target_identity_from_payload(payload):
+    try:
+        return target_identity_from_payload(payload)
+    except ValueError as error:
+        raise BackendGatewayError(
+            f"Invalid target identity returned by backend: {error}"
+        ) from error
+
+
 class _Backend(Protocol):
     def activate_scientific_runtime(
         self,
         database_id: str,
     ) -> tuple[RecoveredJobContract, ...]: ...
+
+    def list_uniprot_organisms(self) -> tuple[SupportedOrganism, ...]: ...
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> ProteinIdentifierResolution: ...
 
     def list_tables(self, database_id: str) -> tuple[str, ...]: ...
 
@@ -141,6 +178,31 @@ class _Backend(Protocol):
         source_table: str,
     ) -> StructureConsolidationTableResult: ...
 
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, object] | None = None,
+    ) -> JobStatusContract: ...
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract: ...
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract: ...
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract: ...
+
     def launch_harmonsmile_job(
         self,
         database_id: str,
@@ -187,6 +249,19 @@ class _LocalBackend:
         except Exception as error:
             raise BackendGatewayError(str(error)) from error
 
+    def list_uniprot_organisms(self) -> tuple[SupportedOrganism, ...]:
+        return list_local_supported_organisms()
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> ProteinIdentifierResolution:
+        try:
+            return resolve_local_gene_symbol(gene_symbol, organism_id)
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return tuple(refresh_database(database_id).all_tables)
 
@@ -216,6 +291,7 @@ class _LocalBackend:
                     notes=provenance.notes,
                 )
             ),
+            target_identity=target_identity_from_notes(provenance.notes),
         )
 
     def get_table_metrics(
@@ -291,6 +367,51 @@ class _LocalBackend:
         except StructureConsolidationError as error:
             raise BackendGatewayError(str(error)) from error
 
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, object] | None = None,
+    ) -> JobStatusContract:
+        try:
+            return launch_pubchem_protein_search(
+                database_id,
+                proteins,
+                target_identity,
+            )
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            return get_pubchem_protein_search_status(database_id, job_id)
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            return cancel_pubchem_protein_search(database_id, job_id)
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            return finalize_pubchem_protein_search(database_id, job_id)
+        except Exception as error:
+            raise BackendGatewayError(str(error)) from error
+
     def launch_harmonsmile_job(
         self,
         database_id: str,
@@ -358,6 +479,33 @@ class _HttpBackend:
             for payload in response.get("recovered_jobs", [])
         )
 
+    def list_uniprot_organisms(self) -> tuple[SupportedOrganism, ...]:
+        try:
+            response = self._client.list_uniprot_organisms()
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        try:
+            return supported_organisms_from_payload(response)
+        except ValueError as error:
+            raise BackendGatewayError(str(error)) from error
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> ProteinIdentifierResolution:
+        try:
+            response = self._client.resolve_gene_symbol(
+                gene_symbol,
+                organism_id,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        try:
+            return protein_identifier_resolution_from_payload(response)
+        except ValueError as error:
+            raise BackendGatewayError(str(error)) from error
+
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         try:
             response = self._client.list_tables(database_id)
@@ -399,6 +547,9 @@ class _HttpBackend:
             source_table=response.get("source_table"),
             structure_consolidation_summary=_structure_summary_from_payload(
                 response.get("structure_consolidation_summary")
+            ),
+            target_identity=_target_identity_from_payload(
+                response.get("target_identity")
             ),
         )
 
@@ -504,6 +655,64 @@ class _HttpBackend:
             self._raise_gateway_error(error)
         return StructureConsolidationTableResult(**response)
 
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, object] | None = None,
+    ) -> JobStatusContract:
+        try:
+            response = self._client.launch_pubchem_protein_search(
+                database_id,
+                proteins,
+                target_identity,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            response = self._client.get_pubchem_protein_search_status(
+                database_id,
+                job_id,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            response = self._client.cancel_pubchem_protein_search(
+                database_id,
+                job_id,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        try:
+            response = self._client.finalize_pubchem_protein_search(
+                database_id,
+                job_id,
+            )
+        except ChemVaultApiError as error:
+            self._raise_gateway_error(error)
+        return job_status_from_payload(response)
+
     def launch_harmonsmile_job(
         self,
         database_id: str,
@@ -568,6 +777,16 @@ class BackendGateway:
         database_id: str,
     ) -> tuple[RecoveredJobContract, ...]:
         return self._backend.activate_scientific_runtime(database_id)
+
+    def list_uniprot_organisms(self) -> tuple[SupportedOrganism, ...]:
+        return self._backend.list_uniprot_organisms()
+
+    def resolve_gene_symbol(
+        self,
+        gene_symbol: str,
+        organism_id: int,
+    ) -> ProteinIdentifierResolution:
+        return self._backend.resolve_gene_symbol(gene_symbol, organism_id)
 
     def list_tables(self, database_id: str) -> tuple[str, ...]:
         return self._backend.list_tables(database_id)
@@ -653,6 +872,48 @@ class BackendGateway:
         return self._backend.consolidate_structure_table(
             database_id,
             source_table,
+        )
+
+    def launch_pubchem_protein_search(
+        self,
+        database_id: str,
+        proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, object] | None = None,
+    ) -> JobStatusContract:
+        return self._backend.launch_pubchem_protein_search(
+            database_id,
+            proteins,
+            target_identity,
+        )
+
+    def get_pubchem_protein_search_status(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        return self._backend.get_pubchem_protein_search_status(
+            database_id,
+            job_id,
+        )
+
+    def cancel_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        return self._backend.cancel_pubchem_protein_search(
+            database_id,
+            job_id,
+        )
+
+    def finalize_pubchem_protein_search(
+        self,
+        database_id: str,
+        job_id: str,
+    ) -> JobStatusContract:
+        return self._backend.finalize_pubchem_protein_search(
+            database_id,
+            job_id,
         )
 
     def launch_harmonsmile_job(

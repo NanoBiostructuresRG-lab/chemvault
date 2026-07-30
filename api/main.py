@@ -12,12 +12,16 @@ from api.schemas import (
     HarmonsmileJobRequest,
     JobStatusResponse,
     ModelabilityIndexJobRequest,
+    PubChemProteinSearchRequest,
     OperationHistoryResponse,
     RecoveredJobResponse,
     ScientificRuntimeActivationResponse,
     StructureConsolidationResponse,
+    SupportedOrganismsResponse,
     TableMetadataResponse,
     TableMetricsResponse,
+    TargetIdentityPayload,
+    UniProtResolutionResponse,
     TablePreviewResponse,
 )
 import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
@@ -27,6 +31,25 @@ from application.modelability_index import (
     export_table_modelability_fingerprints_npz,
 )
 from application.modelability_jobs import InvalidModelabilitySourceError
+from application.protein_identifiers import (
+    AmbiguousProteinIdentifierError,
+    InvalidGeneSymbolError,
+    InvalidOrganismIdError,
+    ProteinIdentifierNotFoundError,
+    UnsupportedOrganismError,
+    list_supported_organisms,
+    resolve_gene_symbol,
+)
+from application.target_identity import target_identity_from_notes
+from application.pubchem_jobs import (
+    InvalidPubChemProteinSearchError,
+    PubChemJobStateError,
+    PubChemJobTypeError,
+    cancel_pubchem_protein_search,
+    finalize_pubchem_protein_search,
+    get_pubchem_protein_search_status,
+    launch_pubchem_protein_search,
+)
 from application.scientific_runtime import activate_scientific_runtime
 from application.scientific_jobs import (
     JobNotFoundError,
@@ -55,8 +78,12 @@ from application.structure_consolidation import (
     structure_consolidation_summary_from_metadata,
 )
 from services.structure_consolidation import StructureConsolidationError
-from services.job_models import JobType
+from services.job_models import (
+    JobCancellationNotSupportedError,
+    JobType,
+)
 from services.modelability_fingerprint_artifacts import FingerprintArtifactError
+from services.uniprot_client import UniProtClientError
 
 
 app = FastAPI(title="ChemVault API", version="0.1.0")
@@ -84,6 +111,38 @@ def health():
     return HealthResponse(status="ok")
 
 
+@app.get(
+    "/protein-identifiers/uniprot/organisms",
+    response_model=SupportedOrganismsResponse,
+)
+def supported_uniprot_organisms():
+    return {"organisms": list_supported_organisms()}
+
+
+@app.get(
+    "/protein-identifiers/uniprot",
+    response_model=UniProtResolutionResponse,
+)
+def resolve_uniprot_gene_symbol(
+    gene_symbol: Annotated[str, Query(min_length=1)],
+    organism_id: Annotated[int, Query(ge=1)],
+):
+    try:
+        return resolve_gene_symbol(gene_symbol, organism_id)
+    except (
+        InvalidGeneSymbolError,
+        InvalidOrganismIdError,
+        UnsupportedOrganismError,
+    ) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except ProteinIdentifierNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except AmbiguousProteinIdentifierError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except UniProtClientError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
 @app.post(
     "/databases/{database_id}/scientific-runtime/activate",
     response_model=ScientificRuntimeActivationResponse,
@@ -103,6 +162,79 @@ def activate_database_scientific_runtime(database_id: DatabaseId):
             for recovered_job in recovered
         ],
     )
+
+
+@app.post(
+    "/databases/{database_id}/jobs/pubchem_protein_search",
+    response_model=JobStatusResponse,
+    status_code=201,
+)
+def launch_pubchem_protein_search_job(
+    database_id: DatabaseId,
+    request: PubChemProteinSearchRequest,
+):
+    try:
+        return launch_pubchem_protein_search(
+            database_id,
+            request.proteins,
+            (
+                request.target_identity.model_dump(exclude_none=True)
+                if request.target_identity is not None
+                else None
+            ),
+        )
+    except DatabaseNotFoundError as error:
+        raise _not_found(error) from error
+    except InvalidPubChemProteinSearchError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get(
+    "/databases/{database_id}/jobs/pubchem_protein_search/{job_id}",
+    response_model=JobStatusResponse,
+)
+def pubchem_protein_search_status(database_id: DatabaseId, job_id: str):
+    try:
+        return get_pubchem_protein_search_status(database_id, job_id)
+    except (DatabaseNotFoundError, JobNotFoundError) as error:
+        raise _not_found(error) from error
+    except PubChemJobTypeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post(
+    "/databases/{database_id}/jobs/pubchem_protein_search/{job_id}/cancel",
+    response_model=JobStatusResponse,
+)
+def cancel_pubchem_protein_search_job(
+    database_id: DatabaseId,
+    job_id: str,
+):
+    try:
+        return cancel_pubchem_protein_search(database_id, job_id)
+    except (DatabaseNotFoundError, JobNotFoundError) as error:
+        raise _not_found(error) from error
+    except (
+        JobCancellationNotSupportedError,
+        PubChemJobTypeError,
+    ) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post(
+    "/databases/{database_id}/jobs/pubchem_protein_search/{job_id}/finalize",
+    response_model=JobStatusResponse,
+)
+def finalize_pubchem_protein_search_job(
+    database_id: DatabaseId,
+    job_id: str,
+):
+    try:
+        return finalize_pubchem_protein_search(database_id, job_id)
+    except (DatabaseNotFoundError, JobNotFoundError) as error:
+        raise _not_found(error) from error
+    except (PubChemJobStateError, PubChemJobTypeError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @app.post(
@@ -288,6 +420,7 @@ def table_metadata(
         source_table=provenance.source_table,
         notes=provenance.notes,
     )
+    target_identity = target_identity_from_notes(provenance.notes)
     return TableMetadataResponse(
         database_id=database_id,
         table=table_name,
@@ -300,6 +433,11 @@ def table_metadata(
         source_table=provenance.source_table,
         structure_consolidation_summary=(
             summary.__dict__ if summary is not None else None
+        ),
+        target_identity=(
+            TargetIdentityPayload(**target_identity.to_payload())
+            if target_identity is not None
+            else None
         ),
     )
 

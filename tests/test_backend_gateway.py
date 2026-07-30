@@ -700,6 +700,93 @@ def test_table_metadata_returns_same_typed_summary_in_http_mode(monkeypatch):
     assert metadata.structure_consolidation_summary == expected_summary
 
 
+def test_table_metadata_returns_target_identity_in_local_mode(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        headers=("CID",),
+    )
+    notes = json.dumps(
+        {
+            "artifact_contract": "protein_search_target_identity",
+            "version": 1,
+            "target_identity": {
+                "input_mode": "gene_symbol",
+                "gene_symbol": "MC4R",
+                "organism_id": 9606,
+                "organism_name": "Homo sapiens",
+                "common_name": "Human",
+                "uniprot_accession": "P32245",
+                "uniprot_entry_name": "MC4R_HUMAN",
+                "protein_name": "Melanocortin receptor 4",
+                "reviewed": True,
+            },
+        }
+    )
+    monkeypatch.setattr(backend_gateway, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_metrics",
+        lambda *args: DatabaseMetrics(row_count=3, group_count=0),
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_provenance",
+        lambda *args: TableProvenance(
+            origin="protein_search",
+            notes=notes,
+        ),
+    )
+
+    metadata = backend_gateway.get_backend_gateway().get_table_metadata(
+        "test_db",
+        "main",
+    )
+
+    assert metadata.target_identity == backend_gateway.TargetIdentity(
+        input_mode="gene_symbol",
+        gene_symbol="MC4R",
+        organism_id=9606,
+        organism_name="Homo sapiens",
+        common_name="Human",
+        uniprot_accession="P32245",
+        uniprot_entry_name="MC4R_HUMAN",
+        protein_name="Melanocortin receptor 4",
+        reviewed=True,
+    )
+
+
+def test_table_metadata_returns_target_identity_in_http_mode(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+
+    class FakeClient:
+        def __init__(self, base_url):
+            assert base_url == "http://api.example"
+
+        def get_table_metadata(self, database_id, table_name):
+            return {
+                "columns": ["CID"],
+                "row_count": 3,
+                "target_identity": {
+                    "input_mode": "uniprot_accession",
+                    "uniprot_accession": "P32245",
+                },
+            }
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+
+    metadata = backend_gateway.get_backend_gateway().get_table_metadata(
+        "test_db",
+        "main",
+    )
+
+    assert metadata.target_identity == backend_gateway.TargetIdentity(
+        input_mode="uniprot_accession",
+        uniprot_accession="P32245",
+    )
+
+
 def test_table_metadata_http_error_does_not_fall_back(monkeypatch):
     monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
     local_calls = []
@@ -764,6 +851,245 @@ def _completed_job(job_id="job-1", status=JobStatus.COMPLETED):
         updated_at="2026-07-03T10:01:00+00:00",
         result={"merged_rows": 2} if status == JobStatus.COMPLETED else None,
     )
+
+
+def test_pubchem_commands_use_local_application_backend(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    expected = _completed_job(status=JobStatus.PENDING)
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "launch_pubchem_protein_search",
+        lambda *args: calls.append(("launch", *args)) or expected,
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_pubchem_protein_search_status",
+        lambda *args: calls.append(("status", *args)) or expected,
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "cancel_pubchem_protein_search",
+        lambda *args: calls.append(("cancel", *args)) or expected,
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "finalize_pubchem_protein_search",
+        lambda *args: calls.append(("finalize", *args)) or expected,
+    )
+    gateway = backend_gateway.get_backend_gateway()
+    target_identity = {
+        "input_mode": "uniprot_accession",
+        "uniprot_accession": "P34971",
+    }
+
+    assert gateway.launch_pubchem_protein_search(
+        "test_db",
+        ["P34971"],
+        target_identity,
+    ) is expected
+    assert gateway.get_pubchem_protein_search_status(
+        "test_db", "job-1"
+    ) is expected
+    assert gateway.cancel_pubchem_protein_search(
+        "test_db", "job-1"
+    ) is expected
+    assert gateway.finalize_pubchem_protein_search(
+        "test_db", "job-1"
+    ) is expected
+    assert calls == [
+        ("launch", "test_db", ["P34971"], target_identity),
+        ("status", "test_db", "job-1"),
+        ("cancel", "test_db", "job-1"),
+        ("finalize", "test_db", "job-1"),
+    ]
+
+
+def test_pubchem_commands_use_http_backend(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    expected = _completed_job(status=JobStatus.PENDING)
+    payload = {**expected.__dict__, "status": expected.status.value}
+    calls = []
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def launch_pubchem_protein_search(self, *args):
+            calls.append(("launch", *args))
+            return payload
+
+        def get_pubchem_protein_search_status(self, *args):
+            calls.append(("status", *args))
+            return payload
+
+        def cancel_pubchem_protein_search(self, *args):
+            calls.append(("cancel", *args))
+            return payload
+
+        def finalize_pubchem_protein_search(self, *args):
+            calls.append(("finalize", *args))
+            return payload
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+    gateway = backend_gateway.get_backend_gateway()
+    target_identity = {
+        "input_mode": "uniprot_accession",
+        "uniprot_accession": "P34971",
+    }
+
+    assert gateway.launch_pubchem_protein_search(
+        "test_db",
+        ["P34971"],
+        target_identity,
+    ) == expected
+    assert gateway.get_pubchem_protein_search_status(
+        "test_db", "job-1"
+    ) == expected
+    assert gateway.cancel_pubchem_protein_search(
+        "test_db", "job-1"
+    ) == expected
+    assert gateway.finalize_pubchem_protein_search(
+        "test_db", "job-1"
+    ) == expected
+    assert calls == [
+        ("init", "http://api.example"),
+        ("launch", "test_db", ["P34971"], target_identity),
+        ("status", "test_db", "job-1"),
+        ("cancel", "test_db", "job-1"),
+        ("finalize", "test_db", "job-1"),
+    ]
+
+
+def test_uniprot_identifier_contract_uses_local_application_backend(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    organism = backend_gateway.SupportedOrganism(
+        organism_id=9606,
+        scientific_name="Homo sapiens",
+        common_name="Human",
+    )
+    resolution = backend_gateway.ProteinIdentifierResolution(
+        gene_symbol="LEPR",
+        organism_id=9606,
+        organism_name="Homo sapiens",
+        common_name="Human",
+        accession="P48357",
+        entry_name="LEPR_HUMAN",
+        protein_name="Leptin receptor",
+        reviewed=True,
+    )
+    calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "list_local_supported_organisms",
+        lambda: calls.append("list") or (organism,),
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "resolve_local_gene_symbol",
+        lambda *args: calls.append(("resolve", *args)) or resolution,
+    )
+    gateway = backend_gateway.get_backend_gateway()
+
+    assert gateway.list_uniprot_organisms() == (organism,)
+    assert gateway.resolve_gene_symbol("LEPR", 9606) is resolution
+    assert calls == ["list", ("resolve", "LEPR", 9606)]
+
+
+def test_uniprot_identifier_contract_uses_http_backend(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    calls = []
+    organism_payload = {
+        "organism_id": 9606,
+        "scientific_name": "Homo sapiens",
+        "common_name": "Human",
+    }
+    resolution_payload = {
+        "gene_symbol": "LEPR",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "accession": "P48357",
+        "entry_name": "LEPR_HUMAN",
+        "protein_name": "Leptin receptor",
+        "reviewed": True,
+    }
+
+    class FakeClient:
+        def __init__(self, base_url):
+            calls.append(("init", base_url))
+
+        def list_uniprot_organisms(self):
+            calls.append("list")
+            return {"organisms": [organism_payload]}
+
+        def resolve_gene_symbol(self, gene_symbol, organism_id):
+            calls.append(("resolve", gene_symbol, organism_id))
+            return resolution_payload
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+    gateway = backend_gateway.get_backend_gateway()
+
+    organisms = gateway.list_uniprot_organisms()
+    resolution = gateway.resolve_gene_symbol("LEPR", 9606)
+    assert organisms[0].organism_id == 9606
+    assert resolution.accession == "P48357"
+    assert calls == [
+        ("init", "http://api.example"),
+        "list",
+        ("resolve", "LEPR", 9606),
+    ]
+
+
+def test_uniprot_http_invalid_payload_is_gateway_error(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+
+    class InvalidClient:
+        def __init__(self, base_url):
+            pass
+
+        def resolve_gene_symbol(self, *_args):
+            return {"unexpected": "payload"}
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", InvalidClient)
+
+    with pytest.raises(
+        backend_gateway.BackendGatewayError,
+        match="Invalid UniProt resolution payload",
+    ):
+        backend_gateway.get_backend_gateway().resolve_gene_symbol(
+            "LEPR",
+            9606,
+        )
+
+
+def test_uniprot_http_failure_never_uses_local_resolver(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+    local_calls = []
+    monkeypatch.setattr(
+        backend_gateway,
+        "resolve_local_gene_symbol",
+        lambda *args: local_calls.append(args),
+    )
+
+    class FailingClient:
+        def __init__(self, base_url):
+            pass
+
+        def resolve_gene_symbol(self, *_args):
+            raise ChemVaultApiError("request timed out")
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FailingClient)
+
+    with pytest.raises(
+        backend_gateway.BackendGatewayError,
+        match="request timed out",
+    ):
+        backend_gateway.get_backend_gateway().resolve_gene_symbol(
+            "LEPR",
+            9606,
+        )
+    assert local_calls == []
 
 
 def test_harmonsmile_command_uses_local_application_backend(monkeypatch):

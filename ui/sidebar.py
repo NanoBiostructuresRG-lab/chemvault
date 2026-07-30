@@ -75,8 +75,10 @@ STRUCTURE_CONSOLIDATION_REQUIRED_COLUMNS = frozenset(
 def render_build_card(select_proteins_callback):
     with st.container(border=True):
         st.subheader("Build")
-        st.caption("Start from proteins or upload a CSV dataset.")
-        if st.button("Search Proteins"):
+        st.caption(
+            "Start from one gene or UniProt target, or upload a CSV dataset."
+        )
+        if st.button("Select Target"):
             select_proteins_callback()
         uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
         if uploaded_file is not None:
