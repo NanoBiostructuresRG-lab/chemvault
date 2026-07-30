@@ -1,6 +1,6 @@
 # CHEMVAULT
 
-**Traceable molecular dataset curation and modelability analysis**
+**A traceable molecular dataset management and curation application**
 
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](LICENSE)
 
@@ -8,21 +8,27 @@
 
 ## What is CHEMVAULT?
 
-**CHEMVAULT** is a visual, no-code application for building, curating, tracing,
-and exporting molecular datasets for downstream cheminformatics and data
-analysis.
+**CHEMVAULT** is a visual, no-code molecular dataset management and curation
+application for creating, organizing, tracing, and exporting molecular and
+structured activity datasets from PubChem or CSV sources.
+
+It provides traceable workflows for target-based dataset construction, SMILES
+harmonization, structured activity filtering, preservation of PubChem activity
+labels, structure consolidation, and dataset modelability assessment.
 
 CHEMVAULT can:
 
-- build SQLite databases from PubChem protein-target searches or CSV files;
+- build SQLite databases from one PubChem protein target, resolved from a gene
+  symbol and organism or supplied directly as a UniProt accession, or from CSV
+  files;
 - inspect, filter, and export molecular and structured activity data;
-- enrich PubChem CIDs through HARMONSMILE;
+- harmonize PubChem-derived molecular structures through HARMONSMILE;
 - preserve PubChem `Active` and `Inactive` activity labels;
 - consolidate repeated observations by harmonized molecular structure;
 - evaluate structure-label neighborhood consistency with the
   **MODELABILITY INDEX**;
-- preserve provenance, persisted job state, reusable fingerprint artifacts,
-  and downloadable analysis outputs.
+- preserve target identity, provenance, persisted job state, reusable
+  fingerprint artifacts, and downloadable analysis outputs.
 
 CHEMVAULT is **not** a machine-learning training application. It does not fit
 predictive models, define activity thresholds, or implement molecular
@@ -47,25 +53,30 @@ SQLite table
 Explore, refine, derive tables, and export CSV
 
 
-PubChem protein search
-    |
-    v
-Molecular, assay, and structured activity tables
-    |
-    v
-SMILES HARMONIZED (HARMONSMILE)
-    |
-    v
-Structured activity filtering
-    |
-    v
-ACTIVITY LABELS and structure consolidation
-    |
-    v
-MODELABILITY INDEX (MOLRAPTOR fingerprints)
-    |
-    v
-Nearest-neighbor report and fingerprint .npz export
+Gene symbol + organism -> reviewed UniProt accession
+                                      |
+Direct UniProt accession -------------+
+                                      |
+                                      v
+                            PubChem protein search
+                                      |
+                                      v
+                  Molecular, assay, and structured activity tables
+                                      |
+                                      v
+                     SMILES HARMONIZED (HARMONSMILE)
+                                      |
+                                      v
+                       Structured activity filtering
+                                      |
+                                      v
+                 ACTIVITY LABELS and structure consolidation
+                                      |
+                                      v
+                 MODELABILITY INDEX (MOLRAPTOR fingerprints)
+                                      |
+                                      v
+             Nearest-neighbor report and fingerprint .npz export
 ```
 
 CHEMVAULT keeps source tables available and records derived-table provenance so
@@ -110,7 +121,7 @@ runtime dependencies are installed from `requirements.txt`.
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
 git fetch --tags
-git checkout v0.12.0
+git checkout v0.13.0
 ```
 
 2. Create and activate the environment:
@@ -142,7 +153,7 @@ Open `http://localhost:8501` in your browser.
 ```bash
 cd path/to/chemvault
 git fetch --tags origin
-git checkout v0.12.0
+git checkout v0.13.0
 conda activate chemvault_env
 python -m pip install -r requirements.txt
 ```
@@ -228,12 +239,13 @@ streamlit run app.py
 ### Current API-client coverage
 
 The HTTP path supports selected database inspection and export operations,
-structure consolidation, HARMONSMILE jobs, MODELABILITY INDEX jobs, and
-fingerprint `.npz` export through the backend gateway.
+strict UniProt gene-target resolution, PubChem protein-search jobs, structure
+consolidation, HARMONSMILE jobs, MODELABILITY INDEX jobs, and fingerprint
+`.npz` export through the backend gateway.
 
-PubChem searches, CHAMANP execution, and unsupported table mutations remain
-local workflows. The current backend runtime is process-local and is not a
-distributed worker platform.
+CHAMANP execution and unsupported table mutations remain local workflows. The
+current backend runtime is process-local and is not a distributed worker
+platform.
 
 ---
 
@@ -252,21 +264,26 @@ distributed worker platform.
 ### From PubChem to MODELABILITY INDEX
 
 1. Start CHEMVAULT and enter a database name.
-2. Select **Search Proteins**.
-3. Enter a UniProt accession, add it to the selection, and confirm.
-   `P34971` is a practical smoke-test target.
-4. Follow the persisted PubChem job in the progress dialog. Completed searches
+2. Select **Select Target**.
+3. Choose one target-input mode:
+   - enter a gene symbol and organism, then resolve it to one reviewed UniProt
+     accession; `LEPR` with Homo sapiens taxonomy identifier `9606` resolves to
+     `P48357`;
+   - enter one UniProt accession directly; `P34971` is a practical smoke-test
+     target.
+4. Confirm the target and launch the PubChem search.
+5. Follow the persisted PubChem job in the progress dialog. Completed searches
    populate `main`, `compound_assays`, and `compound_activities`.
-5. Create or select a Structured activity subset for the activity type and
+6. Create or select a Structured activity subset for the activity type and
    population of interest.
-6. Run **SMILES HARMONIZED** on its CID column.
-7. Run **ACTIVITY LABELS** to preserve binary PubChem outcomes and consolidate
+7. Run **SMILES HARMONIZED** on its CID column.
+8. Run **ACTIVITY LABELS** to preserve binary PubChem outcomes and consolidate
    repeated observations by `SMILES_Harmonized`.
-8. Select the resulting consolidated table.
-9. Choose a fingerprint in **MODELABILITY INDEX** and run the analysis.
-10. Inspect the score, class concordance, provenance, and nearest-neighbor
+9. Select the resulting consolidated table.
+10. Choose a fingerprint in **MODELABILITY INDEX** and run the analysis.
+11. Inspect the score, class concordance, provenance, and nearest-neighbor
     report.
-11. Download the nearest-neighbor report or the fingerprint `.npz` export.
+12. Download the nearest-neighbor report or the fingerprint `.npz` export.
 
 > Databases are stored in `SQL/` and can be reopened in later sessions. Use a
 > different database name when a completely fresh run is required.
@@ -276,13 +293,19 @@ distributed worker platform.
 ## PubChem jobs and database persistence
 
 PubChem protein searches are stored as persisted jobs in the selected SQLite
-database. Long searches continue through the local worker while the interface
-shows status, stage, progress, and messages. Searches can be cancelled safely
-with **Cancel search**.
+database. Long searches continue through the selected backend runtime while it
+remains active, and the interface shows status, stage, progress, and messages.
+Searches can be cancelled safely with **Cancel search**.
 
 CHEMVAULT creates and maintains separate tables for molecular records, assay
 metadata, and structured activity observations. Derived tables remain inside
 the same database with provenance and operation history.
+
+For newly completed target-based builds, CHEMVAULT persists the input mode and
+canonical UniProt accession together with resolved gene, organism, protein,
+and review-status metadata when available. The Database summary displays this
+`Target identity` provenance. Legacy databases remain readable without
+inferred or silently backfilled target metadata.
 
 ---
 
@@ -366,7 +389,7 @@ guarantee of predictive performance.
 
 ### Fingerprint representations
 
-CHEMVAULT v0.12.0 supports the following MOLRAPTOR fingerprints:
+CHEMVAULT v0.13.0 supports the following MOLRAPTOR fingerprints:
 
 - Morgan - default;
 - Feature Morgan;
@@ -425,14 +448,21 @@ It does not invalidate a successful test run.
 
 ## Release validation
 
-CHEMVAULT v0.12.0 was validated with:
+CHEMVAULT v0.13.0 was validated with:
 
-- 539 automated tests covering database, curation, backend gateway, scientific
-  jobs, structure consolidation, persistence, export, and UI behavior;
-- local-default visual and manual validation using P21554 and P34971;
-- multi-fingerprint MODELABILITY INDEX selection and execution;
-- result restoration, fingerprint-specific provenance, stale-result isolation,
-  persisted artifact reuse, and `.npz` download behavior.
+- 628 automated tests covering database, curation, backend gateway, target
+  resolution, scientific jobs, structure consolidation, persistence, export,
+  and UI behavior;
+- local-default visual and manual validation of gene-symbol resolution, direct
+  UniProt-accession input, target identity persistence, Database summary
+  rendering, and legacy-database compatibility;
+- HTTP API-client validation with `LEPR` and Homo sapiens taxonomy identifier
+  `9606`, resolving to reviewed UniProt accession `P48357`;
+- PubChem job launch, polling, finalization, persisted target provenance, and
+  metadata retrieval through FastAPI;
+- regression coverage for the existing Structured activity, HARMONSMILE,
+  ACTIVITY LABELS, MODELABILITY INDEX, fingerprint provenance, restoration,
+  and `.npz` export workflows.
 
 ---
 
@@ -455,13 +485,15 @@ Until a `CITATION.cff` file or archived release citation is provided, cite the
 software as:
 
 ```text
-Castro-Flores, D. and Contreras-Torres, F. F. (2026).
-CHEMVAULT: Traceable molecular dataset curation and modelability analysis.
+Contreras-Torres, F. F., Castro-Flores, D., Murrieta, A. C., &
+Saldivar-González, F. I. (2026).
+CHEMVAULT: A traceable molecular dataset management and curation application
+(Version 0.13.0) [Computer software].
 https://github.com/NanoBiostructuresRG-lab/chemvault
 ```
 
-Include the CHEMVAULT version used in the methods or software section of the
-associated work.
+For reproducibility, cite the specific CHEMVAULT version used in the associated
+methods, software, or data-availability section.
 
 ---
 
