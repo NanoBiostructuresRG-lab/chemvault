@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from typing import Any
+from typing import Any, Literal
 
 from molraptor import FingerprintType
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from services.job_models import JobStatus
 
@@ -68,6 +68,20 @@ class StructureConsolidationSummaryResponse(BaseModel):
     no_eligible_activity_count: int
 
 
+class TargetIdentityPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input_mode: Literal["gene_symbol", "uniprot_accession"]
+    uniprot_accession: str = Field(min_length=1)
+    gene_symbol: str | None = None
+    organism_id: int | None = Field(default=None, ge=1)
+    organism_name: str | None = None
+    common_name: str | None = None
+    uniprot_entry_name: str | None = None
+    protein_name: str | None = None
+    reviewed: bool | None = None
+
+
 class TableMetadataResponse(BaseModel):
     database_id: str
     table: str
@@ -81,6 +95,7 @@ class TableMetadataResponse(BaseModel):
     structure_consolidation_summary: (
         StructureConsolidationSummaryResponse | None
     ) = None
+    target_identity: TargetIdentityPayload | None = None
 
 
 class TablePreviewResponse(BaseModel):
@@ -131,6 +146,7 @@ class UniProtResolutionResponse(BaseModel):
 
 class PubChemProteinSearchRequest(BaseModel):
     proteins: list[str] = Field(min_length=1)
+    target_identity: TargetIdentityPayload | None = None
 
 
 class HarmonsmileJobRequest(BaseModel):

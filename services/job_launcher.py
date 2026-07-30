@@ -66,14 +66,18 @@ def create_and_launch_pubchem_job(
     proteins,
     *,
     database_id="",
+    target_identity=None,
     launcher=None,
 ):
     proteins = list(proteins)
+    metadata = {"proteins": proteins}
+    if target_identity is not None:
+        metadata["target_identity"] = dict(target_identity)
     store = JobStore(connection)
     job = store.create_job(
         job_type=JobType.PUBCHEM_PROTEIN_SEARCH,
         database_id=database_id,
-        metadata={"proteins": proteins},
+        metadata=metadata,
     )
     connection.commit()
 

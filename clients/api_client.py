@@ -258,11 +258,15 @@ class ChemVaultApiClient:
         self,
         database_id: str,
         proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         database_id = self._segment(database_id)
+        payload: dict[str, Any] = {"proteins": list(proteins)}
+        if target_identity is not None:
+            payload["target_identity"] = dict(target_identity)
         return self._post(
             f"/databases/{database_id}/jobs/pubchem_protein_search",
-            json={"proteins": list(proteins)},
+            json=payload,
             timeout=self.timeout,
         )
 

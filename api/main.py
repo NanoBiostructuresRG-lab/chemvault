@@ -20,6 +20,7 @@ from api.schemas import (
     SupportedOrganismsResponse,
     TableMetadataResponse,
     TableMetricsResponse,
+    TargetIdentityPayload,
     UniProtResolutionResponse,
     TablePreviewResponse,
 )
@@ -39,6 +40,7 @@ from application.protein_identifiers import (
     list_supported_organisms,
     resolve_gene_symbol,
 )
+from application.target_identity import target_identity_from_notes
 from application.pubchem_jobs import (
     InvalidPubChemProteinSearchError,
     PubChemJobStateError,
@@ -172,7 +174,15 @@ def launch_pubchem_protein_search_job(
     request: PubChemProteinSearchRequest,
 ):
     try:
-        return launch_pubchem_protein_search(database_id, request.proteins)
+        return launch_pubchem_protein_search(
+            database_id,
+            request.proteins,
+            (
+                request.target_identity.model_dump(exclude_none=True)
+                if request.target_identity is not None
+                else None
+            ),
+        )
     except DatabaseNotFoundError as error:
         raise _not_found(error) from error
     except InvalidPubChemProteinSearchError as error:
@@ -410,6 +420,7 @@ def table_metadata(
         source_table=provenance.source_table,
         notes=provenance.notes,
     )
+    target_identity = target_identity_from_notes(provenance.notes)
     return TableMetadataResponse(
         database_id=database_id,
         table=table_name,
@@ -422,6 +433,11 @@ def table_metadata(
         source_table=provenance.source_table,
         structure_consolidation_summary=(
             summary.__dict__ if summary is not None else None
+        ),
+        target_identity=(
+            TargetIdentityPayload(**target_identity.to_payload())
+            if target_identity is not None
+            else None
         ),
     )
 

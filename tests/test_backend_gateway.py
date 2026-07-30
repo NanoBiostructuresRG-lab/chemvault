@@ -700,6 +700,93 @@ def test_table_metadata_returns_same_typed_summary_in_http_mode(monkeypatch):
     assert metadata.structure_consolidation_summary == expected_summary
 
 
+def test_table_metadata_returns_target_identity_in_local_mode(monkeypatch):
+    monkeypatch.delenv("CHEMVAULT_API_URL", raising=False)
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        headers=("CID",),
+    )
+    notes = json.dumps(
+        {
+            "artifact_contract": "protein_search_target_identity",
+            "version": 1,
+            "target_identity": {
+                "input_mode": "gene_symbol",
+                "gene_symbol": "MC4R",
+                "organism_id": 9606,
+                "organism_name": "Homo sapiens",
+                "common_name": "Human",
+                "uniprot_accession": "P32245",
+                "uniprot_entry_name": "MC4R_HUMAN",
+                "protein_name": "Melanocortin receptor 4",
+                "reviewed": True,
+            },
+        }
+    )
+    monkeypatch.setattr(backend_gateway, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_metrics",
+        lambda *args: DatabaseMetrics(row_count=3, group_count=0),
+    )
+    monkeypatch.setattr(
+        backend_gateway,
+        "get_local_table_provenance",
+        lambda *args: TableProvenance(
+            origin="protein_search",
+            notes=notes,
+        ),
+    )
+
+    metadata = backend_gateway.get_backend_gateway().get_table_metadata(
+        "test_db",
+        "main",
+    )
+
+    assert metadata.target_identity == backend_gateway.TargetIdentity(
+        input_mode="gene_symbol",
+        gene_symbol="MC4R",
+        organism_id=9606,
+        organism_name="Homo sapiens",
+        common_name="Human",
+        uniprot_accession="P32245",
+        uniprot_entry_name="MC4R_HUMAN",
+        protein_name="Melanocortin receptor 4",
+        reviewed=True,
+    )
+
+
+def test_table_metadata_returns_target_identity_in_http_mode(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+
+    class FakeClient:
+        def __init__(self, base_url):
+            assert base_url == "http://api.example"
+
+        def get_table_metadata(self, database_id, table_name):
+            return {
+                "columns": ["CID"],
+                "row_count": 3,
+                "target_identity": {
+                    "input_mode": "uniprot_accession",
+                    "uniprot_accession": "P32245",
+                },
+            }
+
+    monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
+
+    metadata = backend_gateway.get_backend_gateway().get_table_metadata(
+        "test_db",
+        "main",
+    )
+
+    assert metadata.target_identity == backend_gateway.TargetIdentity(
+        input_mode="uniprot_accession",
+        uniprot_accession="P32245",
+    )
+
+
 def test_table_metadata_http_error_does_not_fall_back(monkeypatch):
     monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
     local_calls = []
@@ -791,9 +878,15 @@ def test_pubchem_commands_use_local_application_backend(monkeypatch):
         lambda *args: calls.append(("finalize", *args)) or expected,
     )
     gateway = backend_gateway.get_backend_gateway()
+    target_identity = {
+        "input_mode": "uniprot_accession",
+        "uniprot_accession": "P34971",
+    }
 
     assert gateway.launch_pubchem_protein_search(
-        "test_db", ["P34971"]
+        "test_db",
+        ["P34971"],
+        target_identity,
     ) is expected
     assert gateway.get_pubchem_protein_search_status(
         "test_db", "job-1"
@@ -805,7 +898,7 @@ def test_pubchem_commands_use_local_application_backend(monkeypatch):
         "test_db", "job-1"
     ) is expected
     assert calls == [
-        ("launch", "test_db", ["P34971"]),
+        ("launch", "test_db", ["P34971"], target_identity),
         ("status", "test_db", "job-1"),
         ("cancel", "test_db", "job-1"),
         ("finalize", "test_db", "job-1"),
@@ -840,9 +933,15 @@ def test_pubchem_commands_use_http_backend(monkeypatch):
 
     monkeypatch.setattr(backend_gateway, "ChemVaultApiClient", FakeClient)
     gateway = backend_gateway.get_backend_gateway()
+    target_identity = {
+        "input_mode": "uniprot_accession",
+        "uniprot_accession": "P34971",
+    }
 
     assert gateway.launch_pubchem_protein_search(
-        "test_db", ["P34971"]
+        "test_db",
+        ["P34971"],
+        target_identity,
     ) == expected
     assert gateway.get_pubchem_protein_search_status(
         "test_db", "job-1"
@@ -855,7 +954,7 @@ def test_pubchem_commands_use_http_backend(monkeypatch):
     ) == expected
     assert calls == [
         ("init", "http://api.example"),
-        ("launch", "test_db", ["P34971"]),
+        ("launch", "test_db", ["P34971"], target_identity),
         ("status", "test_db", "job-1"),
         ("cancel", "test_db", "job-1"),
         ("finalize", "test_db", "job-1"),

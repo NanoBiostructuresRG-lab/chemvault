@@ -61,7 +61,13 @@ def _to_pubchem_job_view(job: JobRecord) -> PubChemJobView:
     )
 
 
-def register_protein_search_build(connection, proteins, *, job_id=None):
+def register_protein_search_build(
+    connection,
+    proteins,
+    *,
+    job_id=None,
+    metadata_notes=None,
+):
     query_used = f"pubchem_job:{job_id}" if job_id else None
     try:
         if query_used:
@@ -77,7 +83,10 @@ def register_protein_search_build(connection, proteins, *, job_id=None):
             role="base",
             origin="protein_search",
             created_by="build_from_proteins",
-            notes="Initial table created from selected proteins.",
+            notes=(
+                metadata_notes
+                or "Initial table created from selected proteins."
+            ),
             commit=False,
         )
         register_operation(
@@ -107,6 +116,8 @@ def create_pubchem_search_job(
     database_id,
     proteins,
     db_dir="SQL",
+    *,
+    target_identity=None,
 ) -> tuple[JobRecord, Path]:
     db_path = Path(db_dir) / f"{database_id}.db"
     connection = get_connection(database_id)
@@ -116,6 +127,7 @@ def create_pubchem_search_job(
             db_path,
             list(proteins),
             database_id=database_id,
+            target_identity=target_identity,
         )
     finally:
         connection.close()
@@ -126,11 +138,14 @@ def start_pubchem_search(
     database_id,
     proteins,
     db_dir="SQL",
+    *,
+    target_identity=None,
 ) -> tuple[PubChemJobView, Path]:
     job, db_path = create_pubchem_search_job(
         database_id,
         proteins,
         db_dir=db_dir,
+        target_identity=target_identity,
     )
     return _to_pubchem_job_view(job), db_path
 
@@ -186,6 +201,8 @@ def register_completed_pubchem_job(db_path, job_view: PubChemJobView):
 def register_completed_pubchem_job_record(
     db_path,
     job: JobRecord,
+    *,
+    metadata_notes=None,
 ) -> bool:
     if job.job_type != JobType.PUBCHEM_PROTEIN_SEARCH.value:
         raise ValueError("Only PubChem protein-search jobs can be registered.")
@@ -197,6 +214,7 @@ def register_completed_pubchem_job_record(
             connection,
             tuple(job.metadata.get("proteins", [])),
             job_id=job.job_id,
+            metadata_notes=metadata_notes,
         )
     finally:
         connection.close()

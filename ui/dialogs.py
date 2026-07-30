@@ -80,16 +80,51 @@ def _current_target_accession():
     return str(resolved.get("accession", "")).strip().upper()
 
 
+def _current_target_identity(accession):
+    normalized_accession = str(accession).strip().upper()
+    if not normalized_accession:
+        return None
+
+    mode = st.session_state.get(TARGET_INPUT_MODE, GENE_SYMBOL_MODE)
+    if mode == UNIPROT_ACCESSION_MODE:
+        return {
+            "input_mode": "uniprot_accession",
+            "uniprot_accession": normalized_accession,
+        }
+
+    if _current_target_accession() != normalized_accession:
+        return None
+    resolved = st.session_state.get(RESOLVED_TARGET)
+    if not isinstance(resolved, dict):
+        return None
+    return {
+        "input_mode": "gene_symbol",
+        "gene_symbol": resolved["gene_symbol"],
+        "organism_id": resolved["organism_id"],
+        "organism_name": resolved["organism_name"],
+        "common_name": resolved.get("common_name"),
+        "uniprot_accession": normalized_accession,
+        "uniprot_entry_name": resolved["entry_name"],
+        "protein_name": resolved["protein_name"],
+        "reviewed": resolved["reviewed"],
+    }
+
+
 def _launch_single_target_search(database_id, accession, gateway):
     normalized_accession = str(accession).strip().upper()
     if not normalized_accession:
         raise ValueError("Enter or resolve one target before building.")
+
+    target_identity = _current_target_identity(normalized_accession)
+    if target_identity is None:
+        raise ValueError("Target identity is unavailable or stale.")
 
     st.session_state[CURRENT_TABLE] = "main"
     st.session_state[SELECTED_PROTEINS] = [normalized_accession]
     job = gateway.launch_pubchem_protein_search(
         database_id,
         [normalized_accession],
+        target_identity,
     )
     st.session_state[PUBCHEM_JOB_ID] = job.job_id
     st.session_state[PUBCHEM_JOB_COMPLETION_HANDLED] = False

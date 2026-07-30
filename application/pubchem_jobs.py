@@ -8,6 +8,11 @@ from application.database_use_cases import (
 )
 from application.job_contracts import JobStatusContract, job_status_from_record
 from application.scientific_jobs import JobNotFoundError
+from application.target_identity import (
+    InvalidTargetIdentityError,
+    target_identity_from_payload,
+    target_identity_notes,
+)
 from services.job_models import JobRecord, JobStatus, JobType
 from services.pubchem_job_service import (
     cancel_pubchem_job_record,
@@ -69,14 +74,52 @@ def _load_pubchem_job(
     return record, db_path
 
 
+def _target_identity_from_job(record: JobRecord):
+    payload = record.metadata.get("target_identity")
+    if payload is None:
+        return None
+    proteins = record.metadata.get("proteins")
+    if (
+        not isinstance(proteins, list)
+        or len(proteins) != 1
+        or not isinstance(proteins[0], str)
+        or not proteins[0].strip()
+    ):
+        raise InvalidTargetIdentityError(
+            "Persisted target identity requires exactly one protein accession."
+        )
+    return target_identity_from_payload(
+        payload,
+        expected_accession=proteins[0],
+    )
+
+
 def launch_pubchem_protein_search(
     database_id: str,
     proteins,
+    target_identity=None,
 ) -> JobStatusContract:
     """Launch the existing external PubChem worker behind a public contract."""
     normalized = _normalize_proteins(proteins)
+    if target_identity is not None and len(normalized) != 1:
+        raise InvalidPubChemProteinSearchError(
+            "Target identity requires exactly one protein accession."
+        )
+    try:
+        identity = target_identity_from_payload(
+            target_identity,
+            expected_accession=normalized[0] if len(normalized) == 1 else None,
+        )
+    except InvalidTargetIdentityError as error:
+        raise InvalidPubChemProteinSearchError(str(error)) from error
     list_database_tables(database_id)
-    record, _db_path = create_pubchem_search_job(database_id, normalized)
+    record, _db_path = create_pubchem_search_job(
+        database_id,
+        normalized,
+        target_identity=(
+            identity.to_payload() if identity is not None else None
+        ),
+    )
     return job_status_from_record(record)
 
 
@@ -118,5 +161,20 @@ def finalize_pubchem_protein_search(
         raise PubChemJobStateError(
             f"PubChem job '{job_id}' is not completed."
         )
-    register_completed_pubchem_job_record(db_path, record)
+    try:
+        identity = _target_identity_from_job(record)
+    except InvalidTargetIdentityError as error:
+        raise PubChemJobStateError(
+            f"PubChem job '{job_id}' has invalid target identity metadata: "
+            f"{error}"
+        ) from error
+    register_completed_pubchem_job_record(
+        db_path,
+        record,
+        metadata_notes=(
+            target_identity_notes(identity)
+            if identity is not None
+            else None
+        ),
+    )
     return job_status_from_record(record)

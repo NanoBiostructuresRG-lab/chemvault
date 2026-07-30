@@ -37,6 +37,11 @@ from application.pubchem_jobs import (
     get_pubchem_protein_search_status,
     launch_pubchem_protein_search,
 )
+from application.target_identity import (
+    TargetIdentity,
+    target_identity_from_notes,
+    target_identity_from_payload,
+)
 from application.protein_identifiers import (
     ProteinIdentifierResolution,
     SupportedOrganism,
@@ -81,6 +86,7 @@ class TableMetadata:
     origin: str | None = None
     source_table: str | None = None
     structure_consolidation_summary: StructureConsolidationSummary | None = None
+    target_identity: TargetIdentity | None = None
 
 
 def _structure_summary_from_payload(payload):
@@ -91,6 +97,15 @@ def _structure_summary_from_payload(payload):
     except (TypeError, ValueError):
         return None
     return summary if summary.has_valid_invariants() else None
+
+
+def _target_identity_from_payload(payload):
+    try:
+        return target_identity_from_payload(payload)
+    except ValueError as error:
+        raise BackendGatewayError(
+            f"Invalid target identity returned by backend: {error}"
+        ) from error
 
 
 class _Backend(Protocol):
@@ -167,6 +182,7 @@ class _Backend(Protocol):
         self,
         database_id: str,
         proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, object] | None = None,
     ) -> JobStatusContract: ...
 
     def get_pubchem_protein_search_status(
@@ -275,6 +291,7 @@ class _LocalBackend:
                     notes=provenance.notes,
                 )
             ),
+            target_identity=target_identity_from_notes(provenance.notes),
         )
 
     def get_table_metrics(
@@ -354,9 +371,14 @@ class _LocalBackend:
         self,
         database_id: str,
         proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, object] | None = None,
     ) -> JobStatusContract:
         try:
-            return launch_pubchem_protein_search(database_id, proteins)
+            return launch_pubchem_protein_search(
+                database_id,
+                proteins,
+                target_identity,
+            )
         except Exception as error:
             raise BackendGatewayError(str(error)) from error
 
@@ -526,6 +548,9 @@ class _HttpBackend:
             structure_consolidation_summary=_structure_summary_from_payload(
                 response.get("structure_consolidation_summary")
             ),
+            target_identity=_target_identity_from_payload(
+                response.get("target_identity")
+            ),
         )
 
     def get_table_metrics(
@@ -634,11 +659,13 @@ class _HttpBackend:
         self,
         database_id: str,
         proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, object] | None = None,
     ) -> JobStatusContract:
         try:
             response = self._client.launch_pubchem_protein_search(
                 database_id,
                 proteins,
+                target_identity,
             )
         except ChemVaultApiError as error:
             self._raise_gateway_error(error)
@@ -851,10 +878,12 @@ class BackendGateway:
         self,
         database_id: str,
         proteins: list[str] | tuple[str, ...],
+        target_identity: dict[str, object] | None = None,
     ) -> JobStatusContract:
         return self._backend.launch_pubchem_protein_search(
             database_id,
             proteins,
+            target_identity,
         )
 
     def get_pubchem_protein_search_status(

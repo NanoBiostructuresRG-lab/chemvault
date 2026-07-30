@@ -313,8 +313,16 @@ def test_client_uses_pubchem_job_routes(monkeypatch):
     monkeypatch.setattr(requests.Session, "post", fake_post)
     monkeypatch.setattr(requests.Session, "get", fake_get)
     client = ChemVaultApiClient("http://api.example/")
+    target_identity = {
+        "input_mode": "uniprot_accession",
+        "uniprot_accession": "P34971",
+    }
 
-    client.launch_pubchem_protein_search("test db", ["P34971"])
+    client.launch_pubchem_protein_search(
+        "test db",
+        ["P34971"],
+        target_identity,
+    )
     client.get_pubchem_protein_search_status("test db", "job 1")
     client.cancel_pubchem_protein_search("test db", "job 1")
     client.finalize_pubchem_protein_search("test db", "job 1")
@@ -326,7 +334,13 @@ def test_client_uses_pubchem_job_routes(monkeypatch):
                 "http://api.example/databases/test%20db/jobs/"
                 "pubchem_protein_search"
             ),
-            {"json": {"proteins": ["P34971"]}, "timeout": 10.0},
+            {
+                "json": {
+                    "proteins": ["P34971"],
+                    "target_identity": target_identity,
+                },
+                "timeout": 10.0,
+            },
         ),
         (
             "get",

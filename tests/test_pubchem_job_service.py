@@ -244,8 +244,21 @@ def test_start_pubchem_search_launches_job_with_explicit_inputs(tmp_path, monkey
         fake_get_connection,
     )
 
-    def fake_create(connection_arg, db_path, proteins, *, database_id):
-        calls["launch"] = (connection_arg, db_path, proteins, database_id)
+    def fake_create(
+        connection_arg,
+        db_path,
+        proteins,
+        *,
+        database_id,
+        target_identity=None,
+    ):
+        calls["launch"] = (
+            connection_arg,
+            db_path,
+            proteins,
+            database_id,
+            target_identity,
+        )
         return expected_job
 
     monkeypatch.setattr(
@@ -278,6 +291,7 @@ def test_start_pubchem_search_launches_job_with_explicit_inputs(tmp_path, monkey
         expected_path,
         ["P34971"],
         "protein_db",
+        None,
     )
     assert connection.closed is True
 
@@ -327,3 +341,99 @@ def test_completed_record_registration_is_idempotent_by_job_id(tmp_path):
     assert second is False
     assert count == 1
     assert metadata == "protein_search"
+
+
+def test_create_pubchem_search_job_forwards_target_identity(
+    tmp_path,
+    monkeypatch,
+):
+    calls = []
+    connection = sqlite3.connect(":memory:")
+    expected = JobRecord(
+        job_id="job-identity",
+        job_type="pubchem_protein_search",
+        status=JobStatus.PENDING.value,
+        database_id="target_db",
+        metadata={"proteins": ["P32245"]},
+    )
+    target_identity = {
+        "input_mode": "uniprot_accession",
+        "uniprot_accession": "P32245",
+    }
+    monkeypatch.setattr(
+        pubchem_job_service,
+        "get_connection",
+        lambda database_id: connection,
+    )
+    monkeypatch.setattr(
+        pubchem_job_service,
+        "create_and_launch_pubchem_job",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or expected,
+    )
+    monkeypatch.setattr(
+        pubchem_job_service,
+        "resolve_database_path",
+        lambda db_path: db_path.resolve(),
+    )
+
+    job, path = pubchem_job_service.create_pubchem_search_job(
+        "target_db",
+        ("P32245",),
+        db_dir=tmp_path,
+        target_identity=target_identity,
+    )
+
+    assert job is expected
+    assert path == (tmp_path / "target_db.db").resolve()
+    assert calls == [
+        (
+            (
+                connection,
+                tmp_path / "target_db.db",
+                ["P32245"],
+            ),
+            {
+                "database_id": "target_db",
+                "target_identity": target_identity,
+            },
+        )
+    ]
+
+
+def test_completed_record_registration_persists_target_identity_notes(tmp_path):
+    db_path = tmp_path / "completed-identity.db"
+    connection = sqlite3.connect(db_path)
+    connection.execute("CREATE TABLE main (primary_id INTEGER PRIMARY KEY)")
+    connection.commit()
+    connection.close()
+    job = JobRecord(
+        job_id="job-identity",
+        job_type="pubchem_protein_search",
+        status=JobStatus.COMPLETED.value,
+        database_id="target_db",
+        metadata={"proteins": ["P32245"]},
+    )
+    notes = (
+        '{"artifact_contract":"protein_search_target_identity",'
+        '"target_identity":{"input_mode":"uniprot_accession",'
+        '"uniprot_accession":"P32245"},"version":1}'
+    )
+
+    result = pubchem_job_service.register_completed_pubchem_job_record(
+        db_path,
+        job,
+        metadata_notes=notes,
+    )
+
+    connection = sqlite3.connect(db_path)
+    persisted = connection.execute(
+        """
+        SELECT origin, notes
+        FROM _chemvault_table_metadata
+        WHERE table_name = 'main'
+        """
+    ).fetchone()
+    connection.close()
+
+    assert result is True
+    assert persisted == ("protein_search", notes)

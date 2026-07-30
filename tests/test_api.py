@@ -376,9 +376,23 @@ def test_pubchem_job_endpoints_use_application_boundary(monkeypatch):
         lambda *args: calls.append(("finalize", *args)) or expected,
     )
 
+    target_identity = {
+        "input_mode": "gene_symbol",
+        "gene_symbol": "MC4R",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "uniprot_accession": "P32245",
+        "uniprot_entry_name": "MC4R_HUMAN",
+        "protein_name": "Melanocortin receptor 4",
+        "reviewed": True,
+    }
     launch = client.post(
         "/databases/test_db/jobs/pubchem_protein_search",
-        json={"proteins": ["P34971"]},
+        json={
+            "proteins": ["P32245"],
+            "target_identity": target_identity,
+        },
     )
     status = client.get(
         "/databases/test_db/jobs/pubchem_protein_search/job-1"
@@ -396,7 +410,7 @@ def test_pubchem_job_endpoints_use_application_boundary(monkeypatch):
     assert finalize.status_code == 200
     assert launch.json()["job_type"] == "pubchem_protein_search"
     assert calls == [
-        ("launch", "test_db", ["P34971"]),
+        ("launch", "test_db", ["P32245"], target_identity),
         ("status", "test_db", "job-1"),
         ("cancel", "test_db", "job-1"),
         ("finalize", "test_db", "job-1"),
@@ -726,6 +740,7 @@ def test_table_metadata_endpoint_uses_application_layer(monkeypatch):
         "origin": None,
         "source_table": None,
         "structure_consolidation_summary": None,
+        "target_identity": None,
         "schema": [
             {
                 "cid": 0,
@@ -741,6 +756,63 @@ def test_table_metadata_endpoint_uses_application_layer(monkeypatch):
         ("test_db", "main", ""),
         ("test_db", "main"),
     ]
+
+
+def test_table_metadata_endpoint_returns_persisted_target_identity(
+    monkeypatch,
+):
+    state = DatabaseState(
+        database_id="test_db",
+        current_table="main",
+        headers=("CID",),
+    )
+    notes = json.dumps(
+        {
+            "artifact_contract": "protein_search_target_identity",
+            "version": 1,
+            "target_identity": {
+                "input_mode": "gene_symbol",
+                "gene_symbol": "MC4R",
+                "organism_id": 9606,
+                "organism_name": "Homo sapiens",
+                "common_name": "Human",
+                "uniprot_accession": "P32245",
+                "uniprot_entry_name": "MC4R_HUMAN",
+                "protein_name": "Melanocortin receptor 4",
+                "reviewed": True,
+            },
+        }
+    )
+    monkeypatch.setattr(api_main, "get_table_state", lambda *args: state)
+    monkeypatch.setattr(
+        api_main,
+        "get_table_metrics",
+        lambda *args: DatabaseMetrics(3, 0),
+    )
+    monkeypatch.setattr(api_main, "get_table_schema", lambda *args: ())
+    monkeypatch.setattr(
+        api_main,
+        "get_table_provenance",
+        lambda *args: TableProvenance(
+            origin="protein_search",
+            notes=notes,
+        ),
+    )
+
+    response = client.get("/databases/test_db/tables/main/metadata")
+
+    assert response.status_code == 200
+    assert response.json()["target_identity"] == {
+        "input_mode": "gene_symbol",
+        "gene_symbol": "MC4R",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "uniprot_accession": "P32245",
+        "uniprot_entry_name": "MC4R_HUMAN",
+        "protein_name": "Melanocortin receptor 4",
+        "reviewed": True,
+    }
 
 
 def test_table_metadata_endpoint_returns_persisted_consolidation_summary(

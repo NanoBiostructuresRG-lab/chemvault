@@ -155,15 +155,55 @@ def test_accession_input_uses_non_stale_helper_text(monkeypatch):
     ]
 
 
+def test_gene_target_identity_payload_preserves_resolver_provenance(
+    monkeypatch,
+):
+    session_state = {
+        "target_input_mode": dialogs.GENE_SYMBOL_MODE,
+        "input_gene_symbol": "MC4R",
+        "selected_organism_id": 9606,
+        "resolved_target": {
+            "gene_symbol": "MC4R",
+            "organism_id": 9606,
+            "organism_name": "Homo sapiens",
+            "common_name": "Human",
+            "accession": "P32245",
+            "entry_name": "MC4R_HUMAN",
+            "protein_name": "Melanocortin receptor 4",
+            "reviewed": True,
+        },
+    }
+    monkeypatch.setattr(dialogs.st, "session_state", session_state)
+
+    assert dialogs._current_target_identity("P32245") == {
+        "input_mode": "gene_symbol",
+        "gene_symbol": "MC4R",
+        "organism_id": 9606,
+        "organism_name": "Homo sapiens",
+        "common_name": "Human",
+        "uniprot_accession": "P32245",
+        "uniprot_entry_name": "MC4R_HUMAN",
+        "protein_name": "Melanocortin receptor 4",
+        "reviewed": True,
+    }
+
+
 def test_single_target_launch_never_accumulates_proteins(monkeypatch):
     calls = []
 
     class FakeGateway:
-        def launch_pubchem_protein_search(self, database_id, proteins):
-            calls.append((database_id, proteins))
+        def launch_pubchem_protein_search(
+            self,
+            database_id,
+            proteins,
+            target_identity,
+        ):
+            calls.append((database_id, proteins, target_identity))
             return SimpleNamespace(job_id="job-target")
 
     session_state = {
+        "target_input_mode": dialogs.UNIPROT_ACCESSION_MODE,
+        "input_protein": " p48357 ",
         "selected_proteins": ["OLD1", "OLD2"],
         "current_table": "",
         "pubchem_job_id": "",
@@ -177,7 +217,16 @@ def test_single_target_launch_never_accumulates_proteins(monkeypatch):
         FakeGateway(),
     )
 
-    assert calls == [("target_db", ["P48357"])]
+    assert calls == [
+        (
+            "target_db",
+            ["P48357"],
+            {
+                "input_mode": "uniprot_accession",
+                "uniprot_accession": "P48357",
+            },
+        )
+    ]
     assert session_state["selected_proteins"] == ["P48357"]
     assert session_state["current_table"] == "main"
     assert session_state["pubchem_job_id"] == "job-target"
