@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.13.0] - 2026-07-29
+
+### Added
+
+- Added a strict single-target workflow that resolves one gene symbol and
+  supported organism to exactly one reviewed UniProt accession before
+  launching the existing PubChem protein-search pipeline.
+- Added UniProt target resolution through the application, backend gateway,
+  HTTP client, and FastAPI layers, using exact primary gene-name and organism
+  matching.
+- Added local and HTTP backend support for launching, querying, cancelling,
+  and finalizing PubChem protein-search jobs.
+- Added durable target identity provenance containing the original input mode,
+  canonical UniProt accession, gene symbol, organism, protein name, entry
+  name, common name, taxonomy identifier, and reviewed status when available.
+- Added a `Target identity` section to the Database summary while preserving
+  the existing active-table, PubChem assay-coverage, and activity-availability
+  sections.
+
+### Changed
+
+- Routed the Streamlit PubChem target workflow through `BackendGateway` in
+  both local-default and HTTP API-client modes.
+- Preserved the UniProt accession as the canonical operational identifier for
+  PubChem retrieval and all downstream CHEMVAULT workflows.
+- Preserved direct UniProt-accession input alongside the new gene-symbol and
+  organism workflow.
+- Restricted target resolution to one target per execution, without batch
+  resolution, target panels, or multiple-protein launches.
+- Preserved PubChem extraction, Structured activity, HARMONSMILE, activity
+  labels, Modelability Index, and fingerprint scientific contracts.
+- Kept legacy databases readable without inferring or silently backfilling
+  missing target identity metadata.
+
+### Validation
+
+- Passed the complete test suite: 628 tests.
+- Completed local-default validation of gene-symbol resolution, PubChem job
+  execution, target identity persistence, and Database summary rendering.
+- Completed HTTP API-client validation with `LEPR` and Homo sapiens taxonomy
+  identifier `9606`, resolving to reviewed UniProt accession `P48357`.
+- Confirmed PubChem job launch, polling, finalization, persisted provenance,
+  and target identity retrieval through FastAPI.
+- Confirmed direct UniProt-accession compatibility and correct legacy-database
+  presentation without inferred metadata or visible raw HTML.
+
+---
+
 ## [v0.12.0] - 2026-07-27
 
 ### Added
