@@ -10,16 +10,22 @@ def _entry(
     *,
     primary_gene_symbols=("LEPR",),
     organism_id=9606,
+    organism_name="Homo sapiens",
+    common_name="Human",
+    entry_name=None,
+    protein_name="Leptin receptor",
     reviewed=True,
 ):
     return UniProtEntry(
         accession=accession,
-        entry_name=f"{primary_gene_symbols[0]}_HUMAN",
+        entry_name=(
+            entry_name or f"{primary_gene_symbols[0]}_HUMAN"
+        ),
         organism_id=organism_id,
-        organism_name="Homo sapiens",
-        common_name="Human",
+        organism_name=organism_name,
+        common_name=common_name,
         primary_gene_symbols=primary_gene_symbols,
-        protein_name="Leptin receptor",
+        protein_name=protein_name,
         reviewed=reviewed,
     )
 
@@ -34,14 +40,80 @@ class StubClient:
         return self.entries
 
 
-def test_supported_organism_catalog_is_singular_but_generic():
-    assert protein_identifiers.list_supported_organisms() == (
+def test_supported_organism_catalog_is_curated_and_human_first():
+    organisms = protein_identifiers.list_supported_organisms()
+
+    assert organisms == (
         protein_identifiers.SupportedOrganism(
             organism_id=9606,
             scientific_name="Homo sapiens",
             common_name="Human",
         ),
+        protein_identifiers.SupportedOrganism(
+            organism_id=10090,
+            scientific_name="Mus musculus",
+            common_name="Mouse",
+        ),
+        protein_identifiers.SupportedOrganism(
+            organism_id=10116,
+            scientific_name="Rattus norvegicus",
+            common_name="Rat",
+        ),
+        protein_identifiers.SupportedOrganism(
+            organism_id=9986,
+            scientific_name="Oryctolagus cuniculus",
+            common_name="Rabbit",
+        ),
+        protein_identifiers.SupportedOrganism(
+            organism_id=10036,
+            scientific_name="Mesocricetus auratus",
+            common_name="Golden hamster",
+        ),
     )
+    assert protein_identifiers.DEFAULT_ORGANISM_ID == 9606
+    assert organisms[0].organism_id == protein_identifiers.DEFAULT_ORGANISM_ID
+    assert len({organism.organism_id for organism in organisms}) == len(
+        organisms
+    )
+
+
+@pytest.mark.parametrize(
+    ("organism_id", "scientific_name", "common_name"),
+    [
+        (9606, "Homo sapiens", "Human"),
+        (10090, "Mus musculus", "Mouse"),
+        (10116, "Rattus norvegicus", "Rat"),
+        (9986, "Oryctolagus cuniculus", "Rabbit"),
+        (10036, "Mesocricetus auratus", "Golden hamster"),
+    ],
+)
+def test_resolver_uses_curated_metadata_for_each_supported_organism(
+    organism_id,
+    scientific_name,
+    common_name,
+):
+    client = StubClient(
+        [
+            _entry(
+                organism_id=organism_id,
+                organism_name="Ignored UniProt organism",
+                common_name=None,
+                entry_name="LEPR_TEST",
+            )
+        ]
+    )
+
+    result = protein_identifiers.resolve_gene_symbol(
+        "lepr",
+        organism_id,
+        client=client,
+    )
+
+    assert result.organism_id == organism_id
+    assert result.organism_name == scientific_name
+    assert result.common_name == common_name
+    assert result.entry_name == "LEPR_TEST"
+    assert client.calls == [("LEPR", organism_id)]
 
 
 def test_resolver_selects_exact_primary_gene_and_ignores_synonym_only_match():
@@ -130,15 +202,15 @@ def test_resolver_rejects_invalid_organism_ids_before_network(organism_id):
 
 
 def test_resolver_rejects_valid_but_unsupported_organism_before_network():
-    client = StubClient([_entry(organism_id=10090)])
+    client = StubClient([_entry(organism_id=9913)])
 
     with pytest.raises(
         protein_identifiers.UnsupportedOrganismError,
-        match="Organism 10090 is not supported",
+        match="Organism 9913 is not supported",
     ):
         protein_identifiers.resolve_gene_symbol(
-            "Lepr",
-            10090,
+            "LEPR",
+            9913,
             client=client,
         )
 
@@ -153,7 +225,27 @@ def test_http_payload_adapters_preserve_application_contracts():
                     "organism_id": 9606,
                     "scientific_name": "Homo sapiens",
                     "common_name": "Human",
-                }
+                },
+                {
+                    "organism_id": 10090,
+                    "scientific_name": "Mus musculus",
+                    "common_name": "Mouse",
+                },
+                {
+                    "organism_id": 10116,
+                    "scientific_name": "Rattus norvegicus",
+                    "common_name": "Rat",
+                },
+                {
+                    "organism_id": 9986,
+                    "scientific_name": "Oryctolagus cuniculus",
+                    "common_name": "Rabbit",
+                },
+                {
+                    "organism_id": 10036,
+                    "scientific_name": "Mesocricetus auratus",
+                    "common_name": "Golden hamster",
+                },
             ]
         }
     )
