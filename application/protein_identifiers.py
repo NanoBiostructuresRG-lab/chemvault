@@ -48,21 +48,40 @@ class ProteinIdentifierResolution:
     reviewed: bool
 
 
+DEFAULT_ORGANISM_ID = 9606
+
 SUPPORTED_ORGANISMS = {
     9606: SupportedOrganism(
         organism_id=9606,
         scientific_name="Homo sapiens",
         common_name="Human",
     ),
+    10090: SupportedOrganism(
+        organism_id=10090,
+        scientific_name="Mus musculus",
+        common_name="Mouse",
+    ),
+    10116: SupportedOrganism(
+        organism_id=10116,
+        scientific_name="Rattus norvegicus",
+        common_name="Rat",
+    ),
+    9986: SupportedOrganism(
+        organism_id=9986,
+        scientific_name="Oryctolagus cuniculus",
+        common_name="Rabbit",
+    ),
+    10036: SupportedOrganism(
+        organism_id=10036,
+        scientific_name="Mesocricetus auratus",
+        common_name="Golden hamster",
+    ),
 }
 
 
 def list_supported_organisms() -> tuple[SupportedOrganism, ...]:
-    """Return the enabled catalog in deterministic taxonomy-id order."""
-    return tuple(
-        SUPPORTED_ORGANISMS[organism_id]
-        for organism_id in sorted(SUPPORTED_ORGANISMS)
-    )
+    """Return the enabled catalog in its curated display order."""
+    return tuple(SUPPORTED_ORGANISMS.values())
 
 
 def _normalize_gene_symbol(gene_symbol) -> str:
