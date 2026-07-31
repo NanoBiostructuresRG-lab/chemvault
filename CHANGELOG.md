@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.13.1] - 2026-07-31
+
+### Added
+
+- Expanded the curated UniProt organism catalog for strict single-target gene
+  resolution.
+- Added support for:
+  - `Homo sapiens` — Human — NCBI taxonomy ID `9606`;
+  - `Mus musculus` — Mouse — NCBI taxonomy ID `10090`;
+  - `Rattus norvegicus` — Rat — NCBI taxonomy ID `10116`;
+  - `Oryctolagus cuniculus` — Rabbit — NCBI taxonomy ID `9986`;
+  - `Mesocricetus auratus` — Golden hamster — NCBI taxonomy ID `10036`.
+
+### Changed
+
+- Preserved `Homo sapiens` as the default organism while using an explicit,
+  curated selector order independent of taxonomy-ID sorting.
+- Kept the organism catalog backend-driven and reusable by both local and HTTP
+  execution modes.
+- Preserved the strict contract of one gene symbol and one organism resolving
+  to exactly one reviewed UniProt accession.
+- Preserved direct UniProt-accession input and all downstream PubChem,
+  Structured activity, HARMONSMILE, activity-label, Modelability Index, and
+  fingerprint workflows.
+
+### Validation
+
+- Passed the complete test suite: 633 tests.
+- Passed 135 tests covering protein identifiers, FastAPI, API client, backend
+  gateway, and the Streamlit target dialog.
+- Confirmed live reviewed UniProt resolution for all five supported organisms.
+- Confirmed visually that the selector preserves the curated order and keeps
+  `Homo sapiens` selected by default.
+
+---
+
 ## [v0.13.0] - 2026-07-29
 
 ### Added
