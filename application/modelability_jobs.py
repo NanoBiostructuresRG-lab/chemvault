@@ -18,6 +18,7 @@ from application.database_use_cases import (
 from application.job_contracts import JobStatusContract, job_status_from_record
 from application.modelability_index import (
     DEFAULT_FINGERPRINT_TYPE,
+    MURCKO_CONTEXT_CONTRACT_VERSION,
     POPULATION_POLICY,
     calculate_persisted_prepared_modelability_index,
     ensure_persisted_modelability_fingerprint_artifact,
@@ -175,6 +176,7 @@ def create_modelability_job(
             "creator_pid": creator_pid,
             "analysis_identity": prepared_input.analysis_identity,
             "analysis_contract": POPULATION_POLICY,
+            "murcko_context_contract_version": MURCKO_CONTEXT_CONTRACT_VERSION,
         }
 
     connection = get_connection(database_id)
@@ -185,7 +187,11 @@ def create_modelability_job(
             database_id=database_id,
             table_name=table_name,
             metadata_factory=metadata_factory,
-            match_metadata_keys=("analysis_identity", "analysis_contract"),
+            match_metadata_keys=(
+                "analysis_identity",
+                "analysis_contract",
+                "murcko_context_contract_version"
+            ),
             include_completed=True,
         )
         if not created:
@@ -256,9 +262,12 @@ def execute_modelability_job(
             request_metadata.get("analysis_contract") != POPULATION_POLICY
             or request_metadata.get("analysis_identity")
             != prepared.analysis_identity
+            or request_metadata.get("murcko_context_contract_version")
+            != MURCKO_CONTEXT_CONTRACT_VERSION
         ):
             raise RuntimeError(
-                "Modelability Index source changed after the job was queued."
+                "Modelability Index source or analysis contract changed "
+                "after the job was queued."
             )
         result = calculate_persisted_prepared_modelability_index(
             connection,

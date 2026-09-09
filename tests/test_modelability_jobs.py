@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 
+import json
 import os
 import sqlite3
 
@@ -637,3 +638,59 @@ def test_orphan_cleanup_preserves_current_executor_and_live_foreign_pid(
         assert JobStore(connection).get_job(foreign.job_id).status == "running"
     finally:
         connection.close()
+
+
+def test_completed_job_without_murcko_context_contract_is_not_reused(
+    tmp_path,
+    monkeypatch,
+):
+    _create_database(tmp_path, monkeypatch)
+
+    monkeypatch.setattr(
+        modelability_jobs,
+        "calculate_persisted_prepared_modelability_index",
+        lambda *_args, **_kwargs: _result(),
+    )
+
+    created = create_modelability_job(
+        "test_db",
+        MODELABILITY_TABLE,
+    )
+    completed = execute_modelability_job(
+        "test_db",
+        created.job_id,
+    )
+
+    connection = get_connection("test_db")
+    try:
+        store = JobStore(connection)
+        record = store.get_job(completed.job_id)
+
+        legacy_metadata = dict(record.metadata)
+        legacy_metadata.pop(
+            "murcko_context_contract_version",
+            None,
+        )
+
+        connection.execute(
+            """
+            UPDATE _chemvault_jobs
+            SET metadata_json = ?
+            WHERE job_id = ?
+            """,
+            (
+                json.dumps(legacy_metadata),
+                completed.job_id,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    replacement = create_modelability_job(
+        "test_db",
+        MODELABILITY_TABLE,
+    )
+
+    assert replacement.job_id != completed.job_id
+    assert replacement.status == JobStatus.PENDING
