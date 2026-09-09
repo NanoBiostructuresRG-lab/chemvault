@@ -451,6 +451,65 @@ def test_structural_context_summary_is_absent_for_legacy_result():
     assert modelability_result.structural_context_metric_groups(_result()) == ()
 
 
+def test_metric_group_html_can_render_rows_of_three():
+    values = tuple(
+        (f"Metric {index}", str(index))
+        for index in range(6)
+    )
+
+    rendered = modelability_result._metric_group_html(
+        "Structural context",
+        values,
+        row_size=3,
+    )
+
+    assert rendered.count("display: grid;") == 2
+    assert rendered.count("background: var(--cv-muted-bg)") == 6
+    assert "margin-top: 0;" in rendered
+    assert "margin-top: 0.4rem;" in rendered
+
+
+def test_analysis_details_include_murcko_provenance():
+    provenance = dict(_result()["provenance"])
+    provenance.update(
+        {
+            "murcko_context_contract_version": (
+                "murcko_modelability_context/v1"
+            ),
+            "murcko_scaffold_definition": (
+                "bemis_murcko_atom_bond_aware"
+            ),
+            "murcko_scaffold_chirality": False,
+        }
+    )
+
+    rows = modelability_result.analysis_detail_rows(provenance)
+
+    murcko_rows = [
+        row
+        for row in rows
+        if row["Group"] == "Murcko context"
+    ]
+
+    assert murcko_rows == [
+        {
+            "Group": "Murcko context",
+            "Field": "Scaffold definition",
+            "Value": "Bemis-Murcko, atom- and bond-aware",
+        },
+        {
+            "Group": "Murcko context",
+            "Field": "Scaffold chirality",
+            "Value": "Not included",
+        },
+        {
+            "Group": "Murcko context",
+            "Field": "Contract",
+            "Value": "murcko_modelability_context/v1",
+        },
+    ]
+
+
 def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     monkeypatch,
 ):

@@ -21,6 +21,11 @@ ANALYSIS_DETAIL_FIELDS = (
     ("Software", "MOLRAPTOR version", "molraptor_version"),
     ("Software", "RDKit version", "rdkit_version"),
 )
+MURCKO_SCAFFOLD_DEFINITION_LABELS = {
+    "bemis_murcko_atom_bond_aware": (
+        "Bemis-Murcko, atom- and bond-aware"
+    ),
+}
 
 
 def _available_rows(provenance, fields):
@@ -35,6 +40,55 @@ def _available_rows(provenance, fields):
 
 def _profile_text(value):
     return str(value).replace("-", " ").replace("_", " ").capitalize()
+
+
+def _murcko_analysis_detail_rows(provenance):
+    rows = []
+
+    scaffold_definition = provenance.get(
+        "murcko_scaffold_definition"
+    )
+    if scaffold_definition not in (None, ""):
+        rows.append(
+            {
+                "Group": "Murcko context",
+                "Field": "Scaffold definition",
+                "Value": MURCKO_SCAFFOLD_DEFINITION_LABELS.get(
+                    scaffold_definition,
+                    str(scaffold_definition),
+                ),
+            }
+        )
+
+    scaffold_chirality = provenance.get(
+        "murcko_scaffold_chirality"
+    )
+    if scaffold_chirality is not None:
+        rows.append(
+            {
+                "Group": "Murcko context",
+                "Field": "Scaffold chirality",
+                "Value": (
+                    "Included"
+                    if scaffold_chirality
+                    else "Not included"
+                ),
+            }
+        )
+
+    contract = provenance.get(
+        "murcko_context_contract_version"
+    )
+    if contract not in (None, ""):
+        rows.append(
+            {
+                "Group": "Murcko context",
+                "Field": "Contract",
+                "Value": contract,
+            }
+        )
+
+    return rows
 
 
 def analysis_detail_rows(provenance):
@@ -108,6 +162,7 @@ def analysis_detail_rows(provenance):
                 )
 
     rows.extend(_available_rows(provenance, ANALYSIS_DETAIL_FIELDS))
+    rows.extend(_murcko_analysis_detail_rows(provenance))
     return rows
 
 
@@ -137,8 +192,38 @@ def _metric_tile_html(label, value):
     ).strip()
 
 
-def _metric_group_html(title, values):
-    tiles = "".join(_metric_tile_html(label, value) for label, value in values)
+def _metric_group_html(title, values, *, row_size=None):
+    values = tuple(values)
+
+    if row_size is None:
+        rows = (values,)
+    else:
+        rows = tuple(
+            values[index:index + row_size]
+            for index in range(0, len(values), row_size)
+        )
+
+    grids = []
+    for index, row in enumerate(rows):
+        tiles = "".join(
+            _metric_tile_html(label, value)
+            for label, value in row
+        )
+        margin = "margin-top: 0.4rem;" if index else "margin-top: 0;"
+        grids.append(
+            dedent(
+                f"""
+                <div style="
+                    display: grid;
+                    grid-template-columns:
+                        repeat(auto-fit, minmax(120px, 1fr));
+                    gap: 0.4rem;
+                    {margin}
+                ">{tiles}</div>
+                """
+            ).strip()
+        )
+
     return dedent(
         f"""
         <div style="margin-top: 0.65rem;">
@@ -148,11 +233,7 @@ def _metric_group_html(title, values):
                 font-weight: 600;
                 color: var(--cv-muted);
             ">{html.escape(str(title))}</div>
-            <div style="
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-                gap: 0.4rem;
-            ">{tiles}</div>
+            {"".join(grids)}
         </div>
         """
     ).strip()
@@ -239,30 +320,36 @@ def structural_context_metric_groups(result):
 
 
 def _render_metrics(result):
-    groups = (
+    modelability_values = (
         (
-            "Modelability",
-            (
-                (
-                    "Modelability Index",
-                    f'{float(result.get("modelability_index", 0.0)):.3f}',
-                ),
-                (
-                    "Active Concordance",
-                    f'{float(result.get("active_concordance", 0.0)):.3f}',
-                ),
-                (
-                    "Inactive Concordance",
-                    f'{float(result.get("inactive_concordance", 0.0)):.3f}',
-                ),
-            ),
+            "Modelability Index",
+            f'{float(result.get("modelability_index", 0.0)):.3f}',
         ),
-        *structural_context_metric_groups(result),
+        (
+            "Active Concordance",
+            f'{float(result.get("active_concordance", 0.0)):.3f}',
+        ),
+        (
+            "Inactive Concordance",
+            f'{float(result.get("inactive_concordance", 0.0)):.3f}',
+        ),
     )
 
-    for title, values in groups:
+    st.markdown(
+        _metric_group_html(
+            "Modelability",
+            modelability_values,
+        ),
+        unsafe_allow_html=True,
+    )
+
+    for title, values in structural_context_metric_groups(result):
         st.markdown(
-            _metric_group_html(title, values),
+            _metric_group_html(
+                title,
+                values,
+                row_size=3,
+            ),
             unsafe_allow_html=True,
         )
 
