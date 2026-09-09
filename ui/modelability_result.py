@@ -168,6 +168,76 @@ def _diagnostics_section_heading_html():
     ).strip()
 
 
+def _optional_metric_text(value):
+    if value is None:
+        return "N/A"
+    return f"{float(value):.3f}"
+
+
+def structural_context_metric_groups(result):
+    context = result.get("structural_context")
+    if not isinstance(context, dict):
+        return ()
+
+    population = context.get("murcko_population")
+    metrics = context.get("murcko_metrics")
+    nn_interface = context.get("murcko_nn_interface")
+
+    if not all(
+        isinstance(section, dict)
+        for section in (population, metrics, nn_interface)
+    ):
+        return ()
+
+    scaffold_count = population.get("scaffold_count")
+
+    return (
+        (
+            "Structural context",
+            (
+                (
+                    "Murcko coverage",
+                    _optional_metric_text(
+                        population.get("murcko_coverage")
+                    ),
+                ),
+                (
+                    "Murcko scaffolds",
+                    (
+                        "N/A"
+                        if scaffold_count is None
+                        else str(scaffold_count)
+                    ),
+                ),
+                (
+                    "Shared-scaffold molecular coverage",
+                    _optional_metric_text(
+                        metrics.get("shared_molecular_coverage")
+                    ),
+                ),
+                (
+                    "Adjusted scaffold effect (ε²)",
+                    _optional_metric_text(
+                        metrics.get("epsilon_squared")
+                    ),
+                ),
+                (
+                    "Murcko NN coverage",
+                    _optional_metric_text(
+                        nn_interface.get("murcko_nn_coverage")
+                    ),
+                ),
+                (
+                    "Same-scaffold NN fraction",
+                    _optional_metric_text(
+                        nn_interface.get("same_scaffold_nn_fraction")
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
 def _render_metrics(result):
     groups = (
         (
@@ -187,7 +257,9 @@ def _render_metrics(result):
                 ),
             ),
         ),
+        *structural_context_metric_groups(result),
     )
+
     for title, values in groups:
         st.markdown(
             _metric_group_html(title, values),
