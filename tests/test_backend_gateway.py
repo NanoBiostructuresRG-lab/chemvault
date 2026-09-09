@@ -1273,3 +1273,48 @@ def test_active_harmonsmile_lookup_uses_http_backend(monkeypatch):
     )
 
     assert result == expected
+
+def test_http_job_status_preserves_nested_modelability_result(monkeypatch):
+    monkeypatch.setenv("CHEMVAULT_API_URL", "http://api.example")
+
+    structural_context = {
+        "murcko_population": {
+            "cyclic_count": 3,
+            "acyclic_count": 1,
+            "murcko_coverage": 0.75,
+        },
+        "murcko_metrics": {
+            "epsilon_squared": 0.4,
+        },
+    }
+
+    payload = {
+        **_completed_job().__dict__,
+        "job_type": "modelability_index",
+        "status": JobStatus.COMPLETED.value,
+        "result": {
+            "modelability_index": 0.75,
+            "structural_context": structural_context,
+        },
+    }
+
+    class FakeClient:
+        def __init__(self, base_url):
+            assert base_url == "http://api.example"
+
+        def get_job_status(self, database_id, job_id):
+            assert (database_id, job_id) == ("test_db", "job-1")
+            return payload
+
+    monkeypatch.setattr(
+        backend_gateway,
+        "ChemVaultApiClient",
+        FakeClient,
+    )
+
+    status = backend_gateway.get_backend_gateway().get_job_status(
+        "test_db",
+        "job-1",
+    )
+
+    assert status.result["structural_context"] == structural_context
