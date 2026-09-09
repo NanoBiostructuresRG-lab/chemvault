@@ -94,6 +94,101 @@ def test_uses_normalized_consolidated_binary_rows_with_fixed_provenance(
     assert provenance["aggregation"] == "macro_average"
 
 
+def test_modelability_result_includes_murcko_structural_context():
+    source = pd.DataFrame(
+        {
+            "SMILES_Harmonized": [
+                "Cc1ccccc1",
+                "Oc1ccccc1",
+                "c1ccncc1",
+                "C1CCCCC1",
+                "CCO",
+                "CCN",
+            ],
+            "Outcome": [
+                "Active",
+                "Inactive",
+                "Active",
+                "Inactive",
+                "Active",
+                "Inactive",
+            ],
+            "Reference_Selection_Status": [
+                "selected",
+                "selected",
+                "selected",
+                "selected",
+                "selected",
+                "selected",
+            ],
+        }
+    )
+
+    result = use_case.calculate_dataframe_modelability_index(
+        source,
+        source_table="structures",
+    )
+
+    context = result.structural_context
+
+    population = context.murcko_population
+    assert population.total_count == 6
+    assert population.cyclic_count == 4
+    assert population.acyclic_count == 2
+    assert population.murcko_coverage == pytest.approx(4 / 6)
+    assert population.scaffold_count == 3
+
+    metrics = context.murcko_metrics
+    assert metrics.shared_scaffold_count == 1
+    assert metrics.shared_molecule_count == 2
+    assert metrics.shared_scaffold_fraction == pytest.approx(1 / 3)
+    assert metrics.shared_molecular_coverage == pytest.approx(1 / 2)
+    assert metrics.within_shared_balance == pytest.approx(1.0)
+
+    assert metrics.global_balance == pytest.approx(1.0)
+    assert metrics.within_balance == pytest.approx(1 / 2)
+    assert metrics.within_ratio == pytest.approx(1 / 2)
+    assert metrics.eta_squared == pytest.approx(1 / 2)
+    assert metrics.null_within_ratio == pytest.approx(1 / 3)
+    assert metrics.epsilon_squared == pytest.approx(-1 / 2)
+
+    nn_diagnostics = context.nearest_neighbor_diagnostics
+    assert (
+        nn_diagnostics.modelability_index_min
+        <= result.modelability_index
+        <= nn_diagnostics.modelability_index_max
+    )
+
+    nn_interface = context.murcko_nn_interface
+    assert (
+        nn_interface.reconstructed_active_concordance
+        == pytest.approx(result.active_concordance)
+    )
+    assert (
+        nn_interface.reconstructed_inactive_concordance
+        == pytest.approx(result.inactive_concordance)
+    )
+    assert (
+        nn_interface.reconstructed_modelability_index
+        == pytest.approx(result.modelability_index)
+    )
+    assert (
+        nn_interface.murcko_nn_coverage
+        <= population.murcko_coverage
+    )
+
+    provenance = result.provenance
+    assert (
+        provenance["murcko_context_contract_version"]
+        == "murcko_modelability_context/v1"
+    )
+    assert (
+        provenance["murcko_scaffold_definition"]
+        == "bemis_murcko_atom_bond_aware"
+    )
+    assert provenance["murcko_scaffold_chirality"] is False
+
+
 def test_default_fingerprint_type_matches_explicit_morgan():
     default = use_case.calculate_dataframe_modelability_index(_source())
     explicit = use_case.calculate_dataframe_modelability_index(

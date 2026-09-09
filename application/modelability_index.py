@@ -25,7 +25,9 @@ from application.database_use_cases import (
 )
 from services.modelability_index import (
     ModelabilityIndexError,
+    NearestNeighborDiagnostics,
     calculate_modelability_index,
+    calculate_nearest_neighbor_diagnostics,
 )
 from services.modelability_fingerprint_artifacts import (
     MATRIX_FORMAT,
@@ -35,6 +37,18 @@ from services.modelability_fingerprint_artifacts import (
     build_fingerprint_artifact,
     read_fingerprint_artifact,
     restore_or_calculate_fingerprint_artifact,
+)
+from services.murcko_metrics import (
+    MurckoStructuralMetrics,
+    calculate_murcko_structural_metrics,
+)
+from services.murcko_nn_interface import (
+    MurckoNNInterfaceResult,
+    analyze_murcko_nn_interface,
+)
+from services.murcko_population import (
+    MurckoPopulationResult,
+    analyze_murcko_population,
 )
 from services.sql_utils import get_tables_from_connection, quote_identifier
 
@@ -54,11 +68,22 @@ TIE_POLICY = "lowest_ordered_index"
 AGGREGATION_METHOD = "macro_average"
 FINGERPRINT_ARTIFACT_CONTRACT = "modelability_fingerprint_artifact"
 FINGERPRINT_ARTIFACT_CONTRACT_VERSION = 1
+MURCKO_CONTEXT_CONTRACT_VERSION = "murcko_modelability_context/v1"
+MURCKO_SCAFFOLD_DEFINITION = "bemis_murcko_atom_bond_aware"
+MURCKO_SCAFFOLD_CHIRALITY = False
 _OUTCOME_MAPPING = {"Inactive": 0, "Active": 1}
 
 
 class ModelabilityIndexUseCaseError(ValueError):
     """Raised when a source table cannot produce a complete analysis."""
+
+
+@dataclass(frozen=True)
+class ModelabilityStructuralContext:
+    murcko_population: MurckoPopulationResult
+    murcko_metrics: MurckoStructuralMetrics
+    nearest_neighbor_diagnostics: NearestNeighborDiagnostics
+    murcko_nn_interface: MurckoNNInterfaceResult
 
 
 @dataclass(frozen=True)
@@ -71,6 +96,7 @@ class ModelabilityIndexUseCaseResult:
     modelability_index: float
     diagnostics: tuple[dict[str, object], ...]
     provenance: dict[str, object]
+    structural_context: ModelabilityStructuralContext
 
 
 @dataclass(frozen=True)
@@ -394,6 +420,35 @@ def _calculate_with_fingerprint_artifact(
     except ModelabilityIndexError as error:
         raise ModelabilityIndexUseCaseError(str(error)) from error
 
+    nearest_neighbor_diagnostics = (
+        calculate_nearest_neighbor_diagnostics(
+            artifact.matrix,
+            outcomes,
+        )
+    )
+
+    murcko_population = analyze_murcko_population(
+        smiles,
+        outcomes,
+    )
+
+    murcko_metrics = calculate_murcko_structural_metrics(
+        murcko_population
+    )
+
+    murcko_nn_interface = analyze_murcko_nn_interface(
+        murcko_population,
+        outcomes,
+        numerical,
+    )
+
+    structural_context = ModelabilityStructuralContext(
+        murcko_population=murcko_population,
+        murcko_metrics=murcko_metrics,
+        nearest_neighbor_diagnostics=nearest_neighbor_diagnostics,
+        murcko_nn_interface=murcko_nn_interface,
+    )
+
     diagnostics = tuple(
         {
             "smiles": smiles[index],
@@ -422,6 +477,9 @@ def _calculate_with_fingerprint_artifact(
         "neighbor_rule": NEIGHBOR_RULE,
         "tie_policy": TIE_POLICY,
         "aggregation": AGGREGATION_METHOD,
+        "murcko_context_contract_version": MURCKO_CONTEXT_CONTRACT_VERSION,
+        "murcko_scaffold_definition": MURCKO_SCAFFOLD_DEFINITION,
+        "murcko_scaffold_chirality": MURCKO_SCAFFOLD_CHIRALITY,
     }
 
     return ModelabilityIndexUseCaseResult(
@@ -433,6 +491,7 @@ def _calculate_with_fingerprint_artifact(
         modelability_index=numerical.modelability_index,
         diagnostics=diagnostics,
         provenance=provenance,
+        structural_context=structural_context,
     )
 
 

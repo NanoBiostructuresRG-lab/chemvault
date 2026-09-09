@@ -10,6 +10,7 @@ from application.job_contracts import job_status_from_record
 from application.modelability_index import (
     POPULATION_POLICY,
     ModelabilityIndexUseCaseResult,
+    ModelabilityStructuralContext,
     PreparedModelabilityInput,
 )
 from application.modelability_jobs import (
@@ -28,7 +29,11 @@ from services.database_core import get_connection
 from services.db_audit import register_table_metadata
 from services.job_models import JobStatus, JobType
 from services.job_store import JobStore
+from services.modelability_index import NearestNeighborDiagnostics
 from services.modelability_fingerprint_artifacts import FINGERPRINT_ARTIFACTS_TABLE
+from services.murcko_metrics import MurckoStructuralMetrics
+from services.murcko_nn_interface import MurckoNNInterfaceResult
+from services.murcko_population import MurckoPopulationResult
 from services.sql_utils import get_tables_from_connection
 
 
@@ -114,6 +119,66 @@ def _result(table_name=MODELABILITY_TABLE):
             "similarity_metric": "tanimoto",
             "neighbor_rule": "single_nearest_neighbor",
         },
+        structural_context=ModelabilityStructuralContext(
+            murcko_population=MurckoPopulationResult(
+                total_count=2,
+                cyclic_count=0,
+                acyclic_count=2,
+                murcko_coverage=0.0,
+                scaffold_count=0,
+                assignments=(None, None),
+                scaffold_outcome_counts={},
+            ),
+            murcko_metrics=MurckoStructuralMetrics(
+                shared_scaffold_count=0,
+                shared_molecule_count=0,
+                shared_scaffold_fraction=None,
+                shared_molecular_coverage=None,
+                within_shared_balance=None,
+                global_balance=None,
+                within_balance=None,
+                within_ratio=None,
+                eta_squared=None,
+                null_within_ratio=None,
+                epsilon_squared=None,
+            ),
+            nearest_neighbor_diagnostics=NearestNeighborDiagnostics(
+                maximum_neighbor_indices=((1,), (0,)),
+                maximum_similarities=(0.5, 0.5),
+                tied_neighbor_counts=(1, 1),
+                tie_fraction=0.0,
+                tie_sensitive_fraction=0.0,
+                fingerprint_identical_fraction=0.0,
+                fingerprint_identical_label_conflict_fraction=0.0,
+                active_concordance_min=0.0,
+                active_concordance_max=0.0,
+                inactive_concordance_min=0.0,
+                inactive_concordance_max=0.0,
+                modelability_index_min=0.0,
+                modelability_index_max=0.0,
+            ),
+            murcko_nn_interface=MurckoNNInterfaceResult(
+                cc_count=0,
+                ca_count=0,
+                ac_count=0,
+                aa_count=2,
+                murcko_nn_coverage=0.0,
+                same_scaffold_count=0,
+                different_scaffold_count=0,
+                same_scaffold_nn_fraction=None,
+                same_scaffold_concordance=None,
+                different_scaffold_concordance=None,
+                reconstructed_active_concordance=0.0,
+                reconstructed_inactive_concordance=0.0,
+                reconstructed_modelability_index=0.0,
+                transition_counts={
+                    "CC": 0,
+                    "CA": 0,
+                    "AC": 0,
+                    "AA": 2,
+                },
+            ),
+        ),
     )
 
 
@@ -199,6 +264,10 @@ def test_modelability_job_completes_with_json_result_and_no_result_table(
     assert completed.result["modelability_index"] == 0.0
     assert len(completed.result["diagnostics"]) == 2
     assert completed.result["provenance"]["similarity_metric"] == "tanimoto"
+    assert (
+        completed.result["structural_context"]["murcko_population"]["acyclic_count"]
+        == 2
+    )
     assert "fingerprints" not in completed.result
 
     connection = get_connection("test_db")
