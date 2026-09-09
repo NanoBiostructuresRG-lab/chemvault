@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.14.0] - 2026-09-09
+
+### Added
+
+- Added canonical atom- and bond-aware Bemis-Murcko scaffold context to the
+  MODELABILITY INDEX population.
+- Added Murcko population coverage for cyclic and acyclic structures, scaffold
+  counts, shared-scaffold coverage, and scaffold-level activity-label
+  organization metrics.
+- Added an adjusted scaffold-effect metric that accounts for the number of
+  observed Murcko scaffold groups while preserving negative values when
+  applicable.
+- Added nearest-neighbor diagnostics for exact similarity ties, tie-sensitive
+  label concordance, and fingerprint-identical neighbors.
+- Added a Murcko nearest-neighbor interface that distinguishes cyclic and
+  acyclic neighbor transitions and same-scaffold versus different-scaffold
+  relationships.
+- Added a compact Structural context section to MODELABILITY INDEX results and
+  Murcko scaffold provenance to Analysis details.
+
+### Changed
+
+- Integrated Murcko structural context as an interpretative layer around the
+  existing MODELABILITY INDEX without changing its fingerprint-space
+  calculation, nearest-neighbor selection rule, tie policy, or macro-average
+  aggregation.
+- Preserved the existing MODELABILITY INDEX analysis identity and
+  `chemvault_analysis_hash`; Murcko context is versioned independently through
+  `murcko_modelability_context/v1`.
+- Updated completed-job reuse so legacy MODELABILITY INDEX results without the
+  Murcko context contract are not restored as current analyses, while
+  compatible persisted fingerprint artifacts remain reusable.
+- Preserved nested Murcko structural context across local and HTTP backend
+  execution without introducing a separate API endpoint or result schema.
+- Kept legacy MODELABILITY INDEX results display-compatible when structural
+  context is absent.
+
+### Validation
+
+- Passed the complete test suite: 656 tests.
+- Confirmed `git diff --check` is clean after merging PR #25 into `main`.
+- Confirmed Murcko structural context is preserved across FastAPI and
+  BackendGateway execution paths.
+- Completed local Streamlit smoke validation with two real MODELABILITY INDEX
+  datasets, confirming the Structural context summary, 3-by-2 metric layout,
+  Murcko provenance, and compatibility with the existing result presentation.
+
+---
+
 ## [v0.13.1] - 2026-07-31
 
 ### Added
