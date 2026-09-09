@@ -59,6 +59,99 @@ def test_equal_similarity_ties_use_lowest_ordered_index():
     )
 
 
+def test_nearest_neighbor_diagnostics_expose_ties_and_macro_bounds():
+    fingerprints = np.asarray(
+        [
+            [1, 0],
+            [1, 1],
+            [1, 1],
+        ],
+        dtype=np.uint8,
+    )
+    outcomes = ["Active", "Active", "Inactive"]
+
+    result = service.calculate_modelability_index(fingerprints, outcomes)
+    diagnostics = service.calculate_nearest_neighbor_diagnostics(
+        fingerprints,
+        outcomes,
+    )
+
+    assert diagnostics.maximum_neighbor_indices == (
+        (1, 2),
+        (2,),
+        (1,),
+    )
+    assert diagnostics.maximum_similarities == pytest.approx(
+        (0.5, 1.0, 1.0)
+    )
+    assert diagnostics.tied_neighbor_counts == (2, 1, 1)
+
+    assert diagnostics.tie_fraction == pytest.approx(1 / 3)
+    assert diagnostics.tie_sensitive_fraction == pytest.approx(1 / 3)
+
+    assert diagnostics.fingerprint_identical_fraction == pytest.approx(2 / 3)
+    assert (
+        diagnostics.fingerprint_identical_label_conflict_fraction
+        == pytest.approx(2 / 3)
+    )
+
+    assert diagnostics.active_concordance_min == pytest.approx(0.0)
+    assert diagnostics.active_concordance_max == pytest.approx(0.5)
+    assert diagnostics.inactive_concordance_min == pytest.approx(0.0)
+    assert diagnostics.inactive_concordance_max == pytest.approx(0.0)
+
+    assert diagnostics.modelability_index_min == pytest.approx(0.0)
+    assert diagnostics.modelability_index_max == pytest.approx(0.25)
+
+    assert diagnostics.modelability_index_min <= result.modelability_index
+    assert result.modelability_index <= diagnostics.modelability_index_max
+    assert result.modelability_index == pytest.approx(
+        diagnostics.modelability_index_max
+    )
+
+
+def test_nearest_neighbor_diagnostics_preserve_index_for_insensitive_ties():
+    fingerprints = np.asarray(
+        [
+            [1, 0, 0, 0],
+            [1, 1, 0, 0],
+            [1, 0, 1, 0],
+            [0, 0, 0, 1],
+            [0, 0, 1, 1],
+        ],
+        dtype=np.uint8,
+    )
+    outcomes = [
+        "Active",
+        "Active",
+        "Active",
+        "Inactive",
+        "Inactive",
+    ]
+
+    result = service.calculate_modelability_index(
+        fingerprints,
+        outcomes,
+    )
+    diagnostics = service.calculate_nearest_neighbor_diagnostics(
+        fingerprints,
+        outcomes,
+    )
+
+    assert diagnostics.maximum_neighbor_indices[0] == (1, 2)
+    assert diagnostics.tied_neighbor_counts[0] == 2
+    assert diagnostics.tie_fraction == pytest.approx(1 / 5)
+    assert diagnostics.tie_sensitive_fraction == pytest.approx(0.0)
+
+    assert diagnostics.modelability_index_min == pytest.approx(
+        result.modelability_index
+    )
+    assert diagnostics.modelability_index_max == pytest.approx(
+        result.modelability_index
+    )
+    assert result.modelability_index == pytest.approx(1.0)
+
+
 def test_macro_average_differs_from_micro_average_for_imbalanced_classes():
     fingerprints = np.asarray(
         [
