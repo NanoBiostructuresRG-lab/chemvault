@@ -1232,3 +1232,40 @@ def test_uniprot_resolution_endpoint_maps_controlled_errors(
 
     assert response.status_code == status_code
     assert response.json() == {"detail": str(error)}
+
+def test_job_status_endpoint_preserves_nested_modelability_result(
+    monkeypatch,
+):
+    payload = {
+        **_completed_harmonsmile_job(),
+        "job_type": "modelability_index",
+        "result": {
+            "modelability_index": 0.75,
+            "structural_context": {
+                "murcko_population": {
+                    "cyclic_count": 3,
+                    "acyclic_count": 1,
+                    "murcko_coverage": 0.75,
+                },
+                "murcko_metrics": {
+                    "epsilon_squared": 0.4,
+                },
+            },
+        },
+    }
+
+    expected = job_status_from_payload(payload)
+
+    monkeypatch.setattr(
+        api_main,
+        "get_scientific_job_status",
+        lambda *_args: expected,
+    )
+
+    response = client.get("/databases/test_db/jobs/job-1")
+
+    assert response.status_code == 200
+    assert (
+        response.json()["result"]["structural_context"]
+        == payload["result"]["structural_context"]
+    )

@@ -386,6 +386,130 @@ def test_sidebar_execution_card_does_not_render_scientific_result():
     assert "st.json" not in source
 
 
+def test_structural_context_summary_uses_selected_murcko_metrics():
+    result = _result()
+    result["structural_context"] = {
+        "murcko_population": {
+            "total_count": 6,
+            "cyclic_count": 4,
+            "acyclic_count": 2,
+            "murcko_coverage": 4 / 6,
+            "scaffold_count": 3,
+            "assignments": [],
+            "scaffold_outcome_counts": {},
+        },
+        "murcko_metrics": {
+            "shared_scaffold_count": 1,
+            "shared_molecule_count": 2,
+            "shared_scaffold_fraction": 1 / 3,
+            "shared_molecular_coverage": 1 / 2,
+            "within_shared_balance": 1.0,
+            "global_balance": 1.0,
+            "within_balance": 1 / 2,
+            "within_ratio": 1 / 2,
+            "eta_squared": 1 / 2,
+            "null_within_ratio": 1 / 3,
+            "epsilon_squared": -1 / 2,
+        },
+        "nearest_neighbor_diagnostics": {},
+        "murcko_nn_interface": {
+            "cc_count": 3,
+            "ca_count": 1,
+            "ac_count": 1,
+            "aa_count": 1,
+            "murcko_nn_coverage": 1 / 2,
+            "same_scaffold_count": 2,
+            "different_scaffold_count": 1,
+            "same_scaffold_nn_fraction": 2 / 3,
+            "same_scaffold_concordance": 1.0,
+            "different_scaffold_concordance": 0.0,
+            "reconstructed_active_concordance": 0.5,
+            "reconstructed_inactive_concordance": 1.0,
+            "reconstructed_modelability_index": 0.75,
+            "transition_counts": {},
+        },
+    }
+
+    groups = modelability_result.structural_context_metric_groups(result)
+
+    assert groups == (
+        (
+            "Structural context",
+            (
+                ("Murcko coverage", "0.667"),
+                ("Murcko scaffolds", "3"),
+                ("Shared-scaffold molecular coverage", "0.500"),
+                ("Adjusted scaffold effect (ε²)", "-0.500"),
+                ("Murcko NN coverage", "0.500"),
+                ("Same-scaffold NN fraction", "0.667"),
+            ),
+        ),
+    )
+
+
+def test_structural_context_summary_is_absent_for_legacy_result():
+    assert modelability_result.structural_context_metric_groups(_result()) == ()
+
+
+def test_metric_group_html_can_render_rows_of_three():
+    values = tuple(
+        (f"Metric {index}", str(index))
+        for index in range(6)
+    )
+
+    rendered = modelability_result._metric_group_html(
+        "Structural context",
+        values,
+        row_size=3,
+    )
+
+    assert rendered.count("display: grid;") == 2
+    assert rendered.count("background: var(--cv-muted-bg)") == 6
+    assert "margin-top: 0;" in rendered
+    assert "margin-top: 0.4rem;" in rendered
+
+
+def test_analysis_details_include_murcko_provenance():
+    provenance = dict(_result()["provenance"])
+    provenance.update(
+        {
+            "murcko_context_contract_version": (
+                "murcko_modelability_context/v1"
+            ),
+            "murcko_scaffold_definition": (
+                "bemis_murcko_atom_bond_aware"
+            ),
+            "murcko_scaffold_chirality": False,
+        }
+    )
+
+    rows = modelability_result.analysis_detail_rows(provenance)
+
+    murcko_rows = [
+        row
+        for row in rows
+        if row["Group"] == "Murcko context"
+    ]
+
+    assert murcko_rows == [
+        {
+            "Group": "Murcko context",
+            "Field": "Scaffold definition",
+            "Value": "Bemis-Murcko, atom- and bond-aware",
+        },
+        {
+            "Group": "Murcko context",
+            "Field": "Scaffold chirality",
+            "Value": "Not included",
+        },
+        {
+            "Group": "Murcko context",
+            "Field": "Contract",
+            "Value": "murcko_modelability_context/v1",
+        },
+    ]
+
+
 def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     monkeypatch,
 ):
