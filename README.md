@@ -80,7 +80,7 @@ Direct UniProt accession -------------+
                  MODELABILITY INDEX (MOLRAPTOR fingerprints)
                                       |
                                       v
-             Nearest-neighbor report and fingerprint .npz export
+             Nearest-neighbor CSV, analysis JSON, and fingerprint .npz exports
 ```
 
 CHEMVAULT keeps source tables available and records derived-table provenance so
@@ -125,7 +125,7 @@ runtime dependencies are installed from `requirements.txt`.
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
 git fetch --tags
-git checkout v0.14.0
+git checkout v0.14.1
 ```
 
 2. Create and activate the environment:
@@ -157,7 +157,7 @@ Open `http://localhost:8501` in your browser.
 ```bash
 cd path/to/chemvault
 git fetch --tags origin
-git checkout v0.14.0
+git checkout v0.14.1
 conda activate chemvault_env
 python -m pip install -r requirements.txt
 ```
@@ -301,9 +301,10 @@ independently of this catalog.
    repeated observations by `SMILES_Harmonized`.
 9. Select the resulting consolidated table.
 10. Choose a fingerprint in **MODELABILITY INDEX** and run the analysis.
-11. Inspect the score, class concordance, provenance, and nearest-neighbor
-    report.
-12. Download the nearest-neighbor report or the fingerprint `.npz` export.
+11. Inspect the score, class concordance, structural context, provenance, and
+    nearest-neighbor report.
+12. Download the nearest-neighbor CSV, analysis JSON, or fingerprint `.npz`
+    export.
 
 > Databases are stored in `SQL/` and can be reopened in later sessions. Use a
 > different database name when a completely fresh run is required.
@@ -447,10 +448,19 @@ provided by MOLRAPTOR.
 
 The result card provides:
 
-- a complete nearest-neighbor report;
+- a complete nearest-neighbor CSV report containing the selected molecular
+  comparisons together with the fingerprint type, analysis identity, and
+  population identity;
+- a JSON analysis report containing the MODELABILITY INDEX summary metrics,
+  analysis provenance, and the nearest-neighbor tie and ambiguity diagnostics
+  already calculated by CHEMVAULT;
 - a self-contained fingerprint `.npz` export containing the fingerprint
   matrix, ordered harmonized SMILES, binary outcomes and labels, stable
   structure identifiers, and canonical provenance metadata.
+
+The nearest-neighbor CSV and analysis JSON filenames include the fingerprint
+type and the first eight characters of the CHEMVAULT analysis identity so that
+outputs from different molecular representations remain distinguishable.
 
 The `.npz` filename contract is:
 
@@ -504,7 +514,7 @@ software as:
 Contreras-Torres, F. F., Castro-Flores, D., Murrieta, A. C., &
 Saldivar-González, F. I. (2026).
 CHEMVAULT: A traceable molecular dataset management and curation application
-(Version 0.14.0) [Computer software].
+(Version 0.14.1) [Computer software].
 https://github.com/NanoBiostructuresRG-lab/chemvault
 ```
 
