@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.14.1] - 2026-09-15
+
+### Added
+
+- Added a downloadable JSON analysis report for completed MODELABILITY INDEX
+  analyses, containing summary metrics, analysis provenance, and the
+  nearest-neighbor tie and ambiguity diagnostics already calculated by
+  CHEMVAULT.
+
+### Changed
+
+- Extended the nearest-neighbor CSV export with `fingerprint_type`,
+  `chemvault_analysis_hash`, and `population_identity` so each molecular
+  comparison remains explicitly linked to its analytical context.
+- Updated nearest-neighbor CSV and analysis-report filenames to include the
+  fingerprint type and the first eight characters of the analysis identity,
+  preventing ambiguity across multiple molecular representations.
+- Preserved the existing fingerprint `.npz` contract and all MODELABILITY INDEX
+  scientific calculations, including population preparation, fingerprint
+  generation, Tanimoto similarity, nearest-neighbor selection, tie handling,
+  concordance calculation, and Murcko structural context.
+
+### Validation
+
+- Passed the complete test suite: 658 tests.
+- Confirmed `git diff --check` is clean after merging PR #26 into `main`.
+- Confirmed that MODELABILITY INDEX output-traceability changes do not alter the
+  scientific calculation or fingerprint `.npz` export contract.
+
+---
+
 ## [v0.14.0] - 2026-09-09
 
 ### Added
