@@ -9,7 +9,11 @@ import streamlit as st
 from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from ui.state_keys import MODELABILITY_FINGERPRINT_TYPE, MODELABILITY_RESULT
-from ui.modelability_state import diagnostics_csv, modelability_scope_matches
+from ui.modelability_state import (
+    analysis_report_json,
+    diagnostics_csv,
+    modelability_scope_matches,
+)
 
 
 DIAGNOSTICS_PREVIEW_ROWS = 10
@@ -395,20 +399,38 @@ def render_modelability_result_card(session_state, database_id, table_name):
             hide_index=True,
             use_container_width=True,
         )
-        diagnostics_column, fingerprints_column = st.columns(2)
-        with diagnostics_column:
-            st.download_button(
-                "Download nearest-neighbor report",
-                data=diagnostics_csv(result),
-                file_name=f"{table_name}_modelability_diagnostics.csv",
-                mime="text/csv",
-                key=f"download_modelability_diagnostics_{table_name}",
-            )
         analysis_identity = provenance.get("chemvault_analysis_hash")
         result_fingerprint_type = provenance.get(
             "fingerprint_type",
             DEFAULT_FINGERPRINT_TYPE,
         )
+        analysis_hash_8 = str(analysis_identity or "")[:8]
+        download_name_prefix = (
+            f"{table_name}_{result_fingerprint_type}_{analysis_hash_8}"
+        )
+        diagnostics_column, analysis_column, fingerprints_column = (
+            st.columns(3)
+        )
+        with diagnostics_column:
+            st.download_button(
+                "Download nearest-neighbor report",
+                data=diagnostics_csv(result),
+                file_name=(
+                    f"{download_name_prefix}_modelability_diagnostics.csv"
+                ),
+                mime="text/csv",
+                key=f"download_modelability_diagnostics_{table_name}",
+            )
+        with analysis_column:
+            st.download_button(
+                "Download analysis report (.json)",
+                data=analysis_report_json(result),
+                file_name=(
+                    f"{download_name_prefix}_modelability_analysis.json"
+                ),
+                mime="application/json",
+                key=f"download_modelability_analysis_{table_name}",
+            )
         if isinstance(analysis_identity, str) and analysis_identity:
             try:
                 npz_bytes, npz_filename = (

@@ -2,6 +2,7 @@
 
 from contextlib import nullcontext
 import inspect
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,7 @@ from application.job_contracts import JobStatusContract
 from services.job_models import JobStatus
 from ui import main_page, modelability_card, modelability_result
 from ui.modelability_state import (
+    analysis_report_json,
     diagnostics_csv,
     launch_modelability_job,
     modelability_scope_matches,
@@ -62,6 +64,7 @@ def _result():
         ],
         "provenance": {
             "source_table": TABLE_NAME,
+            "fingerprint_type": "morgan",
             "fingerprint_profile": {
                 "algorithm": "morgan",
                 "output_type": "binary-bit-vector",
@@ -76,13 +79,37 @@ def _result():
             },
             "molraptor_profile_hash": "profile-hash",
             "molraptor_ordered_input_hash": "input-hash",
-            "chemvault_analysis_hash": "analysis-hash",
+            "chemvault_analysis_hash": (
+                "441d8c24e82bdaf6a63fc35c619f40935419a36f"
+                "8fc678da847bd59e2b6e9bf1"
+            ),
             "molraptor_version": "0.2.0",
             "rdkit_version": "2025.03.1",
+            "fingerprint_source": "calculated",
+            "fingerprint_identity": "fingerprint-identity",
+            "population_identity": "population-identity",
+            "fingerprint_artifact_sha256": "artifact-sha256",
             "similarity_metric": "tanimoto",
             "neighbor_rule": "single_nearest_neighbor",
             "tie_policy": "lowest_ordered_index",
             "aggregation": "macro_average",
+        },
+        "structural_context": {
+            "nearest_neighbor_diagnostics": {
+                "maximum_neighbor_indices": [[1], [0, 2], [0]],
+                "maximum_similarities": [0.5, 0.5, 0.25],
+                "tied_neighbor_counts": [1, 2, 1],
+                "tie_fraction": 1 / 3,
+                "tie_sensitive_fraction": 1 / 6,
+                "fingerprint_identical_fraction": 0.125,
+                "fingerprint_identical_label_conflict_fraction": 0.0625,
+                "active_concordance_min": 0.25,
+                "active_concordance_max": 0.75,
+                "inactive_concordance_min": 1.0,
+                "inactive_concordance_max": 1.0,
+                "modelability_index_min": 0.625,
+                "modelability_index_max": 0.875,
+            },
         },
     }
 
@@ -359,13 +386,88 @@ def test_completed_and_failed_jobs_update_scoped_result_state():
 
 
 def test_diagnostics_csv_is_generated_in_memory():
-    csv_text = diagnostics_csv(_result())
+    result = _result()
+    csv_text = diagnostics_csv(result)
 
     assert csv_text.splitlines() == [
-        "smiles,outcome,nearest_neighbor_smiles,nearest_neighbor_outcome,"
+        "fingerprint_type,chemvault_analysis_hash,population_identity,smiles,"
+        "outcome,nearest_neighbor_smiles,nearest_neighbor_outcome,"
         "tanimoto_similarity,concordant",
-        "CCO,Active,CCC,Inactive,0.5,False",
+        "morgan,441d8c24e82bdaf6a63fc35c619f40935419a36f8fc678da847bd59e2b6e9bf1,"
+        "population-identity,CCO,Active,CCC,Inactive,0.5,False",
     ]
+    assert result["diagnostics"][0] == {
+        "smiles": "CCO",
+        "outcome": "Active",
+        "nearest_neighbor_smiles": "CCC",
+        "nearest_neighbor_outcome": "Inactive",
+        "tanimoto_similarity": 0.5,
+        "concordant": False,
+    }
+
+
+def test_analysis_report_json_serializes_existing_result_exactly():
+    result = _result()
+    result["modelability_index"] = 0.7500000000000001
+
+    report_text = analysis_report_json(result)
+    report = json.loads(report_text)
+
+    assert report_text.endswith("\n")
+    assert not report_text.endswith("\n\n")
+    assert set(report) == {
+        "schema_name",
+        "schema_version",
+        "summary",
+        "provenance",
+        "nearest_neighbor_diagnostics",
+    }
+    assert report["schema_name"] == "chemvault_modelability_analysis"
+    assert report["schema_version"] == 1
+    assert report["summary"] == {
+        key: result[key]
+        for key in (
+            "structure_count",
+            "active_count",
+            "inactive_count",
+            "active_concordance",
+            "inactive_concordance",
+            "modelability_index",
+        )
+    }
+    assert report["summary"]["modelability_index"] == 0.7500000000000001
+    assert report["provenance"]["fingerprint_type"] == "morgan"
+    assert report["provenance"]["fingerprint_profile"] == (
+        result["provenance"]["fingerprint_profile"]
+    )
+    for identity in (
+        "chemvault_analysis_hash",
+        "fingerprint_identity",
+        "population_identity",
+        "fingerprint_artifact_sha256",
+    ):
+        assert report["provenance"][identity] == result["provenance"][identity]
+    assert report["nearest_neighbor_diagnostics"] == (
+        result["structural_context"]["nearest_neighbor_diagnostics"]
+    )
+    assert report["nearest_neighbor_diagnostics"][
+        "maximum_neighbor_indices"
+    ] == [[1], [0, 2], [0]]
+    assert report["nearest_neighbor_diagnostics"][
+        "maximum_similarities"
+    ] == [0.5, 0.5, 0.25]
+    assert report["nearest_neighbor_diagnostics"][
+        "tied_neighbor_counts"
+    ] == [1, 2, 1]
+
+
+def test_analysis_report_json_uses_empty_missing_nearest_neighbor_diagnostics():
+    result = _result()
+    result.pop("structural_context")
+
+    report = json.loads(analysis_report_json(result))
+
+    assert report["nearest_neighbor_diagnostics"] == {}
 
 
 def test_sidebar_execution_card_does_not_render_scientific_result():
@@ -549,7 +651,7 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "columns",
         lambda spec: (
             rendered["column_calls"].append(spec)
-            or (Context(0), Context(1))
+            or (Context(0), Context(1), Context(2))
         ),
     )
 
@@ -622,6 +724,8 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     state = {
         "modelability_job_database_id": DATABASE_ID,
         "modelability_job_table_name": TABLE_NAME,
+        "modelability_job_fingerprint_type": "maccs",
+        "modelability_fingerprint_type": "maccs",
         "modelability_result": result,
     }
     rendered_result = modelability_result.render_modelability_result_card(
@@ -726,8 +830,23 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     assert rendered["downloads"][0][0] == (
         "Download nearest-neighbor report",
     )
+    assert len(rendered["downloads"]) == 3
     assert rendered["downloads"][0][1]["data"] == diagnostics_csv(result)
+    assert rendered["downloads"][0][1]["file_name"] == (
+        f"{TABLE_NAME}_morgan_441d8c24_modelability_diagnostics.csv"
+    )
     assert rendered["downloads"][1] == (
+        ("Download analysis report (.json)",),
+        {
+            "data": analysis_report_json(result),
+            "file_name": (
+                f"{TABLE_NAME}_morgan_441d8c24_modelability_analysis.json"
+            ),
+            "mime": "application/json",
+            "key": f"download_modelability_analysis_{TABLE_NAME}",
+        },
+    )
+    assert rendered["downloads"][2] == (
         ("Download fingerprints (.npz)",),
         {
             "data": b"npz-bytes",
@@ -736,10 +855,15 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
             "key": f"download_modelability_fingerprints_{TABLE_NAME}",
         },
     )
-    assert rendered["column_calls"] == [2]
-    assert rendered["download_columns"] == [0, 1]
+    assert rendered["column_calls"] == [3]
+    assert rendered["download_columns"] == [0, 1, 2]
     assert gateway_calls == [
-        (DATABASE_ID, TABLE_NAME, "analysis-hash", "morgan")
+        (
+            DATABASE_ID,
+            TABLE_NAME,
+            result["provenance"]["chemvault_analysis_hash"],
+            "morgan",
+        )
     ]
     assert len(diagnostics_csv(result).splitlines()) == 13
     assert rendered["expanders"] == [
@@ -756,7 +880,9 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     ] == "1.0"
     assert result["provenance"]["molraptor_profile_hash"] == "profile-hash"
     assert result["provenance"]["molraptor_ordered_input_hash"] == "input-hash"
-    assert result["provenance"]["chemvault_analysis_hash"] == "analysis-hash"
+    assert result["provenance"]["chemvault_analysis_hash"].startswith(
+        "441d8c24"
+    )
 
 
 def test_modelability_npz_export_failure_is_visible(monkeypatch):
@@ -787,7 +913,7 @@ def test_modelability_npz_export_failure_is_visible(monkeypatch):
     monkeypatch.setattr(
         modelability_result.st,
         "columns",
-        lambda _spec: (Context(), Context()),
+        lambda _spec: (Context(), Context(), Context()),
     )
     monkeypatch.setattr(
         modelability_result.st,
