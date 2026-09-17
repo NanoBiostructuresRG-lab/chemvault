@@ -125,7 +125,7 @@ runtime dependencies are installed from `requirements.txt`.
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
 git fetch --tags
-git checkout v0.14.1
+git checkout v0.14.2
 ```
 
 2. Create and activate the environment:
@@ -157,7 +157,7 @@ Open `http://localhost:8501` in your browser.
 ```bash
 cd path/to/chemvault
 git fetch --tags origin
-git checkout v0.14.1
+git checkout v0.14.2
 conda activate chemvault_env
 python -m pip install -r requirements.txt
 ```
@@ -452,8 +452,9 @@ The result card provides:
   comparisons together with the fingerprint type, analysis identity, and
   population identity;
 - a JSON analysis report containing the MODELABILITY INDEX summary metrics,
-  analysis provenance, and the nearest-neighbor tie and ambiguity diagnostics
-  already calculated by CHEMVAULT;
+  analysis provenance, nearest-neighbor tie and ambiguity diagnostics, and the
+  existing Murcko population, structural metrics, and nearest-neighbor
+  scaffold-interface context at full numeric precision;
 - a self-contained fingerprint `.npz` export containing the fingerprint
   matrix, ordered harmonized SMILES, binary outcomes and labels, stable
   structure identifiers, and canonical provenance metadata.
@@ -514,7 +515,7 @@ software as:
 Contreras-Torres, F. F., Castro-Flores, D., Murrieta, A. C., &
 Saldivar-González, F. I. (2026).
 CHEMVAULT: A traceable molecular dataset management and curation application
-(Version 0.14.1) [Computer software].
+(Version 0.14.2) [Computer software].
 https://github.com/NanoBiostructuresRG-lab/chemvault
 ```
 
