@@ -1,6 +1,6 @@
 # CHEMVAULT
 
-**A traceable molecular dataset management and curation application**
+**Target-centered bioactivity dataset curation from PubChem**
 
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](LICENSE)
 
@@ -125,7 +125,7 @@ runtime dependencies are installed from `requirements.txt`.
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
 git fetch --tags
-git checkout v0.14.2
+git checkout v0.14.3
 ```
 
 2. Create and activate the environment:
@@ -157,7 +157,7 @@ Open `http://localhost:8501` in your browser.
 ```bash
 cd path/to/chemvault
 git fetch --tags origin
-git checkout v0.14.2
+git checkout v0.14.3
 conda activate chemvault_env
 python -m pip install -r requirements.txt
 ```
@@ -415,11 +415,13 @@ bond-aware Bemis-Murcko scaffold context. Cyclic molecules are partitioned by
 scaffold, while acyclic molecules remain outside the Murcko partition and are
 reported explicitly through coverage.
 
-The structural context summarizes scaffold coverage and organization, an
-adjusted scaffold effect, and whether selected nearest-neighbor relationships
-remain within the same scaffold or cross scaffold boundaries. These metrics
-provide interpretative context for the MODELABILITY INDEX; they do not
-recalculate or alter the index itself.
+The result card presents this information in two groups. **Murcko population
+context** reports Murcko population coverage, scaffold count, shared-scaffold
+molecular coverage, and the adjusted scaffold effect. **Nearest-neighbor
+scaffold interface** reports Murcko nearest-neighbor coverage, the same-scaffold
+nearest-neighbor fraction, and same-scaffold and different-scaffold
+concordances. These metrics provide interpretative context for the MODELABILITY
+INDEX; they do not recalculate or alter the index itself.
 
 ### Fingerprint representations
 
@@ -514,8 +516,8 @@ software as:
 ```text
 Contreras-Torres, F. F., Castro-Flores, D., Murrieta, A. C., &
 Saldivar-González, F. I. (2026).
-CHEMVAULT: A traceable molecular dataset management and curation application
-(Version 0.14.2) [Computer software].
+CHEMVAULT: Target-centered bioactivity dataset curation from PubChem
+(Version 0.14.3) [Computer software].
 https://github.com/NanoBiostructuresRG-lab/chemvault
 ```
 
