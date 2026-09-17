@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.14.2] - 2026-09-16
+
+### Changed
+
+- Extended the downloadable MODELABILITY INDEX analysis report to schema
+  version 2, exposing the already-computed Murcko structural context at full
+  numeric precision.
+- Added explicit serialization of Murcko population data, structural metrics,
+  and the Murcko nearest-neighbor interface while keeping nearest-neighbor
+  diagnostics at their existing top-level location.
+- Preserved compatibility with legacy results lacking Murcko structural
+  context by serializing unavailable Murcko sections as empty objects.
+- Preserved all MODELABILITY INDEX and Murcko scientific calculations,
+  analytical identities, fingerprint artifacts, nearest-neighbor CSV output,
+  and the existing `modelability_index/v1` and
+  `murcko_modelability_context/v1` contracts.
+
+### Validation
+
+- Passed the complete test suite: 660 tests.
+- Confirmed `git diff --check` is clean after merging PR #27 into `main`.
+- Validated the schema-v2 analysis report end to end with the MC4R Morgan
+  analysis, including Murcko population, structural metrics, and
+  nearest-neighbor scaffold-interface values.
+- Confirmed that the MC4R Morgan `chemvault_analysis_hash` is unchanged from
+  v0.14.1, demonstrating that the export extension does not alter the
+  scientific analysis identity.
+
+---
+
 ## [v0.14.1] - 2026-09-15
 
 ### Added
