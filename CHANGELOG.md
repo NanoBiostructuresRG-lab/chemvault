@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.14.3] - 2026-09-17
+
+### Changed
+
+- Reorganized the MODELABILITY INDEX structural-context presentation into
+  separate Murcko population context and nearest-neighbor scaffold-interface
+  groups.
+- Added the already-computed same-scaffold and different-scaffold
+  concordances to the MODELABILITY INDEX result card.
+- Renamed the result provenance caption from `Calculated from` to
+  `Source dataset`.
+- Updated the ChemVault tagline to
+  `Target-centered bioactivity dataset curation from PubChem`.
+- Preserved all MODELABILITY INDEX and Murcko scientific calculations,
+  analytical identities, contracts, persistence behavior, and exported
+  artifacts.
+
+### Validation
+
+- Passed the complete test suite: 660 tests.
+- Confirmed `git diff --check` is clean after merging PR #28 into `main`.
+- Completed Streamlit visual validation with the PPARG Morgan analysis,
+  confirming the revised structural-context grouping and the displayed
+  scaffold-interface concordances.
+
+---
+
 ## [v0.14.2] - 2026-09-16
 
 ### Changed
