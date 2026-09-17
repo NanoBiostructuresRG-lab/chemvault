@@ -699,14 +699,21 @@ def test_structural_context_summary_uses_selected_murcko_metrics():
 
     assert groups == (
         (
-            "Structural context",
+            "Murcko population context",
             (
-                ("Murcko coverage", "0.667"),
-                ("Murcko scaffolds", "3"),
+                ("Murcko population coverage", "0.667"),
+                ("Murcko scaffold count", "3"),
                 ("Shared-scaffold molecular coverage", "0.500"),
                 ("Adjusted scaffold effect (ε²)", "-0.500"),
-                ("Murcko NN coverage", "0.500"),
-                ("Same-scaffold NN fraction", "0.667"),
+            ),
+        ),
+        (
+            "Nearest-neighbor scaffold interface",
+            (
+                ("Murcko nearest-neighbor coverage", "0.500"),
+                ("Same-scaffold nearest-neighbor fraction", "0.667"),
+                ("Same-scaffold concordance", "1.000"),
+                ("Different-scaffold concordance", "0.000"),
             ),
         ),
     )
@@ -928,7 +935,7 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         modelability_result._render_metrics
     )
     assert rendered["captions"] == [
-        f"Calculated from: {TABLE_NAME}",
+        f"Source dataset: {TABLE_NAME}",
         "Preview of nearest-neighbor comparisons used in the "
         "Modelability Index calculation.",
     ]

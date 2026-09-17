@@ -278,16 +278,16 @@ def structural_context_metric_groups(result):
 
     return (
         (
-            "Structural context",
+            "Murcko population context",
             (
                 (
-                    "Murcko coverage",
+                    "Murcko population coverage",
                     _optional_metric_text(
                         population.get("murcko_coverage")
                     ),
                 ),
                 (
-                    "Murcko scaffolds",
+                    "Murcko scaffold count",
                     (
                         "N/A"
                         if scaffold_count is None
@@ -306,16 +306,33 @@ def structural_context_metric_groups(result):
                         metrics.get("epsilon_squared")
                     ),
                 ),
+            ),
+        ),
+        (
+            "Nearest-neighbor scaffold interface",
+            (
                 (
-                    "Murcko NN coverage",
+                    "Murcko nearest-neighbor coverage",
                     _optional_metric_text(
                         nn_interface.get("murcko_nn_coverage")
                     ),
                 ),
                 (
-                    "Same-scaffold NN fraction",
+                    "Same-scaffold nearest-neighbor fraction",
                     _optional_metric_text(
                         nn_interface.get("same_scaffold_nn_fraction")
+                    ),
+                ),
+                (
+                    "Same-scaffold concordance",
+                    _optional_metric_text(
+                        nn_interface.get("same_scaffold_concordance")
+                    ),
+                ),
+                (
+                    "Different-scaffold concordance",
+                    _optional_metric_text(
+                        nn_interface.get("different_scaffold_concordance")
                     ),
                 ),
             ),
@@ -352,7 +369,6 @@ def _render_metrics(result):
             _metric_group_html(
                 title,
                 values,
-                row_size=3,
             ),
             unsafe_allow_html=True,
         )
@@ -382,7 +398,7 @@ def render_modelability_result_card(session_state, database_id, table_name):
         provenance = result.get("provenance", {})
         source_table = provenance.get("source_table")
         if source_table:
-            st.caption(f"Calculated from: {source_table}")
+            st.caption(f"Source dataset: {source_table}")
         _render_metrics(result)
 
         diagnostics = result.get("diagnostics", ())
