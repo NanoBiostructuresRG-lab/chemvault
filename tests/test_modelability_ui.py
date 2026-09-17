@@ -421,9 +421,10 @@ def test_analysis_report_json_serializes_existing_result_exactly():
         "summary",
         "provenance",
         "nearest_neighbor_diagnostics",
+        "structural_context",
     }
     assert report["schema_name"] == "chemvault_modelability_analysis"
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 2
     assert report["summary"] == {
         key: result[key]
         for key in (
@@ -459,6 +460,147 @@ def test_analysis_report_json_serializes_existing_result_exactly():
     assert report["nearest_neighbor_diagnostics"][
         "tied_neighbor_counts"
     ] == [1, 2, 1]
+    assert "nearest_neighbor_diagnostics" not in report["structural_context"]
+
+
+def test_analysis_report_json_serializes_whitelisted_murcko_context():
+    result = _result()
+    result.update({
+        "structure_count": 6,
+        "active_count": 3,
+        "inactive_count": 3,
+        "active_concordance": 1.0,
+        "inactive_concordance": 2 / 3,
+        "modelability_index": (1.0 + 2 / 3) / 2,
+    })
+    smiles = (
+        "Cc1ccccc1", "Oc1ccccc1", "Nc1ccccc1",
+        "Fc1ccccc1", "C1CCCCC1", "c1ccncc1",
+    )
+    outcomes = (
+        "Active", "Active", "Inactive", "Inactive", "Active", "Inactive",
+    )
+    neighbor_indices = (4, 4, 4, 5, 0, 3)
+    similarities = (0.9, 0.8, 0.7, 0.9, 0.9, 0.9)
+    result["diagnostics"] = [
+        {
+            "smiles": smiles[index],
+            "outcome": outcomes[index],
+            "nearest_neighbor_smiles": smiles[neighbor_index],
+            "nearest_neighbor_outcome": outcomes[neighbor_index],
+            "tanimoto_similarity": similarities[index],
+            "concordant": outcomes[index] == outcomes[neighbor_index],
+        }
+        for index, neighbor_index in enumerate(neighbor_indices)
+    ]
+    result["structural_context"]["nearest_neighbor_diagnostics"].update({
+        "maximum_neighbor_indices": [[index] for index in neighbor_indices],
+        "maximum_similarities": list(similarities),
+        "tied_neighbor_counts": [1, 1, 1, 1, 1, 1],
+        "tie_fraction": 0.0,
+        "tie_sensitive_fraction": 0.0,
+        "fingerprint_identical_fraction": 0.0,
+        "fingerprint_identical_label_conflict_fraction": 0.0,
+        "active_concordance_min": 1.0,
+        "active_concordance_max": 1.0,
+        "inactive_concordance_min": 2 / 3,
+        "inactive_concordance_max": 2 / 3,
+        "modelability_index_min": (1.0 + 2 / 3) / 2,
+        "modelability_index_max": (1.0 + 2 / 3) / 2,
+    })
+    population = {
+        "total_count": 6,
+        "cyclic_count": 6,
+        "acyclic_count": 0,
+        "murcko_coverage": 1.0,
+        "scaffold_count": 3,
+        "assignments": ["S1", "S1", "S1", "S1", "S2", "S3"],
+        "scaffold_outcome_counts": {
+            "S1": {"Active": 2, "Inactive": 2},
+            "S2": {"Active": 1, "Inactive": 0},
+            "S3": {"Active": 0, "Inactive": 1},
+        },
+    }
+    metrics = {
+        "shared_scaffold_count": 1,
+        "shared_molecule_count": 4,
+        "shared_scaffold_fraction": 1 / 3,
+        "shared_molecular_coverage": 4 / 6,
+        "within_shared_balance": 1.0,
+        "global_balance": 1.0,
+        "within_balance": 2 / 3,
+        "within_ratio": 2 / 3,
+        "eta_squared": 1.0 - 2 / 3,
+        "null_within_ratio": 3 / 5,
+        "epsilon_squared": 1.0 - (2 / 3) / (3 / 5),
+    }
+    interface = {
+        "cc_count": 6,
+        "ca_count": 0,
+        "ac_count": 0,
+        "aa_count": 0,
+        "murcko_nn_coverage": 1.0,
+        "same_scaffold_count": 0,
+        "different_scaffold_count": 6,
+        "same_scaffold_nn_fraction": 0.0,
+        "same_scaffold_concordance": None,
+        "different_scaffold_concordance": 5 / 6,
+        "reconstructed_active_concordance": 1.0,
+        "reconstructed_inactive_concordance": 2 / 3,
+        "reconstructed_modelability_index": (1.0 + 2 / 3) / 2,
+        "transition_counts": {"CC": 6, "CA": 0, "AC": 0, "AA": 0},
+    }
+    result["structural_context"].update({
+        "murcko_population": {**population, "internal_only": "excluded"},
+        "murcko_metrics": {**metrics, "internal_only": "excluded"},
+        "murcko_nn_interface": {**interface, "internal_only": "excluded"},
+    })
+
+    report = json.loads(analysis_report_json(result))
+
+    assert report["structural_context"] == {
+        "murcko_population": population,
+        "murcko_metrics": metrics,
+        "murcko_nn_interface": interface,
+    }
+    assert report["summary"]["structure_count"] == population["total_count"]
+    assert report["summary"]["active_count"] == 3
+    assert report["summary"]["inactive_count"] == 3
+    assert report["summary"]["modelability_index"] == (
+        interface["reconstructed_modelability_index"]
+    )
+    assert report["structural_context"]["murcko_metrics"][
+        "epsilon_squared"
+    ] == 1.0 - (2 / 3) / (3 / 5)
+    assert report["nearest_neighbor_diagnostics"] == (
+        result["structural_context"]["nearest_neighbor_diagnostics"]
+    )
+    assert "nearest_neighbor_diagnostics" not in report["structural_context"]
+    assert interface["transition_counts"] == {
+        "CC": interface["cc_count"],
+        "CA": interface["ca_count"],
+        "AC": interface["ac_count"],
+        "AA": interface["aa_count"],
+    }
+    assert sum(interface["transition_counts"].values()) == (
+        population["total_count"]
+    )
+    assert interface["same_scaffold_count"] + interface[
+        "different_scaffold_count"
+    ] == interface["cc_count"]
+    assert interface["murcko_nn_coverage"] == (
+        interface["cc_count"] / population["total_count"]
+    )
+    assert interface["same_scaffold_nn_fraction"] == (
+        interface["same_scaffold_count"] / interface["cc_count"]
+    )
+    assert interface["reconstructed_modelability_index"] == (
+        interface["reconstructed_active_concordance"]
+        + interface["reconstructed_inactive_concordance"]
+    ) / 2
+    assert report["structural_context"]["murcko_nn_interface"][
+        "same_scaffold_concordance"
+    ] is None
 
 
 def test_analysis_report_json_uses_empty_missing_nearest_neighbor_diagnostics():
@@ -468,6 +610,27 @@ def test_analysis_report_json_uses_empty_missing_nearest_neighbor_diagnostics():
     report = json.loads(analysis_report_json(result))
 
     assert report["nearest_neighbor_diagnostics"] == {}
+    assert report["structural_context"] == {
+        "murcko_population": {},
+        "murcko_metrics": {},
+        "murcko_nn_interface": {},
+    }
+
+
+def test_analysis_report_json_omits_absent_murcko_fields():
+    result = _result()
+    result["structural_context"]["murcko_population"] = {
+        "total_count": 3,
+    }
+    result["structural_context"]["murcko_metrics"] = None
+
+    report = json.loads(analysis_report_json(result))
+
+    assert report["structural_context"] == {
+        "murcko_population": {"total_count": 3},
+        "murcko_metrics": {},
+        "murcko_nn_interface": {},
+    }
 
 
 def test_sidebar_execution_card_does_not_render_scientific_result():

@@ -83,6 +83,44 @@ NEAREST_NEIGHBOR_DIAGNOSTIC_FIELDS = (
     "modelability_index_min",
     "modelability_index_max",
 )
+MURCKO_POPULATION_FIELDS = (
+    "total_count",
+    "cyclic_count",
+    "acyclic_count",
+    "murcko_coverage",
+    "scaffold_count",
+    "assignments",
+    "scaffold_outcome_counts",
+)
+MURCKO_METRIC_FIELDS = (
+    "shared_scaffold_count",
+    "shared_molecule_count",
+    "shared_scaffold_fraction",
+    "shared_molecular_coverage",
+    "within_shared_balance",
+    "global_balance",
+    "within_balance",
+    "within_ratio",
+    "eta_squared",
+    "null_within_ratio",
+    "epsilon_squared",
+)
+MURCKO_NN_INTERFACE_FIELDS = (
+    "cc_count",
+    "ca_count",
+    "ac_count",
+    "aa_count",
+    "murcko_nn_coverage",
+    "same_scaffold_count",
+    "different_scaffold_count",
+    "same_scaffold_nn_fraction",
+    "same_scaffold_concordance",
+    "different_scaffold_concordance",
+    "reconstructed_active_concordance",
+    "reconstructed_inactive_concordance",
+    "reconstructed_modelability_index",
+    "transition_counts",
+)
 
 
 def modelability_scope_matches(
@@ -232,14 +270,31 @@ def analysis_report_json(result: dict[str, object]) -> str:
     """Serialize the existing analysis result without recomputation."""
     provenance = result.get("provenance", {})
     structural_context = result.get("structural_context", {})
-    nearest_neighbor_diagnostics = (
-        structural_context.get("nearest_neighbor_diagnostics", {})
-        if isinstance(structural_context, dict)
-        else {}
+    if not isinstance(structural_context, dict):
+        structural_context = {}
+    nearest_neighbor_diagnostics = structural_context.get(
+        "nearest_neighbor_diagnostics", {}
     )
+    if not isinstance(nearest_neighbor_diagnostics, dict):
+        nearest_neighbor_diagnostics = {}
+    murcko_sections = (
+        ("murcko_population", MURCKO_POPULATION_FIELDS),
+        ("murcko_metrics", MURCKO_METRIC_FIELDS),
+        ("murcko_nn_interface", MURCKO_NN_INTERFACE_FIELDS),
+    )
+    serialized_structural_context = {}
+    for section_name, fields in murcko_sections:
+        section = structural_context.get(section_name)
+        if not isinstance(section, dict):
+            section = {}
+        serialized_structural_context[section_name] = {
+            field: section[field]
+            for field in fields
+            if field in section
+        }
     report = {
         "schema_name": "chemvault_modelability_analysis",
-        "schema_version": 1,
+        "schema_version": 2,
         "summary": {
             field: result[field]
             for field in SUMMARY_FIELDS
@@ -254,6 +309,7 @@ def analysis_report_json(result: dict[str, object]) -> str:
             for field in NEAREST_NEIGHBOR_DIAGNOSTIC_FIELDS
             if field in nearest_neighbor_diagnostics
         },
+        "structural_context": serialized_structural_context,
     }
     return json.dumps(
         report,
