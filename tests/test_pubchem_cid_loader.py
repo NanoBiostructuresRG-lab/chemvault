@@ -875,6 +875,187 @@ def test_activity_failure_classifier_detects_unsupported_activity_column():
     )
 
 
+def _fake_http_error(status_code):
+    error = RuntimeError(f"HTTP {status_code}")
+    error.response = type(
+        "FakeHTTPResponse",
+        (),
+        {"status_code": status_code},
+    )()
+    return error
+
+
+def test_large_assay_fallback_stops_after_unsupported_first_page(monkeypatch):
+    page_calls = []
+    waits = []
+
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv",
+        lambda aid: (_ for _ in ()).throw(_fake_http_error(400)),
+    )
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_sid_listkey",
+        lambda aid: {
+            "listkey": "large-listkey",
+            "size": 356407,
+        },
+    )
+
+    unsupported_page = "\n".join(
+        [
+            (
+                "PUBCHEM_RESULT_TAG,PUBCHEM_CID,"
+                "PUBCHEM_ACTIVITY_OUTCOME,Inhibition at 6.5 uM"
+            ),
+            "RESULT_TYPE,,,FLOAT",
+            "RESULT_UNIT,,,PERCENT",
+            "1,3779,Active,73",
+        ]
+    )
+
+    def fake_page(aid, listkey, start, count):
+        page_calls.append((aid, listkey, start, count))
+        return unsupported_page
+
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv_page",
+        fake_page,
+    )
+
+    result = pubchem_loader.fetch_pubchem_assay_activity(
+        540295,
+        request_wait=lambda: waits.append("wait"),
+    )
+
+    assert result == {}
+    assert page_calls == [
+        (540295, "large-listkey", 0, 10000),
+    ]
+    assert waits == ["wait", "wait", "wait"]
+
+
+def test_large_assay_fallback_merges_supported_pages(monkeypatch):
+    page_calls = []
+    waits = []
+
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv",
+        lambda aid: (_ for _ in ()).throw(_fake_http_error(400)),
+    )
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_sid_listkey",
+        lambda aid: {
+            "listkey": "supported-listkey",
+            "size": 15000,
+        },
+    )
+
+    pages = {
+        0: "\n".join(
+            [
+                "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki",
+                "RESULT_TYPE,,,FLOAT",
+                "RESULT_UNIT,,,NANOMOLAR",
+                "1,101,Active,10",
+            ]
+        ),
+        10000: "\n".join(
+            [
+                "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki",
+                "RESULT_TYPE,,,FLOAT",
+                "RESULT_UNIT,,,NANOMOLAR",
+                "2,202,Inactive,20",
+            ]
+        ),
+    }
+
+    def fake_page(aid, listkey, start, count):
+        page_calls.append((aid, listkey, start, count))
+        return pages[start]
+
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv_page",
+        fake_page,
+    )
+
+    result = pubchem_loader.fetch_pubchem_assay_activity(
+        999999,
+        request_wait=lambda: waits.append("wait"),
+    )
+
+    assert set(result) == {"101", "202"}
+    assert result["101"]["records"][0]["Activity_Value"] == 10.0
+    assert result["202"]["records"][0]["Activity_Value"] == 20.0
+    assert page_calls == [
+        (999999, "supported-listkey", 0, 10000),
+        (999999, "supported-listkey", 10000, 5000),
+    ]
+    assert waits == ["wait", "wait", "wait", "wait"]
+
+
+def test_http_400_for_small_assay_preserves_original_failure(monkeypatch):
+    original_error = _fake_http_error(400)
+    page_calls = []
+
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv",
+        lambda aid: (_ for _ in ()).throw(original_error),
+    )
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_sid_listkey",
+        lambda aid: {
+            "listkey": "small-listkey",
+            "size": 9999,
+        },
+    )
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv_page",
+        lambda *args, **kwargs: page_calls.append((args, kwargs)),
+    )
+
+    try:
+        pubchem_loader.fetch_pubchem_assay_activity(123)
+    except RuntimeError as exc:
+        assert exc is original_error
+    else:
+        raise AssertionError("Expected original HTTP 400 error")
+
+    assert page_calls == []
+
+
+def test_non_400_fetch_error_does_not_enter_large_assay_fallback(monkeypatch):
+    listkey_calls = []
+
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv",
+        lambda aid: (_ for _ in ()).throw(_fake_http_error(404)),
+    )
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_sid_listkey",
+        lambda aid: listkey_calls.append(aid),
+    )
+
+    try:
+        pubchem_loader.fetch_pubchem_assay_activity(123)
+    except RuntimeError as exc:
+        assert exc.response.status_code == 404
+    else:
+        raise AssertionError("Expected HTTP 404 error")
+
+    assert listkey_calls == []
+
+
 def test_fetch_assay_activity_keeps_legacy_empty_result_on_request_error(monkeypatch):
     def failing_get(url, timeout):
         raise RuntimeError("network down")

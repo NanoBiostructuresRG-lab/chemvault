@@ -11,8 +11,11 @@ from services.activity_enrichment import (
 from services.job_models import JobNotActiveError, JobStatus, JobType
 from services.job_store import JobStore
 from services.pubchem_client import (
+    ASSAY_SID_PAGE_SIZE,
     fetch_aids_for_protein,
     fetch_assay_activity_csv,
+    fetch_assay_activity_csv_page,
+    fetch_assay_sid_listkey,
     fetch_cids_for_aid_batch,
     fetch_compound_titles_for_cid_batch,
 )
@@ -409,6 +412,70 @@ def _classify_activity_failure(row, activity_columns):
     return "assay_has_no_quantitative_activity"
 
 
+def _activity_fetch_status_code(error):
+    response = getattr(error, "response", None)
+    return getattr(response, "status_code", None)
+
+
+def _wait_for_activity_request(request_wait):
+    if request_wait is not None:
+        request_wait()
+
+
+def _assay_csv_has_supported_activity_schema(text):
+    reader = csv.DictReader(io.StringIO(text))
+    fieldnames = reader.fieldnames or []
+    return bool(_activity_columns(fieldnames)) or any(
+        column in fieldnames
+        for column in STANDARD_ACTIVITY_COLUMNS
+    )
+
+
+def _fetch_paginated_assay_activity(
+    aid,
+    listkey_info,
+    activity_by_cid,
+    request_wait=None,
+):
+    listkey = listkey_info["listkey"]
+    size = int(listkey_info["size"])
+
+    first_count = min(ASSAY_SID_PAGE_SIZE, size)
+    _wait_for_activity_request(request_wait)
+    first_page = fetch_assay_activity_csv_page(
+        aid,
+        listkey,
+        0,
+        count=first_count,
+    )
+
+    if not _assay_csv_has_supported_activity_schema(first_page):
+        return activity_by_cid
+
+    _parse_assay_activity_csv(
+        aid,
+        first_page,
+        activity_by_cid=activity_by_cid,
+    )
+
+    for start in range(ASSAY_SID_PAGE_SIZE, size, ASSAY_SID_PAGE_SIZE):
+        count = min(ASSAY_SID_PAGE_SIZE, size - start)
+        _wait_for_activity_request(request_wait)
+        page = fetch_assay_activity_csv_page(
+            aid,
+            listkey,
+            start,
+            count=count,
+        )
+        _parse_assay_activity_csv(
+            aid,
+            page,
+            activity_by_cid=activity_by_cid,
+        )
+
+    return activity_by_cid
+
+
 def _parse_assay_activity_csv(aid, text, activity_by_cid=None):
     if activity_by_cid is None:
         activity_by_cid = {}
@@ -509,10 +576,34 @@ def _parse_assay_activity_csv(aid, text, activity_by_cid=None):
     return activity_by_cid
 
 
-def _fetch_assay_activity(aid, raise_on_error=False):
+def _fetch_assay_activity(
+    aid,
+    raise_on_error=False,
+    request_wait=None,
+):
     activity_by_cid = {}
     try:
-        text = fetch_assay_activity_csv(aid)
+        _wait_for_activity_request(request_wait)
+
+        try:
+            text = fetch_assay_activity_csv(aid)
+        except Exception as direct_error:
+            if _activity_fetch_status_code(direct_error) != 400:
+                raise
+
+            _wait_for_activity_request(request_wait)
+            listkey_info = fetch_assay_sid_listkey(aid)
+
+            if listkey_info["size"] <= ASSAY_SID_PAGE_SIZE:
+                raise direct_error
+
+            return _fetch_paginated_assay_activity(
+                aid,
+                listkey_info,
+                activity_by_cid,
+                request_wait=request_wait,
+            )
+
         return _parse_assay_activity_csv(
             aid,
             text,
@@ -525,8 +616,12 @@ def _fetch_assay_activity(aid, raise_on_error=False):
     return activity_by_cid
 
 
-def fetch_pubchem_assay_activity(aid):
-    return _fetch_assay_activity(aid, raise_on_error=True)
+def fetch_pubchem_assay_activity(aid, request_wait=None):
+    return _fetch_assay_activity(
+        aid,
+        raise_on_error=True,
+        request_wait=request_wait,
+    )
 
 
 def _activity_status_for_record(cid, enriched_cids):
