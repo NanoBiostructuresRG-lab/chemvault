@@ -409,86 +409,40 @@ def _classify_activity_failure(row, activity_columns):
     return "assay_has_no_quantitative_activity"
 
 
-def _fetch_assay_activity(aid, raise_on_error=False):
-    activity_by_cid = {}
-    try:
-        text = fetch_assay_activity_csv(aid)
-        reader = csv.DictReader(io.StringIO(text))
-        rows = list(reader)
-        columns = _activity_columns(reader.fieldnames or [])
-        units = _activity_unit_map(rows, [*columns, *STANDARD_ACTIVITY_COLUMNS])
+def _parse_assay_activity_csv(aid, text, activity_by_cid=None):
+    if activity_by_cid is None:
+        activity_by_cid = {}
 
-        for row in rows:
-            result_tag = row.get("PUBCHEM_RESULT_TAG", "")
-            cid = str(row.get("PUBCHEM_CID", "")).strip()
-            if not result_tag.isdigit() or not cid:
+    reader = csv.DictReader(io.StringIO(text))
+    rows = list(reader)
+    columns = _activity_columns(reader.fieldnames or [])
+    units = _activity_unit_map(rows, [*columns, *STANDARD_ACTIVITY_COLUMNS])
+
+    for row in rows:
+        result_tag = row.get("PUBCHEM_RESULT_TAG", "")
+        cid = str(row.get("PUBCHEM_CID", "")).strip()
+        if not result_tag.isdigit() or not cid:
+            continue
+
+        outcome = row.get("PUBCHEM_ACTIVITY_OUTCOME", "").strip()
+        found_activity = False
+        for column in columns:
+            value = row.get(column, "").strip()
+            if value == "":
                 continue
-
-            outcome = row.get("PUBCHEM_ACTIVITY_OUTCOME", "").strip()
-            found_activity = False
-            for column in columns:
-                value = row.get(column, "").strip()
-                if value == "":
-                    continue
-                qualifier = _activity_qualifier(row, column)
-                activity = activity_by_cid.setdefault(
-                    cid,
-                    {"types": set(), "values": set(), "records": []},
-                )
-                activity["types"].add(column)
-                activity["values"].add(
-                    _format_activity_value(
-                        aid,
-                        column,
-                        value,
-                        qualifier,
-                        units.get(column, ""),
-                        outcome,
-                    )
-                )
-                record = _activity_record(
-                    cid=cid,
-                    aid=aid,
-                    result_tag=result_tag,
-                    activity_type=column,
-                    relation=qualifier,
-                    raw_value=value,
-                    unit=units.get(column, ""),
-                    outcome=outcome,
-                    source_column=column,
-                )
-                if record is not None:
-                    activity["records"].append(record)
-                found_activity = True
-                break
-
-            if found_activity:
-                continue
-
-            standard_column = _standard_activity_column(row)
-            if not standard_column:
-                continue
-            standard_type = _first_row_value(row, STANDARD_TYPE_COLUMNS)
-            relation = _standard_activity_relation(row, standard_column)
-            unit = _standard_activity_unit(
-                row,
-                units,
-                standard_column,
-                activity_type=standard_type,
-            )
+            qualifier = _activity_qualifier(row, column)
             activity = activity_by_cid.setdefault(
                 cid,
                 {"types": set(), "values": set(), "records": []},
             )
-            activity["types"].add(standard_column)
+            activity["types"].add(column)
             activity["values"].add(
-                _format_standard_activity_value(
+                _format_activity_value(
                     aid,
-                    standard_column,
-                    row.get(standard_column, "").strip(),
-                    standard_type,
-                    relation,
-                    unit,
+                    column,
+                    value,
+                    qualifier,
+                    units.get(column, ""),
                     outcome,
                 )
             )
@@ -496,15 +450,74 @@ def _fetch_assay_activity(aid, raise_on_error=False):
                 cid=cid,
                 aid=aid,
                 result_tag=result_tag,
-                activity_type=standard_type or standard_column,
-                relation=relation,
-                raw_value=row.get(standard_column, "").strip(),
-                unit=unit,
+                activity_type=column,
+                relation=qualifier,
+                raw_value=value,
+                unit=units.get(column, ""),
                 outcome=outcome,
-                source_column=standard_column,
+                source_column=column,
             )
             if record is not None:
                 activity["records"].append(record)
+            found_activity = True
+            break
+
+        if found_activity:
+            continue
+
+        standard_column = _standard_activity_column(row)
+        if not standard_column:
+            continue
+        standard_type = _first_row_value(row, STANDARD_TYPE_COLUMNS)
+        relation = _standard_activity_relation(row, standard_column)
+        unit = _standard_activity_unit(
+            row,
+            units,
+            standard_column,
+            activity_type=standard_type,
+        )
+        activity = activity_by_cid.setdefault(
+            cid,
+            {"types": set(), "values": set(), "records": []},
+        )
+        activity["types"].add(standard_column)
+        activity["values"].add(
+            _format_standard_activity_value(
+                aid,
+                standard_column,
+                row.get(standard_column, "").strip(),
+                standard_type,
+                relation,
+                unit,
+                outcome,
+            )
+        )
+        record = _activity_record(
+            cid=cid,
+            aid=aid,
+            result_tag=result_tag,
+            activity_type=standard_type or standard_column,
+            relation=relation,
+            raw_value=row.get(standard_column, "").strip(),
+            unit=unit,
+            outcome=outcome,
+            source_column=standard_column,
+        )
+        if record is not None:
+            activity["records"].append(record)
+
+    return activity_by_cid
+
+
+def _fetch_assay_activity(aid, raise_on_error=False):
+    activity_by_cid = {}
+    try:
+        text = fetch_assay_activity_csv(aid)
+        return _parse_assay_activity_csv(
+            aid,
+            text,
+            activity_by_cid=activity_by_cid,
+        )
     except Exception as e:
         print(f"Error fetching activity for AID {aid}: {e}")
         if raise_on_error:

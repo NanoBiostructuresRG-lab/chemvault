@@ -459,6 +459,92 @@ def test_compound_activities_allows_multiple_results_for_same_cid_aid(monkeypatc
     assert cursor.fetchall() == [("1", 10.0, "10"), ("2", 20.0, "20")]
 
 
+def test_parse_assay_activity_csv_matches_supported_ki_contract():
+    assay_csv = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki",
+            "RESULT_TYPE,,,FLOAT",
+            "RESULT_UNIT,,,NANOMOLAR",
+            "1,3779,Active,1.891e+07",
+        ]
+    )
+
+    activity = pubchem_loader._parse_assay_activity_csv(
+        1804316,
+        assay_csv,
+    )
+
+    assert activity["3779"]["types"] == {"Ki"}
+    assert activity["3779"]["values"] == {
+        "AID 1804316: Ki 1.891e+07 NANOMOLAR (Active)"
+    }
+    assert activity["3779"]["records"] == [
+        {
+            "CID": "3779",
+            "AID": "1804316",
+            "Activity_Type": "Ki",
+            "Relation": "",
+            "Activity_Value": 1.891e+07,
+            "Activity_Value_Raw": "1.891e+07",
+            "Unit": "NANOMOLAR",
+            "Outcome": "Active",
+            "Source_Column": "Ki",
+            "Activity_Status": "enriched",
+            "Result_Tag": "1",
+        }
+    ]
+
+
+def test_parse_assay_activity_csv_returns_empty_for_unsupported_schema():
+    assay_csv = "\n".join(
+        [
+            (
+                "PUBCHEM_RESULT_TAG,PUBCHEM_CID,"
+                "PUBCHEM_ACTIVITY_OUTCOME,Inhibition at 6.5 uM"
+            ),
+            "RESULT_TYPE,,,FLOAT",
+            "RESULT_UNIT,,,PERCENT",
+            "1,3779,Active,73",
+        ]
+    )
+
+    assert pubchem_loader._parse_assay_activity_csv(
+        540295,
+        assay_csv,
+    ) == {}
+
+
+def test_parse_assay_activity_csv_extends_existing_activity_accumulator():
+    first_page = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki",
+            "RESULT_TYPE,,,FLOAT",
+            "RESULT_UNIT,,,NANOMOLAR",
+            "1,101,Active,10",
+        ]
+    )
+    second_page = "\n".join(
+        [
+            "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,Ki",
+            "RESULT_TYPE,,,FLOAT",
+            "RESULT_UNIT,,,NANOMOLAR",
+            "2,202,Inactive,20",
+        ]
+    )
+
+    activity = pubchem_loader._parse_assay_activity_csv(11, first_page)
+    returned = pubchem_loader._parse_assay_activity_csv(
+        11,
+        second_page,
+        activity_by_cid=activity,
+    )
+
+    assert returned is activity
+    assert set(activity) == {"101", "202"}
+    assert activity["101"]["records"][0]["Activity_Value"] == 10.0
+    assert activity["202"]["records"][0]["Activity_Value"] == 20.0
+
+
 def test_activity_parser_enriches_real_ki_value(monkeypatch):
     assay_csv = "\n".join(
         [
