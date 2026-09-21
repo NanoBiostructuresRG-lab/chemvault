@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import json
 import sqlite3
 import threading
+import time
 
 from services.activity_enrichment import (
     _fetch_with_retry,
@@ -313,6 +315,79 @@ def test_activity_runner_rate_limiter_uses_global_start_spacing(monkeypatch):
     assert sleep_calls == [0.5]
 
 
+def test_request_aware_fetcher_avoids_outer_double_rate_limit(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    monotonic_value = {"value": 0.0}
+    sleep_calls = []
+
+    def fake_monotonic():
+        return monotonic_value["value"]
+
+    def fake_sleep(delay):
+        sleep_calls.append(delay)
+        monotonic_value["value"] += delay
+
+    activity_time = run_pubchem_activity_enrichment.__globals__["time"]
+    monkeypatch.setattr(activity_time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(activity_time, "sleep", fake_sleep)
+
+    def fetcher(aid, request_wait=None):
+        request_wait()
+        request_wait()
+        return activity_payload(aid, "101", "10")
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        [aid_jobs()[0]],
+        fetcher,
+        rate_limit_per_second=2,
+        activity_fetcher_supports_request_wait=True,
+    )
+
+    assert result["successful_aids"] == 1
+    assert sleep_calls == [0.5]
+
+
+def test_request_aware_fetcher_rate_limits_retry_requests(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    monotonic_value = {"value": 0.0}
+    sleep_calls = []
+    calls = []
+
+    def fake_monotonic():
+        return monotonic_value["value"]
+
+    def fake_sleep(delay):
+        sleep_calls.append(delay)
+        monotonic_value["value"] += delay
+
+    activity_time = run_pubchem_activity_enrichment.__globals__["time"]
+    monkeypatch.setattr(activity_time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(activity_time, "sleep", fake_sleep)
+
+    def fetcher(aid, request_wait=None):
+        request_wait()
+        calls.append(aid)
+        if len(calls) == 1:
+            raise FakeHTTPError(503, "ServerBusy")
+        return activity_payload(aid, "101", "10")
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        [aid_jobs()[0]],
+        fetcher,
+        rate_limit_per_second=2,
+        max_retries=1,
+        retry_initial_delay=0.0,
+        retry_max_delay=0.0,
+        activity_fetcher_supports_request_wait=True,
+    )
+
+    assert result["successful_aids"] == 1
+    assert calls == ["11", "11"]
+    assert sleep_calls == [0.5]
+
+
 def test_fetch_with_retry_retries_http_503_once_then_succeeds():
     calls = []
     sleeps = []
@@ -467,6 +542,73 @@ def test_build_activity_jobs_from_compound_assays_groups_by_protein_and_aid():
     ]
 
 
+def test_build_activity_jobs_from_compound_assays_streams_query_results():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("101", "11", "P1"), ("102", "11", "P1")],
+    )
+
+    class CursorWithoutFetchall:
+        def __init__(self, cursor):
+            self._cursor = cursor
+
+        def execute(self, *args, **kwargs):
+            self._cursor.execute(*args, **kwargs)
+            return self
+
+        def fetchone(self):
+            return self._cursor.fetchone()
+
+        def fetchall(self):
+            raise AssertionError("build_activity_jobs_from_compound_assays must stream rows")
+
+        def __iter__(self):
+            return iter(self._cursor)
+
+    class ConnectionWithoutFetchall:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+
+        def cursor(self):
+            return CursorWithoutFetchall(self._wrapped.cursor())
+
+    jobs = build_activity_jobs_from_compound_assays(
+        ConnectionWithoutFetchall(connection)
+    )
+
+    assert jobs == [
+        {"protein": "P1", "aid": "11", "cids": ["101", "102"]},
+    ]
+
+
+def test_build_activity_jobs_from_compound_assays_scales_for_large_aid():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+
+    cid_count = 30000
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        ((str(cid), "11", "P1") for cid in range(cid_count)),
+    )
+
+    started = time.perf_counter()
+    jobs = build_activity_jobs_from_compound_assays(connection)
+    elapsed = time.perf_counter() - started
+
+    expected_cids = sorted(str(cid) for cid in range(cid_count))
+
+    assert jobs == [
+        {"protein": "P1", "aid": "11", "cids": expected_cids},
+    ]
+    assert elapsed < 3.0
+
+
 def test_run_activity_enrichment_from_compound_assays_fills_compound_activities():
     connection = sqlite3.connect(":memory:")
     connection.execute("CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)")
@@ -487,6 +629,172 @@ def test_run_activity_enrichment_from_compound_assays_fills_compound_activities(
     assert result["total_aids"] == 2
     assert result["inserted_rows"] == 2
     assert cursor.fetchall() == [("11", "P1", "101"), ("22", "P1", "202")]
+
+
+def test_activity_repair_registers_success_provenance():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("101", "11", "P1"), ("202", "22", "P1")],
+    )
+
+    run_activity_enrichment_from_compound_assays(
+        connection,
+        lambda aid: activity_payload(
+            aid,
+            {"11": "101", "22": "202"}[aid],
+            aid,
+        ),
+        chunk_size=1,
+        max_workers=1,
+        rate_limit_per_second=4,
+        max_retries=3,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT
+            operation_type,
+            target_table,
+            source_table,
+            created_by,
+            status,
+            details
+        FROM _chemvault_operation_log
+        """
+    )
+    row = cursor.fetchone()
+
+    assert row[:5] == (
+        "structured_activity_repair",
+        "compound_activities",
+        "compound_assays",
+        "run_activity_enrichment_from_compound_assays",
+        "success",
+    )
+
+    details = json.loads(row[5])
+    assert details["source_system"] == "PubChem"
+    assert details["source_interface"] == "PUG REST"
+    assert details["retrieval_mode"] == "live"
+    assert details["job_unit"] == "protein_aid"
+    assert details["total_jobs"] == 2
+    assert details["processed_jobs"] == 2
+    assert details["successful_jobs"] == 2
+    assert details["failed_jobs"] == 0
+    assert details["processed_aid_values"] == ["11", "22"]
+    assert details["successful_aid_values"] == ["11", "22"]
+    assert details["failed_aid_values"] == []
+    assert details["failed_job_diagnostics"] == []
+    assert details["inserted_rows"] == 2
+    assert details["existing_activity_records_preserved"] is True
+
+
+def test_activity_repair_registers_partial_provenance():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("101", "11", "P1"), ("202", "22", "P1")],
+    )
+
+    def fetcher(aid):
+        if aid == "22":
+            raise RuntimeError("PubChem failed")
+        return activity_payload(aid, "101", "10")
+
+    result = run_activity_enrichment_from_compound_assays(
+        connection,
+        fetcher,
+        chunk_size=1,
+        continue_on_error=True,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT status, details
+        FROM _chemvault_operation_log
+        """
+    )
+    status, details_json = cursor.fetchone()
+    details = json.loads(details_json)
+
+    assert result["status"] == "success"
+    assert result["failed_aids"] == 1
+
+    assert status == "partial"
+    assert details["total_jobs"] == 2
+    assert details["processed_jobs"] == 2
+    assert details["successful_jobs"] == 1
+    assert details["failed_jobs"] == 1
+    assert details["processed_aid_values"] == ["11", "22"]
+    assert details["successful_aid_values"] == ["11"]
+    assert details["failed_aid_values"] == ["22"]
+    assert details["failed_job_diagnostics"] == [
+        {
+            "protein": "P1",
+            "aid": "22",
+            "error": "PubChem failed",
+        }
+    ]
+    assert details["inserted_rows"] == 1
+
+
+def test_activity_repair_registers_failed_provenance():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("101", "11", "P1"), ("202", "22", "P1")],
+    )
+
+    def fetcher(aid):
+        if aid == "11":
+            raise RuntimeError("PubChem unavailable")
+        return activity_payload(aid, "202", "20")
+
+    result = run_activity_enrichment_from_compound_assays(
+        connection,
+        fetcher,
+        chunk_size=1,
+        continue_on_error=False,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT status, details
+        FROM _chemvault_operation_log
+        """
+    )
+    status, details_json = cursor.fetchone()
+    details = json.loads(details_json)
+
+    assert result["status"] == "failed"
+    assert status == "failed"
+    assert details["processed_jobs"] == 1
+    assert details["successful_jobs"] == 0
+    assert details["failed_jobs"] == 1
+    assert details["processed_aid_values"] == ["11"]
+    assert details["successful_aid_values"] == []
+    assert details["failed_aid_values"] == ["11"]
+    assert details["failed_job_diagnostics"] == [
+        {
+            "protein": "P1",
+            "aid": "11",
+            "error": "PubChem unavailable",
+        }
+    ]
+    assert details["error_message"] == "PubChem unavailable"
 
 
 def test_run_activity_enrichment_from_compound_assays_keeps_sequential_defaults(monkeypatch):

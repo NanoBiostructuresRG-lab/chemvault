@@ -541,17 +541,57 @@ def _get_activity_enrichment_job_summary(connection):
     }
 
 
-def _render_activity_enrichment_progress(snapshot, progress_bar, status_placeholder, stats_placeholder):
-    total_chunks = snapshot.get("total_chunks", 0)
+def _activity_enrichment_progress_fraction(snapshot):
+    total_aids = int(snapshot.get("total_aids", 0) or 0)
+    processed_aids = int(snapshot.get("processed_aids", 0) or 0)
+    if total_aids <= 0:
+        return 0.0
+    return min(max(processed_aids / total_aids, 0.0), 1.0)
+
+
+def _activity_enrichment_status_text(snapshot):
+    status = snapshot.get("status", "running")
     current_chunk = snapshot.get("current_chunk", 0)
-    progress = 1.0 if total_chunks == 0 else current_chunk / total_chunks
-    progress_bar.progress(min(max(progress, 0.0), 1.0))
-    status_placeholder.caption(
-        f"Structured activity backfill {snapshot.get('status', 'running')}: "
-        f"chunk {current_chunk}/{total_chunks}"
+    total_chunks = snapshot.get("total_chunks", 0)
+    failed_aids = int(snapshot.get("failed_aids", 0) or 0)
+
+    if status == "success":
+        if failed_aids:
+            return "Structured activity backfill completed with warnings."
+        return "Structured activity backfill completed."
+
+    if status == "failed":
+        return (
+            "Structured activity backfill failed: "
+            f"chunk {current_chunk}/{total_chunks}."
+        )
+
+    if status == "started":
+        return "Structured activity backfill started."
+
+    if status == "chunk_completed":
+        return (
+            "Structured activity backfill running: "
+            f"completed chunk {current_chunk}/{total_chunks}."
+        )
+
+    return (
+        "Structured activity backfill running: "
+        f"chunk {current_chunk}/{total_chunks}."
     )
+
+
+def _render_activity_enrichment_progress(
+    snapshot,
+    progress_bar,
+    status_placeholder,
+    stats_placeholder,
+):
+    progress_bar.progress(_activity_enrichment_progress_fraction(snapshot))
+    status_placeholder.caption(_activity_enrichment_status_text(snapshot))
     stats_placeholder.caption(
-        "Processed AIDs: {processed} | Success: {success} | Failed: {failed} | Inserted rows: {inserted}".format(
+        "Processed AIDs: {processed} | Successful: {success} | "
+        "Failed: {failed} | Inserted rows: {inserted}".format(
             processed=snapshot.get("processed_aids", 0),
             success=snapshot.get("successful_aids", 0),
             failed=snapshot.get("failed_aids", 0),
@@ -588,6 +628,11 @@ def render_activity_enrichment_action(connection):
             status_placeholder = st.empty()
             stats_placeholder = st.empty()
 
+            status_placeholder.caption("Preparing activity repair jobs...")
+            stats_placeholder.caption(
+                "Processed AIDs: 0 | Successful: 0 | Failed: 0 | Inserted rows: 0"
+            )
+
             def progress_callback(snapshot):
                 _render_activity_enrichment_progress(
                     snapshot,
@@ -604,22 +649,37 @@ def render_activity_enrichment_action(connection):
                 max_workers=4,
                 rate_limit_per_second=4,
                 max_retries=3,
+                activity_fetcher_supports_request_wait=True,
                 retry_initial_delay=1.0,
                 retry_backoff_multiplier=2.0,
                 retry_max_delay=8.0,
             )
+
+            progress_bar.empty()
+            stats_placeholder.empty()
+
             message = (
-                "Structured activity backfill completed. "
-                f"Total AIDs: {result['total_aids']}; "
-                f"Processed: {result['processed_aids']}; "
-                f"Successful: {result['successful_aids']}; "
-                f"Failed: {result['failed_aids']}; "
-                f"Inserted rows: {result['inserted_rows']}."
+                "Structured activity backfill completed"
+                + (" with warnings. " if result["failed_aids"] > 0 else ". ")
+                + f"Total AIDs: {result['total_aids']}; "
+                + f"Processed: {result['processed_aids']}; "
+                + f"Successful: {result['successful_aids']}; "
+                + f"Failed: {result['failed_aids']}; "
+                + f"Inserted rows: {result['inserted_rows']}."
             )
+
             if result["failed_aids"] > 0:
-                st.warning(message)
+                status_placeholder.warning(message)
+
+                failed_aids = result.get("failed_aid_values", [])
+                if failed_aids:
+                    visible_aids = failed_aids[:20]
+                    failed_text = ", ".join(visible_aids)
+                    if len(failed_aids) > len(visible_aids):
+                        failed_text += f", ... (+{len(failed_aids) - len(visible_aids)} more)"
+                    st.caption(f"Failed AIDs: {failed_text}")
             else:
-                st.success(message)
+                status_placeholder.success(message)
 
 
 def _format_audit_label(value):

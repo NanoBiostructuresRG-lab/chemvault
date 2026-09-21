@@ -125,7 +125,7 @@ runtime dependencies are installed from `requirements.txt`.
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
 git fetch --tags
-git checkout v0.14.3
+git checkout v0.14.4
 ```
 
 2. Create and activate the environment:
@@ -157,7 +157,7 @@ Open `http://localhost:8501` in your browser.
 ```bash
 cd path/to/chemvault
 git fetch --tags origin
-git checkout v0.14.3
+git checkout v0.14.4
 conda activate chemvault_env
 python -m pip install -r requirements.txt
 ```
@@ -317,6 +317,13 @@ PubChem protein searches are stored as persisted jobs in the selected SQLite
 database. Long searches continue through the selected backend runtime while it
 remains active, and the interface shows status, stage, progress, and messages.
 Searches can be cancelled safely with **Cancel search**.
+
+Existing target-based databases can rerun **Repair activity records** from
+Database maintenance. Repair reconstructs protein-AID jobs from persisted
+assay-compound relationships, retrieves current PubChem assay activity under
+a shared request-level rate limit, and supports paginated retrieval for large
+assays. Previously stored activity records are preserved, and each repair is
+recorded in operation history with its outcome and diagnostics.
 
 CHEMVAULT creates and maintains separate tables for molecular records, assay
 metadata, and structured activity observations. Derived tables remain inside

@@ -11,8 +11,11 @@ from services.activity_enrichment import (
 from services.job_models import JobNotActiveError, JobStatus, JobType
 from services.job_store import JobStore
 from services.pubchem_client import (
+    ASSAY_SID_PAGE_SIZE,
     fetch_aids_for_protein,
     fetch_assay_activity_csv,
+    fetch_assay_activity_csv_page,
+    fetch_assay_sid_listkey,
     fetch_cids_for_aid_batch,
     fetch_compound_titles_for_cid_batch,
 )
@@ -409,86 +412,104 @@ def _classify_activity_failure(row, activity_columns):
     return "assay_has_no_quantitative_activity"
 
 
-def _fetch_assay_activity(aid, raise_on_error=False):
-    activity_by_cid = {}
-    try:
-        text = fetch_assay_activity_csv(aid)
-        reader = csv.DictReader(io.StringIO(text))
-        rows = list(reader)
-        columns = _activity_columns(reader.fieldnames or [])
-        units = _activity_unit_map(rows, [*columns, *STANDARD_ACTIVITY_COLUMNS])
+def _activity_fetch_status_code(error):
+    response = getattr(error, "response", None)
+    return getattr(response, "status_code", None)
 
-        for row in rows:
-            result_tag = row.get("PUBCHEM_RESULT_TAG", "")
-            cid = str(row.get("PUBCHEM_CID", "")).strip()
-            if not result_tag.isdigit() or not cid:
+
+def _wait_for_activity_request(request_wait):
+    if request_wait is not None:
+        request_wait()
+
+
+def _assay_csv_has_supported_activity_schema(text):
+    reader = csv.DictReader(io.StringIO(text))
+    fieldnames = reader.fieldnames or []
+    return bool(_activity_columns(fieldnames)) or any(
+        column in fieldnames
+        for column in STANDARD_ACTIVITY_COLUMNS
+    )
+
+
+def _fetch_paginated_assay_activity(
+    aid,
+    listkey_info,
+    activity_by_cid,
+    request_wait=None,
+):
+    listkey = listkey_info["listkey"]
+    size = int(listkey_info["size"])
+
+    first_count = min(ASSAY_SID_PAGE_SIZE, size)
+    _wait_for_activity_request(request_wait)
+    first_page = fetch_assay_activity_csv_page(
+        aid,
+        listkey,
+        0,
+        count=first_count,
+    )
+
+    if not _assay_csv_has_supported_activity_schema(first_page):
+        return activity_by_cid
+
+    _parse_assay_activity_csv(
+        aid,
+        first_page,
+        activity_by_cid=activity_by_cid,
+    )
+
+    for start in range(ASSAY_SID_PAGE_SIZE, size, ASSAY_SID_PAGE_SIZE):
+        count = min(ASSAY_SID_PAGE_SIZE, size - start)
+        _wait_for_activity_request(request_wait)
+        page = fetch_assay_activity_csv_page(
+            aid,
+            listkey,
+            start,
+            count=count,
+        )
+        _parse_assay_activity_csv(
+            aid,
+            page,
+            activity_by_cid=activity_by_cid,
+        )
+
+    return activity_by_cid
+
+
+def _parse_assay_activity_csv(aid, text, activity_by_cid=None):
+    if activity_by_cid is None:
+        activity_by_cid = {}
+
+    reader = csv.DictReader(io.StringIO(text))
+    rows = list(reader)
+    columns = _activity_columns(reader.fieldnames or [])
+    units = _activity_unit_map(rows, [*columns, *STANDARD_ACTIVITY_COLUMNS])
+
+    for row in rows:
+        result_tag = row.get("PUBCHEM_RESULT_TAG", "")
+        cid = str(row.get("PUBCHEM_CID", "")).strip()
+        if not result_tag.isdigit() or not cid:
+            continue
+
+        outcome = row.get("PUBCHEM_ACTIVITY_OUTCOME", "").strip()
+        found_activity = False
+        for column in columns:
+            value = row.get(column, "").strip()
+            if value == "":
                 continue
-
-            outcome = row.get("PUBCHEM_ACTIVITY_OUTCOME", "").strip()
-            found_activity = False
-            for column in columns:
-                value = row.get(column, "").strip()
-                if value == "":
-                    continue
-                qualifier = _activity_qualifier(row, column)
-                activity = activity_by_cid.setdefault(
-                    cid,
-                    {"types": set(), "values": set(), "records": []},
-                )
-                activity["types"].add(column)
-                activity["values"].add(
-                    _format_activity_value(
-                        aid,
-                        column,
-                        value,
-                        qualifier,
-                        units.get(column, ""),
-                        outcome,
-                    )
-                )
-                record = _activity_record(
-                    cid=cid,
-                    aid=aid,
-                    result_tag=result_tag,
-                    activity_type=column,
-                    relation=qualifier,
-                    raw_value=value,
-                    unit=units.get(column, ""),
-                    outcome=outcome,
-                    source_column=column,
-                )
-                if record is not None:
-                    activity["records"].append(record)
-                found_activity = True
-                break
-
-            if found_activity:
-                continue
-
-            standard_column = _standard_activity_column(row)
-            if not standard_column:
-                continue
-            standard_type = _first_row_value(row, STANDARD_TYPE_COLUMNS)
-            relation = _standard_activity_relation(row, standard_column)
-            unit = _standard_activity_unit(
-                row,
-                units,
-                standard_column,
-                activity_type=standard_type,
-            )
+            qualifier = _activity_qualifier(row, column)
             activity = activity_by_cid.setdefault(
                 cid,
                 {"types": set(), "values": set(), "records": []},
             )
-            activity["types"].add(standard_column)
+            activity["types"].add(column)
             activity["values"].add(
-                _format_standard_activity_value(
+                _format_activity_value(
                     aid,
-                    standard_column,
-                    row.get(standard_column, "").strip(),
-                    standard_type,
-                    relation,
-                    unit,
+                    column,
+                    value,
+                    qualifier,
+                    units.get(column, ""),
                     outcome,
                 )
             )
@@ -496,15 +517,98 @@ def _fetch_assay_activity(aid, raise_on_error=False):
                 cid=cid,
                 aid=aid,
                 result_tag=result_tag,
-                activity_type=standard_type or standard_column,
-                relation=relation,
-                raw_value=row.get(standard_column, "").strip(),
-                unit=unit,
+                activity_type=column,
+                relation=qualifier,
+                raw_value=value,
+                unit=units.get(column, ""),
                 outcome=outcome,
-                source_column=standard_column,
+                source_column=column,
             )
             if record is not None:
                 activity["records"].append(record)
+            found_activity = True
+            break
+
+        if found_activity:
+            continue
+
+        standard_column = _standard_activity_column(row)
+        if not standard_column:
+            continue
+        standard_type = _first_row_value(row, STANDARD_TYPE_COLUMNS)
+        relation = _standard_activity_relation(row, standard_column)
+        unit = _standard_activity_unit(
+            row,
+            units,
+            standard_column,
+            activity_type=standard_type,
+        )
+        activity = activity_by_cid.setdefault(
+            cid,
+            {"types": set(), "values": set(), "records": []},
+        )
+        activity["types"].add(standard_column)
+        activity["values"].add(
+            _format_standard_activity_value(
+                aid,
+                standard_column,
+                row.get(standard_column, "").strip(),
+                standard_type,
+                relation,
+                unit,
+                outcome,
+            )
+        )
+        record = _activity_record(
+            cid=cid,
+            aid=aid,
+            result_tag=result_tag,
+            activity_type=standard_type or standard_column,
+            relation=relation,
+            raw_value=row.get(standard_column, "").strip(),
+            unit=unit,
+            outcome=outcome,
+            source_column=standard_column,
+        )
+        if record is not None:
+            activity["records"].append(record)
+
+    return activity_by_cid
+
+
+def _fetch_assay_activity(
+    aid,
+    raise_on_error=False,
+    request_wait=None,
+):
+    activity_by_cid = {}
+    try:
+        _wait_for_activity_request(request_wait)
+
+        try:
+            text = fetch_assay_activity_csv(aid)
+        except Exception as direct_error:
+            if _activity_fetch_status_code(direct_error) != 400:
+                raise
+
+            _wait_for_activity_request(request_wait)
+            listkey_info = fetch_assay_sid_listkey(aid)
+
+            if listkey_info["size"] <= ASSAY_SID_PAGE_SIZE:
+                raise direct_error
+
+            return _fetch_paginated_assay_activity(
+                aid,
+                listkey_info,
+                activity_by_cid,
+                request_wait=request_wait,
+            )
+
+        return _parse_assay_activity_csv(
+            aid,
+            text,
+            activity_by_cid=activity_by_cid,
+        )
     except Exception as e:
         print(f"Error fetching activity for AID {aid}: {e}")
         if raise_on_error:
@@ -512,8 +616,12 @@ def _fetch_assay_activity(aid, raise_on_error=False):
     return activity_by_cid
 
 
-def fetch_pubchem_assay_activity(aid):
-    return _fetch_assay_activity(aid, raise_on_error=True)
+def fetch_pubchem_assay_activity(aid, request_wait=None):
+    return _fetch_assay_activity(
+        aid,
+        raise_on_error=True,
+        request_wait=request_wait,
+    )
 
 
 def _activity_status_for_record(cid, enriched_cids):
@@ -604,8 +712,12 @@ def _collect_pubchem_records(
         fraction = 1.0 if total_aids == 0 else processed_aids / total_aids
         _update_progress(progreso, 0.85 + (0.10 * fraction))
 
-    def activity_fetcher(aid):
-        return _fetch_assay_activity(aid, raise_on_error=True)
+    def activity_fetcher(aid, request_wait=None):
+        return _fetch_assay_activity(
+            aid,
+            raise_on_error=True,
+            request_wait=request_wait,
+        )
 
     if stage_callback is not None:
         stage_callback("activity_enrichment")
@@ -619,6 +731,7 @@ def _collect_pubchem_records(
         max_workers=4,
         rate_limit_per_second=4,
         max_retries=3,
+        activity_fetcher_supports_request_wait=True,
         retry_initial_delay=1.0,
         retry_backoff_multiplier=2.0,
         retry_max_delay=8.0,

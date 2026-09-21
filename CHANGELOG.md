@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.14.4] - 2026-09-21
+
+### Added
+
+- Added paginated PubChem assay-activity retrieval for large assays using
+  ListKey-based SID pagination, with early schema inspection to avoid
+  unnecessary page retrieval when no supported structured activity is present.
+- Added persisted provenance for `Repair activity records`, including
+  processed, successful, and failed AIDs, per-job failure diagnostics,
+  inserted-row counts, retrieval context, and execution parameters.
+
+### Changed
+
+- Optimized reconstruction of activity-repair jobs by streaming
+  `compound_assays` and using set-backed CID deduplication within each
+  protein-AID job.
+- Applied the shared PubChem rate limiter at individual HTTP-request
+  boundaries, including retries, ListKey acquisition, and paginated assay
+  requests.
+- Clarified activity-repair progress and terminal UI states so partial
+  failures remain visible and completed repairs no longer appear to be
+  actively running.
+
+### Fixed
+
+- Prevented very large PubChem assays from failing solely because direct
+  assay-activity CSV retrieval exceeds the supported request size.
+- Treated successfully retrieved assays with unsupported activity-result
+  schemas as successful retrievals producing no structured activity records,
+  rather than as failed AIDs.
+- Preserved existing structured activity records during repair and continued
+  to insert only previously absent records.
+
+### Validation
+
+- Passed the complete test suite: 682 tests.
+- Confirmed `git diff --check` is clean.
+- Revalidated the MC4R repair workflow across 650 protein-AID jobs:
+  650 processed, 650 successful, 0 failed, and 0 inserted rows.
+- Confirmed that the MC4R structured-activity population remained unchanged
+  at 9,451 records, 600 distinct AIDs, and 4,925 distinct CIDs after repair.
+- Confirmed persistence of the repair event in operation history with its
+  execution timestamp, successful and failed AID lists, diagnostics, and
+  inserted-row count.
+
+---
+
 ## [v0.14.3] - 2026-09-17
 
 ### Changed

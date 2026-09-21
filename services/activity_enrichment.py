@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+import json
 import threading
 import time
+
+from services.db_audit import register_operation
 
 COMPOUND_ACTIVITIES_TABLE = "compound_activities"
 COMPOUND_ASSAYS_TABLE = "compound_assays"
@@ -169,11 +172,22 @@ def _fetch_activity_for_job(
     retry_initial_delay=1.0,
     retry_backoff_multiplier=2.0,
     retry_max_delay=8.0,
+    activity_fetcher_supports_request_wait=False,
 ):
-    rate_limiter.wait()
+    if activity_fetcher_supports_request_wait:
+        def fetch_once(aid):
+            return activity_fetcher(
+                aid,
+                request_wait=rate_limiter.wait,
+            )
+    else:
+        def fetch_once(aid):
+            rate_limiter.wait()
+            return activity_fetcher(aid)
+
     return _fetch_with_retry(
         aid_job["aid"],
-        activity_fetcher,
+        fetch_once,
         max_retries=max_retries,
         initial_delay=retry_initial_delay,
         backoff_multiplier=retry_backoff_multiplier,
@@ -190,6 +204,7 @@ def _fetch_activity_chunk_concurrently(
     retry_initial_delay=1.0,
     retry_backoff_multiplier=2.0,
     retry_max_delay=8.0,
+    activity_fetcher_supports_request_wait=False,
     stop_on_error=False,
 ):
     chunk = list(chunk)
@@ -216,6 +231,7 @@ def _fetch_activity_chunk_concurrently(
                 retry_initial_delay,
                 retry_backoff_multiplier,
                 retry_max_delay,
+                activity_fetcher_supports_request_wait,
             )
             future_to_job[future] = (next_index, aid_job)
             next_index += 1
@@ -265,10 +281,70 @@ def _empty_activity_result():
         "processed_aid_values": [],
         "successful_aid_values": [],
         "failed_aid_values": [],
+        "failed_job_diagnostics": [],
         "successful_cid_values": [],
         "inserted_rows": 0,
         "error_message": None,
     }
+
+
+def _activity_repair_operation_status(result):
+    if result.get("status") == "failed":
+        return "failed"
+    if int(result.get("failed_aids", 0) or 0) > 0:
+        return "partial"
+    return "success"
+
+
+def _register_activity_repair_operation(
+    connection,
+    result,
+    *,
+    chunk_size,
+    continue_on_error,
+    max_workers,
+    rate_limit_per_second,
+    max_retries,
+):
+    details = {
+        "source_system": "PubChem",
+        "source_interface": "PUG REST",
+        "retrieval_mode": "live",
+        "job_unit": "protein_aid",
+        "total_jobs": int(result.get("total_aids", 0) or 0),
+        "processed_jobs": int(result.get("processed_aids", 0) or 0),
+        "successful_jobs": int(result.get("successful_aids", 0) or 0),
+        "failed_jobs": int(result.get("failed_aids", 0) or 0),
+        "processed_aid_values": list(result.get("processed_aid_values", [])),
+        "successful_aid_values": list(result.get("successful_aid_values", [])),
+        "failed_aid_values": list(result.get("failed_aid_values", [])),
+        "failed_job_diagnostics": list(
+            result.get("failed_job_diagnostics", [])
+        ),
+        "inserted_rows": int(result.get("inserted_rows", 0) or 0),
+        "existing_activity_records_preserved": True,
+        "chunk_size": int(chunk_size),
+        "continue_on_error": bool(continue_on_error),
+        "max_workers": int(max_workers),
+        "rate_limit_per_second": rate_limit_per_second,
+        "max_retries": int(max_retries),
+    }
+
+    error_message = result.get("error_message")
+    if error_message:
+        details["error_message"] = str(error_message)
+
+    return register_operation(
+        connection,
+        operation_type="structured_activity_repair",
+        target_table=COMPOUND_ACTIVITIES_TABLE,
+        source_table=COMPOUND_ASSAYS_TABLE,
+        source_columns=["CID", "AID", "Protein"],
+        output_columns=ACTIVITY_COLUMNS,
+        created_by="run_activity_enrichment_from_compound_assays",
+        status=_activity_repair_operation_status(result),
+        details=json.dumps(details, sort_keys=True),
+    )
 
 
 def _compound_assays_exists(connection):
@@ -291,15 +367,24 @@ def build_activity_jobs_from_compound_assays(connection):
         ORDER BY Protein, AID, CID
     """)
     grouped_jobs = {}
-    for protein, aid, cid in cursor.fetchall():
-        key = (str(protein), str(aid))
+    seen_cids = {}
+
+    for protein, aid, cid in cursor:
+        protein = str(protein)
+        aid = str(aid)
+        cid = str(cid)
+        key = (protein, aid)
+
         job = grouped_jobs.setdefault(
             key,
-            {"protein": str(protein), "aid": str(aid), "cids": []},
+            {"protein": protein, "aid": aid, "cids": []},
         )
-        cid = str(cid)
-        if cid not in job["cids"]:
+        seen = seen_cids.setdefault(key, set())
+
+        if cid not in seen:
+            seen.add(cid)
             job["cids"].append(cid)
+
     return list(grouped_jobs.values())
 
 
@@ -361,6 +446,7 @@ def run_pubchem_activity_enrichment(
     retry_initial_delay=1.0,
     retry_backoff_multiplier=2.0,
     retry_max_delay=8.0,
+    activity_fetcher_supports_request_wait=False,
 ):
     if max_workers <= 0:
         raise ValueError("max_workers must be greater than zero.")
@@ -382,6 +468,7 @@ def run_pubchem_activity_enrichment(
     processed_aids = []
     successful_aids = []
     failed_aids = []
+    failed_job_diagnostics = []
     successful_cids = set()
     inserted_rows = 0
     rate_limiter = _GlobalRateLimiter(rate_limit_per_second)
@@ -427,6 +514,7 @@ def run_pubchem_activity_enrichment(
                         retry_initial_delay,
                         retry_backoff_multiplier,
                         retry_max_delay,
+                        activity_fetcher_supports_request_wait,
                     )
                 except Exception as exc:
                     fetch_results.append((aid_job, None, exc))
@@ -444,6 +532,9 @@ def run_pubchem_activity_enrichment(
                 retry_initial_delay,
                 retry_backoff_multiplier,
                 retry_max_delay,
+                activity_fetcher_supports_request_wait=(
+                    activity_fetcher_supports_request_wait
+                ),
                 stop_on_error=not continue_on_error,
             )
 
@@ -453,6 +544,13 @@ def run_pubchem_activity_enrichment(
             if error is not None:
                 processed_aids.append(aid)
                 failed_aids.append(aid)
+                failed_job_diagnostics.append(
+                    {
+                        "protein": str(aid_job["protein"]),
+                        "aid": str(aid),
+                        "error": str(error),
+                    }
+                )
                 if failure_error is None:
                     failure_error = error
                 if not continue_on_error:
@@ -489,6 +587,7 @@ def run_pubchem_activity_enrichment(
                 "processed_aid_values": processed_aids,
                 "successful_aid_values": successful_aids,
                 "failed_aid_values": failed_aids,
+                "failed_job_diagnostics": failed_job_diagnostics,
                 "successful_cid_values": sorted(successful_cids),
                 "inserted_rows": inserted_rows,
                 "error_message": str(failure_error),
@@ -517,6 +616,7 @@ def run_pubchem_activity_enrichment(
         "processed_aid_values": processed_aids,
         "successful_aid_values": successful_aids,
         "failed_aid_values": failed_aids,
+        "failed_job_diagnostics": failed_job_diagnostics,
         "successful_cid_values": sorted(successful_cids),
         "inserted_rows": inserted_rows,
         "error_message": None,
@@ -547,6 +647,7 @@ def run_activity_enrichment_from_compound_assays(
     retry_initial_delay=1.0,
     retry_backoff_multiplier=2.0,
     retry_max_delay=8.0,
+    activity_fetcher_supports_request_wait=False,
 ):
     aid_jobs = build_activity_jobs_from_compound_assays(connection)
     if not aid_jobs:
@@ -564,7 +665,7 @@ def run_activity_enrichment_from_compound_assays(
         )
         _emit_progress(progress_callback, result["progress"])
         return result
-    return run_pubchem_activity_enrichment(
+    result = run_pubchem_activity_enrichment(
         connection,
         aid_jobs,
         activity_fetcher,
@@ -577,4 +678,18 @@ def run_activity_enrichment_from_compound_assays(
         retry_initial_delay=retry_initial_delay,
         retry_backoff_multiplier=retry_backoff_multiplier,
         retry_max_delay=retry_max_delay,
+        activity_fetcher_supports_request_wait=(
+            activity_fetcher_supports_request_wait
+        ),
     )
+
+    _register_activity_repair_operation(
+        connection,
+        result,
+        chunk_size=chunk_size,
+        continue_on_error=continue_on_error,
+        max_workers=max_workers,
+        rate_limit_per_second=rate_limit_per_second,
+        max_retries=max_retries,
+    )
+    return result
