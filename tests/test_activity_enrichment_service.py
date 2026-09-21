@@ -314,6 +314,79 @@ def test_activity_runner_rate_limiter_uses_global_start_spacing(monkeypatch):
     assert sleep_calls == [0.5]
 
 
+def test_request_aware_fetcher_avoids_outer_double_rate_limit(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    monotonic_value = {"value": 0.0}
+    sleep_calls = []
+
+    def fake_monotonic():
+        return monotonic_value["value"]
+
+    def fake_sleep(delay):
+        sleep_calls.append(delay)
+        monotonic_value["value"] += delay
+
+    activity_time = run_pubchem_activity_enrichment.__globals__["time"]
+    monkeypatch.setattr(activity_time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(activity_time, "sleep", fake_sleep)
+
+    def fetcher(aid, request_wait=None):
+        request_wait()
+        request_wait()
+        return activity_payload(aid, "101", "10")
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        [aid_jobs()[0]],
+        fetcher,
+        rate_limit_per_second=2,
+        activity_fetcher_supports_request_wait=True,
+    )
+
+    assert result["successful_aids"] == 1
+    assert sleep_calls == [0.5]
+
+
+def test_request_aware_fetcher_rate_limits_retry_requests(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    monotonic_value = {"value": 0.0}
+    sleep_calls = []
+    calls = []
+
+    def fake_monotonic():
+        return monotonic_value["value"]
+
+    def fake_sleep(delay):
+        sleep_calls.append(delay)
+        monotonic_value["value"] += delay
+
+    activity_time = run_pubchem_activity_enrichment.__globals__["time"]
+    monkeypatch.setattr(activity_time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(activity_time, "sleep", fake_sleep)
+
+    def fetcher(aid, request_wait=None):
+        request_wait()
+        calls.append(aid)
+        if len(calls) == 1:
+            raise FakeHTTPError(503, "ServerBusy")
+        return activity_payload(aid, "101", "10")
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        [aid_jobs()[0]],
+        fetcher,
+        rate_limit_per_second=2,
+        max_retries=1,
+        retry_initial_delay=0.0,
+        retry_max_delay=0.0,
+        activity_fetcher_supports_request_wait=True,
+    )
+
+    assert result["successful_aids"] == 1
+    assert calls == ["11", "11"]
+    assert sleep_calls == [0.5]
+
+
 def test_fetch_with_retry_retries_http_503_once_then_succeeds():
     calls = []
     sleeps = []

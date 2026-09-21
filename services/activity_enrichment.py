@@ -169,11 +169,22 @@ def _fetch_activity_for_job(
     retry_initial_delay=1.0,
     retry_backoff_multiplier=2.0,
     retry_max_delay=8.0,
+    activity_fetcher_supports_request_wait=False,
 ):
-    rate_limiter.wait()
+    if activity_fetcher_supports_request_wait:
+        def fetch_once(aid):
+            return activity_fetcher(
+                aid,
+                request_wait=rate_limiter.wait,
+            )
+    else:
+        def fetch_once(aid):
+            rate_limiter.wait()
+            return activity_fetcher(aid)
+
     return _fetch_with_retry(
         aid_job["aid"],
-        activity_fetcher,
+        fetch_once,
         max_retries=max_retries,
         initial_delay=retry_initial_delay,
         backoff_multiplier=retry_backoff_multiplier,
@@ -190,6 +201,7 @@ def _fetch_activity_chunk_concurrently(
     retry_initial_delay=1.0,
     retry_backoff_multiplier=2.0,
     retry_max_delay=8.0,
+    activity_fetcher_supports_request_wait=False,
     stop_on_error=False,
 ):
     chunk = list(chunk)
@@ -216,6 +228,7 @@ def _fetch_activity_chunk_concurrently(
                 retry_initial_delay,
                 retry_backoff_multiplier,
                 retry_max_delay,
+                activity_fetcher_supports_request_wait,
             )
             future_to_job[future] = (next_index, aid_job)
             next_index += 1
@@ -370,6 +383,7 @@ def run_pubchem_activity_enrichment(
     retry_initial_delay=1.0,
     retry_backoff_multiplier=2.0,
     retry_max_delay=8.0,
+    activity_fetcher_supports_request_wait=False,
 ):
     if max_workers <= 0:
         raise ValueError("max_workers must be greater than zero.")
@@ -436,6 +450,7 @@ def run_pubchem_activity_enrichment(
                         retry_initial_delay,
                         retry_backoff_multiplier,
                         retry_max_delay,
+                        activity_fetcher_supports_request_wait,
                     )
                 except Exception as exc:
                     fetch_results.append((aid_job, None, exc))
@@ -453,6 +468,9 @@ def run_pubchem_activity_enrichment(
                 retry_initial_delay,
                 retry_backoff_multiplier,
                 retry_max_delay,
+                activity_fetcher_supports_request_wait=(
+                    activity_fetcher_supports_request_wait
+                ),
                 stop_on_error=not continue_on_error,
             )
 
@@ -556,6 +574,7 @@ def run_activity_enrichment_from_compound_assays(
     retry_initial_delay=1.0,
     retry_backoff_multiplier=2.0,
     retry_max_delay=8.0,
+    activity_fetcher_supports_request_wait=False,
 ):
     aid_jobs = build_activity_jobs_from_compound_assays(connection)
     if not aid_jobs:
@@ -586,4 +605,7 @@ def run_activity_enrichment_from_compound_assays(
         retry_initial_delay=retry_initial_delay,
         retry_backoff_multiplier=retry_backoff_multiplier,
         retry_max_delay=retry_max_delay,
+        activity_fetcher_supports_request_wait=(
+            activity_fetcher_supports_request_wait
+        ),
     )

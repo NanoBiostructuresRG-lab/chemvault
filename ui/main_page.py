@@ -649,6 +649,7 @@ def render_activity_enrichment_action(connection):
                 max_workers=4,
                 rate_limit_per_second=4,
                 max_retries=3,
+                activity_fetcher_supports_request_wait=True,
                 retry_initial_delay=1.0,
                 retry_backoff_multiplier=2.0,
                 retry_max_delay=8.0,

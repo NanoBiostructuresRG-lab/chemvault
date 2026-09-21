@@ -712,8 +712,12 @@ def _collect_pubchem_records(
         fraction = 1.0 if total_aids == 0 else processed_aids / total_aids
         _update_progress(progreso, 0.85 + (0.10 * fraction))
 
-    def activity_fetcher(aid):
-        return _fetch_assay_activity(aid, raise_on_error=True)
+    def activity_fetcher(aid, request_wait=None):
+        return _fetch_assay_activity(
+            aid,
+            raise_on_error=True,
+            request_wait=request_wait,
+        )
 
     if stage_callback is not None:
         stage_callback("activity_enrichment")
@@ -727,6 +731,7 @@ def _collect_pubchem_records(
         max_workers=4,
         rate_limit_per_second=4,
         max_retries=3,
+        activity_fetcher_supports_request_wait=True,
         retry_initial_delay=1.0,
         retry_backoff_multiplier=2.0,
         retry_max_delay=8.0,
