@@ -291,15 +291,24 @@ def build_activity_jobs_from_compound_assays(connection):
         ORDER BY Protein, AID, CID
     """)
     grouped_jobs = {}
-    for protein, aid, cid in cursor.fetchall():
-        key = (str(protein), str(aid))
+    seen_cids = {}
+
+    for protein, aid, cid in cursor:
+        protein = str(protein)
+        aid = str(aid)
+        cid = str(cid)
+        key = (protein, aid)
+
         job = grouped_jobs.setdefault(
             key,
-            {"protein": str(protein), "aid": str(aid), "cids": []},
+            {"protein": protein, "aid": aid, "cids": []},
         )
-        cid = str(cid)
-        if cid not in job["cids"]:
+        seen = seen_cids.setdefault(key, set())
+
+        if cid not in seen:
+            seen.add(cid)
             job["cids"].append(cid)
+
     return list(grouped_jobs.values())
 
 

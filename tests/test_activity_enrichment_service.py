@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
 import threading
+import time
 
 from services.activity_enrichment import (
     _fetch_with_retry,
@@ -465,6 +466,73 @@ def test_build_activity_jobs_from_compound_assays_groups_by_protein_and_aid():
         {"protein": "P1", "aid": "22", "cids": ["301"]},
         {"protein": "P2", "aid": "11", "cids": ["201"]},
     ]
+
+
+def test_build_activity_jobs_from_compound_assays_streams_query_results():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("101", "11", "P1"), ("102", "11", "P1")],
+    )
+
+    class CursorWithoutFetchall:
+        def __init__(self, cursor):
+            self._cursor = cursor
+
+        def execute(self, *args, **kwargs):
+            self._cursor.execute(*args, **kwargs)
+            return self
+
+        def fetchone(self):
+            return self._cursor.fetchone()
+
+        def fetchall(self):
+            raise AssertionError("build_activity_jobs_from_compound_assays must stream rows")
+
+        def __iter__(self):
+            return iter(self._cursor)
+
+    class ConnectionWithoutFetchall:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+
+        def cursor(self):
+            return CursorWithoutFetchall(self._wrapped.cursor())
+
+    jobs = build_activity_jobs_from_compound_assays(
+        ConnectionWithoutFetchall(connection)
+    )
+
+    assert jobs == [
+        {"protein": "P1", "aid": "11", "cids": ["101", "102"]},
+    ]
+
+
+def test_build_activity_jobs_from_compound_assays_scales_for_large_aid():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+
+    cid_count = 30000
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        ((str(cid), "11", "P1") for cid in range(cid_count)),
+    )
+
+    started = time.perf_counter()
+    jobs = build_activity_jobs_from_compound_assays(connection)
+    elapsed = time.perf_counter() - started
+
+    expected_cids = sorted(str(cid) for cid in range(cid_count))
+
+    assert jobs == [
+        {"protein": "P1", "aid": "11", "cids": expected_cids},
+    ]
+    assert elapsed < 3.0
 
 
 def test_run_activity_enrichment_from_compound_assays_fills_compound_activities():
