@@ -13,6 +13,8 @@ from ui.main_page import (
     ACTIVITY_SUMMARY_COLUMNS,
     STRUCTURED_ACTIVITY_SUBSET_SUCCESS,
     STRUCTURED_ACTIVITY_SUBSET_TABLE_TO_SELECT,
+    _activity_enrichment_progress_fraction,
+    _activity_enrichment_status_text,
     _apply_pending_structured_activity_subset_selection,
     _created_filtered_activity_table,
     _database_summary_metric_html,
@@ -28,6 +30,40 @@ from ui.main_page import (
     load_selected_columns_preview,
     load_table_schema,
 )
+
+
+def test_activity_enrichment_progress_uses_processed_jobs():
+    snapshot = {
+        "total_aids": 650,
+        "processed_aids": 10,
+        "total_chunks": 65,
+        "current_chunk": 2,
+    }
+
+    assert _activity_enrichment_progress_fraction(snapshot) == 10 / 650
+    assert _activity_enrichment_progress_fraction(
+        {"total_aids": 0, "processed_aids": 0}
+    ) == 0.0
+
+
+def test_activity_enrichment_final_status_reports_partial_completion_truthfully():
+    assert _activity_enrichment_status_text(
+        {
+            "status": "success",
+            "failed_aids": 2,
+            "current_chunk": 65,
+            "total_chunks": 65,
+        }
+    ) == "Structured activity backfill completed with warnings."
+
+    assert _activity_enrichment_status_text(
+        {
+            "status": "success",
+            "failed_aids": 0,
+            "current_chunk": 65,
+            "total_chunks": 65,
+        }
+    ) == "Structured activity backfill completed."
 
 
 def test_main_column_options_hide_only_legacy_activity_summary_columns():
