@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import json
 import sqlite3
 import threading
 import time
@@ -628,6 +629,172 @@ def test_run_activity_enrichment_from_compound_assays_fills_compound_activities(
     assert result["total_aids"] == 2
     assert result["inserted_rows"] == 2
     assert cursor.fetchall() == [("11", "P1", "101"), ("22", "P1", "202")]
+
+
+def test_activity_repair_registers_success_provenance():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("101", "11", "P1"), ("202", "22", "P1")],
+    )
+
+    run_activity_enrichment_from_compound_assays(
+        connection,
+        lambda aid: activity_payload(
+            aid,
+            {"11": "101", "22": "202"}[aid],
+            aid,
+        ),
+        chunk_size=1,
+        max_workers=1,
+        rate_limit_per_second=4,
+        max_retries=3,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT
+            operation_type,
+            target_table,
+            source_table,
+            created_by,
+            status,
+            details
+        FROM _chemvault_operation_log
+        """
+    )
+    row = cursor.fetchone()
+
+    assert row[:5] == (
+        "structured_activity_repair",
+        "compound_activities",
+        "compound_assays",
+        "run_activity_enrichment_from_compound_assays",
+        "success",
+    )
+
+    details = json.loads(row[5])
+    assert details["source_system"] == "PubChem"
+    assert details["source_interface"] == "PUG REST"
+    assert details["retrieval_mode"] == "live"
+    assert details["job_unit"] == "protein_aid"
+    assert details["total_jobs"] == 2
+    assert details["processed_jobs"] == 2
+    assert details["successful_jobs"] == 2
+    assert details["failed_jobs"] == 0
+    assert details["processed_aid_values"] == ["11", "22"]
+    assert details["successful_aid_values"] == ["11", "22"]
+    assert details["failed_aid_values"] == []
+    assert details["failed_job_diagnostics"] == []
+    assert details["inserted_rows"] == 2
+    assert details["existing_activity_records_preserved"] is True
+
+
+def test_activity_repair_registers_partial_provenance():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("101", "11", "P1"), ("202", "22", "P1")],
+    )
+
+    def fetcher(aid):
+        if aid == "22":
+            raise RuntimeError("PubChem failed")
+        return activity_payload(aid, "101", "10")
+
+    result = run_activity_enrichment_from_compound_assays(
+        connection,
+        fetcher,
+        chunk_size=1,
+        continue_on_error=True,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT status, details
+        FROM _chemvault_operation_log
+        """
+    )
+    status, details_json = cursor.fetchone()
+    details = json.loads(details_json)
+
+    assert result["status"] == "success"
+    assert result["failed_aids"] == 1
+
+    assert status == "partial"
+    assert details["total_jobs"] == 2
+    assert details["processed_jobs"] == 2
+    assert details["successful_jobs"] == 1
+    assert details["failed_jobs"] == 1
+    assert details["processed_aid_values"] == ["11", "22"]
+    assert details["successful_aid_values"] == ["11"]
+    assert details["failed_aid_values"] == ["22"]
+    assert details["failed_job_diagnostics"] == [
+        {
+            "protein": "P1",
+            "aid": "22",
+            "error": "PubChem failed",
+        }
+    ]
+    assert details["inserted_rows"] == 1
+
+
+def test_activity_repair_registers_failed_provenance():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE compound_assays (CID TEXT, AID TEXT, Protein TEXT)"
+    )
+    connection.executemany(
+        "INSERT INTO compound_assays (CID, AID, Protein) VALUES (?, ?, ?)",
+        [("101", "11", "P1"), ("202", "22", "P1")],
+    )
+
+    def fetcher(aid):
+        if aid == "11":
+            raise RuntimeError("PubChem unavailable")
+        return activity_payload(aid, "202", "20")
+
+    result = run_activity_enrichment_from_compound_assays(
+        connection,
+        fetcher,
+        chunk_size=1,
+        continue_on_error=False,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT status, details
+        FROM _chemvault_operation_log
+        """
+    )
+    status, details_json = cursor.fetchone()
+    details = json.loads(details_json)
+
+    assert result["status"] == "failed"
+    assert status == "failed"
+    assert details["processed_jobs"] == 1
+    assert details["successful_jobs"] == 0
+    assert details["failed_jobs"] == 1
+    assert details["processed_aid_values"] == ["11"]
+    assert details["successful_aid_values"] == []
+    assert details["failed_aid_values"] == ["11"]
+    assert details["failed_job_diagnostics"] == [
+        {
+            "protein": "P1",
+            "aid": "11",
+            "error": "PubChem unavailable",
+        }
+    ]
+    assert details["error_message"] == "PubChem unavailable"
 
 
 def test_run_activity_enrichment_from_compound_assays_keeps_sequential_defaults(monkeypatch):
