@@ -84,7 +84,14 @@ def test_ensure_harmonsmile_cache_creates_internal_table():
     cursor.execute(f'PRAGMA table_info("{CACHE_TABLE}")')
     columns = [row[1] for row in cursor.fetchall()]
 
-    assert columns == ["PubChem_CID", "status", "fetched_at", "error_message"]
+    assert columns == [
+        "PubChem_CID",
+        "status",
+        "fetched_at",
+        "error_message",
+        "PubChem_Acquisition_Status",
+        "PubChem_Acquisition_Message",
+    ]
     assert get_tables_from_connection(connection) == []
 
 
@@ -92,8 +99,18 @@ def test_upsert_harmonsmile_cache_adds_dynamic_columns_and_reads_cached_cids():
     connection = sqlite3.connect(":memory:")
     df = pd.DataFrame(
         [
-            {"PubChem_CID": "1", "SMILES": "CCO", "Molecular Formula": "C2H6O"},
-            {"PubChem_CID": "2", "SMILES": "CCC", "Molecular Formula": "C3H8"},
+            {
+                "PubChem_CID": "1",
+                "PubChem_Acquisition_Status": "ok",
+                "SMILES": "CCO",
+                "Molecular Formula": "C2H6O",
+            },
+            {
+                "PubChem_CID": "2",
+                "PubChem_Acquisition_Status": "ok",
+                "SMILES": "CCC",
+                "Molecular Formula": "C3H8",
+            },
         ]
     )
 
@@ -116,6 +133,8 @@ def test_upsert_harmonsmile_cache_adds_dynamic_columns_and_reads_cached_cids():
         "status",
         "fetched_at",
         "error_message",
+        "PubChem_Acquisition_Status",
+        "PubChem_Acquisition_Message",
         "SMILES",
         "Molecular_Formula",
     ]
@@ -195,8 +214,16 @@ def test_prepare_harmonsmile_job_splits_cached_pending_and_invalid_cids():
         connection,
         pd.DataFrame(
             [
-                {"PubChem_CID": "1", "SMILES": "CCO"},
-                {"PubChem_CID": "3", "SMILES": "CCC"},
+                {
+                    "PubChem_CID": "1",
+                    "PubChem_Acquisition_Status": "ok",
+                    "SMILES": "CCO",
+                },
+                {
+                    "PubChem_CID": "3",
+                    "PubChem_Acquisition_Status": "ok",
+                    "SMILES": "CCC",
+                },
             ]
         ),
     )
@@ -223,7 +250,15 @@ def test_prepare_harmonsmile_job_ignores_failed_cache_rows():
     )
     upsert_harmonsmile_cache(
         connection,
-        pd.DataFrame([{"PubChem_CID": "1", "SMILES": "CCO"}]),
+        pd.DataFrame(
+            [
+                {
+                    "PubChem_CID": "1",
+                    "PubChem_Acquisition_Status": "ok",
+                    "SMILES": "CCO",
+                }
+            ]
+        ),
         status="failed",
         error_message="temporary failure",
     )
@@ -243,6 +278,7 @@ def test_run_harmonsmile_chunks_processes_pending_cids_and_caches_each_chunk():
         return pd.DataFrame(
             {
                 "PubChem CID": chunk_df["CID"],
+                "PubChem_Acquisition_Status": ["ok"] * len(chunk_df),
                 "SMILES": [f"SMILES-{cid}" for cid in chunk_df["CID"]],
             }
         )
@@ -311,6 +347,7 @@ def test_run_harmonsmile_chunks_records_failed_chunk_and_stops():
         return pd.DataFrame(
             {
                 "PubChem_CID": chunk_df["CID"],
+                "PubChem_Acquisition_Status": ["ok"] * len(chunk_df),
                 "SMILES": [f"SMILES-{cid}" for cid in chunk_df["CID"]],
             }
         )
@@ -372,6 +409,7 @@ def test_run_harmonsmile_chunks_marks_missing_chunk_results_as_failed():
         return pd.DataFrame(
             {
                 "PubChem_CID": ["1", "3"],
+                "PubChem_Acquisition_Status": ["ok", "ok"],
                 "SMILES": ["SMILES-1", "SMILES-3"],
             }
         )
@@ -422,6 +460,162 @@ def test_run_harmonsmile_chunks_marks_missing_chunk_results_as_failed():
     ]
 
 
+
+
+def test_legacy_success_cache_without_acquisition_provenance_is_not_reused():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        f"""
+        CREATE TABLE "{CACHE_TABLE}" (
+            PubChem_CID TEXT PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'success',
+            fetched_at TEXT NOT NULL,
+            error_message TEXT,
+            SMILES TEXT
+        )
+        """
+    )
+    connection.execute(
+        f"""
+        INSERT INTO "{CACHE_TABLE}"
+        (PubChem_CID, status, fetched_at, error_message, SMILES)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            "88287916",
+            "success",
+            "2026-09-24T03:30:40+00:00",
+            None,
+            None,
+        ),
+    )
+    connection.commit()
+
+    cached = get_cached_harmonsmile_cids(
+        connection,
+        ["88287916"],
+    )
+
+    cache_columns = [
+        row[1]
+        for row in connection.execute(
+            f'PRAGMA table_info("{CACHE_TABLE}")'
+        ).fetchall()
+    ]
+
+    assert cached == set()
+    assert "PubChem_Acquisition_Status" in cache_columns
+    assert "PubChem_Acquisition_Message" in cache_columns
+
+
+def test_run_harmonsmile_chunks_marks_returned_acquisition_failure_as_failed():
+    connection = sqlite3.connect(":memory:")
+
+    def failed_acquisition_runner(chunk_df):
+        assert chunk_df["CID"].tolist() == ["88287916"]
+        return pd.DataFrame(
+            {
+                "PubChem_CID": ["88287916"],
+                "PubChem_Acquisition_Status": ["failed"],
+                "PubChem_Acquisition_Message": [
+                    "PubChem acquisition failed: RuntimeError: simulated final fetch failure"
+                ],
+                "SMILES": [None],
+                "SMILES_RDKit": [None],
+                "SMILES_Harmonized": [None],
+                "SMILES_Harmonization_Status": ["failed"],
+                "SMILES_Harmonization_Message": ["missing or blank SMILES"],
+            }
+        )
+
+    result = run_harmonsmile_chunks(
+        connection,
+        ["88287916"],
+        failed_acquisition_runner,
+        chunk_size=1,
+    )
+
+    row = connection.execute(
+        f"""
+        SELECT
+            status,
+            error_message,
+            PubChem_Acquisition_Status,
+            PubChem_Acquisition_Message,
+            SMILES_Harmonization_Status
+        FROM "{CACHE_TABLE}"
+        WHERE PubChem_CID = ?
+        """,
+        ("88287916",),
+    ).fetchone()
+
+    assert result["processed_cids"] == ["88287916"]
+    assert result["failed_cids"] == ["88287916"]
+    assert get_cached_harmonsmile_cids(
+        connection,
+        ["88287916"],
+    ) == set()
+    assert row == (
+        "failed",
+        "PubChem acquisition failed: RuntimeError: simulated final fetch failure",
+        "failed",
+        "PubChem acquisition failed: RuntimeError: simulated final fetch failure",
+        "failed",
+    )
+
+
+def test_run_harmonsmile_chunks_keeps_acquisition_success_when_harmonization_fails():
+    connection = sqlite3.connect(":memory:")
+
+    def successful_acquisition_runner(chunk_df):
+        assert chunk_df["CID"].tolist() == ["88287916"]
+        return pd.DataFrame(
+            {
+                "PubChem_CID": ["88287916"],
+                "PubChem_Acquisition_Status": ["ok"],
+                "PubChem_Acquisition_Message": [None],
+                "SMILES": [None],
+                "SMILES_RDKit": [None],
+                "SMILES_Harmonized": [None],
+                "SMILES_Harmonization_Status": ["failed"],
+                "SMILES_Harmonization_Message": ["missing or blank SMILES"],
+            }
+        )
+
+    result = run_harmonsmile_chunks(
+        connection,
+        ["88287916"],
+        successful_acquisition_runner,
+        chunk_size=1,
+    )
+
+    row = connection.execute(
+        f"""
+        SELECT
+            status,
+            error_message,
+            PubChem_Acquisition_Status,
+            SMILES_Harmonization_Status
+        FROM "{CACHE_TABLE}"
+        WHERE PubChem_CID = ?
+        """,
+        ("88287916",),
+    ).fetchone()
+
+    assert result["processed_cids"] == ["88287916"]
+    assert result["failed_cids"] == []
+    assert get_cached_harmonsmile_cids(
+        connection,
+        ["88287916"],
+    ) == {"88287916"}
+    assert row == (
+        "success",
+        None,
+        "ok",
+        "failed",
+    )
+
+
 def test_merge_harmonsmile_cache_to_table_adds_columns_and_updates_successful_rows():
     connection = sqlite3.connect(":memory:")
     connection.execute('CREATE TABLE "main" (CID TEXT, existing_col TEXT)')
@@ -437,8 +631,18 @@ def test_merge_harmonsmile_cache_to_table_adds_columns_and_updates_successful_ro
         connection,
         pd.DataFrame(
             [
-                {"PubChem_CID": "1", "SMILES": "CCO", "MW": "46.07"},
-                {"PubChem_CID": "3", "SMILES": "CCC", "MW": "44.10"},
+                {
+                    "PubChem_CID": "1",
+                    "PubChem_Acquisition_Status": "ok",
+                    "SMILES": "CCO",
+                    "MW": "46.07",
+                },
+                {
+                    "PubChem_CID": "3",
+                    "PubChem_Acquisition_Status": "ok",
+                    "SMILES": "CCC",
+                    "MW": "44.10",
+                },
             ]
         ),
     )
@@ -449,14 +653,33 @@ def test_merge_harmonsmile_cache_to_table_adds_columns_and_updates_successful_ro
     cursor = connection.cursor()
     cursor.execute('PRAGMA table_info("main")')
     columns = [row[1] for row in cursor.fetchall()]
-    cursor.execute('SELECT CID, existing_col, SMILES, MW FROM "main" ORDER BY CID')
+    cursor.execute(
+        """
+        SELECT
+            CID,
+            existing_col,
+            PubChem_Acquisition_Status,
+            PubChem_Acquisition_Message,
+            SMILES,
+            MW
+        FROM "main"
+        ORDER BY CID
+        """
+    )
 
     assert updated_rows == 2
-    assert columns == ["CID", "existing_col", "SMILES", "MW"]
+    assert columns == [
+        "CID",
+        "existing_col",
+        "PubChem_Acquisition_Status",
+        "PubChem_Acquisition_Message",
+        "SMILES",
+        "MW",
+    ]
     assert cursor.fetchall() == [
-        ("1", "keep-a", "CCO", "46.07"),
-        ("2", "keep-b", None, None),
-        ("3", "keep-c", "CCC", "44.10"),
+        ("1", "keep-a", "ok", None, "CCO", "46.07"),
+        ("2", "keep-b", None, None, None, None),
+        ("3", "keep-c", "ok", None, "CCC", "44.10"),
     ]
 
 
@@ -471,8 +694,16 @@ def test_merge_harmonsmile_cache_to_table_limits_merge_to_requested_cids():
         connection,
         pd.DataFrame(
             [
-                {"PubChem_CID": "1", "SMILES": "CCO"},
-                {"PubChem_CID": "2", "SMILES": "CCC"},
+                {
+                    "PubChem_CID": "1",
+                    "PubChem_Acquisition_Status": "ok",
+                    "SMILES": "CCO",
+                },
+                {
+                    "PubChem_CID": "2",
+                    "PubChem_Acquisition_Status": "ok",
+                    "SMILES": "CCC",
+                },
             ]
         ),
     )
@@ -503,7 +734,15 @@ def test_merge_harmonsmile_cache_to_table_updates_duplicate_cid_rows():
     )
     upsert_harmonsmile_cache(
         connection,
-        pd.DataFrame([{"PubChem_CID": "1", "SMILES": "CCO"}]),
+        pd.DataFrame(
+            [
+                {
+                    "PubChem_CID": "1",
+                    "PubChem_Acquisition_Status": "ok",
+                    "SMILES": "CCO",
+                }
+            ]
+        ),
     )
 
     updated_rows = merge_harmonsmile_cache_to_table(connection, "main", "CID")
@@ -525,7 +764,15 @@ def test_merge_harmonsmile_cache_to_table_does_not_write_internal_cache_columns(
     connection.execute('INSERT INTO "main" (CID) VALUES ("1")')
     upsert_harmonsmile_cache(
         connection,
-        pd.DataFrame([{"PubChem_CID": "1", "SMILES": "CCO"}]),
+        pd.DataFrame(
+            [
+                {
+                    "PubChem_CID": "1",
+                    "PubChem_Acquisition_Status": "ok",
+                    "SMILES": "CCO",
+                }
+            ]
+        ),
     )
 
     merge_harmonsmile_cache_to_table(connection, "main", "CID")
@@ -534,7 +781,15 @@ def test_merge_harmonsmile_cache_to_table_does_not_write_internal_cache_columns(
     cursor.execute('PRAGMA table_info("main")')
     columns = [row[1] for row in cursor.fetchall()]
 
-    assert columns == ["CID", "SMILES"]
+    assert columns == [
+        "CID",
+        "PubChem_Acquisition_Status",
+        "PubChem_Acquisition_Message",
+        "SMILES",
+    ]
+    assert "status" not in columns
+    assert "fetched_at" not in columns
+    assert "error_message" not in columns
 
 
 def test_merge_harmonsmile_cache_to_table_returns_zero_without_successful_rows():

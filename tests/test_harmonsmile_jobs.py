@@ -33,6 +33,7 @@ def test_harmonsmile_job_runs_merges_and_remains_queryable(tmp_path, monkeypatch
     def runner(frame):
         return pd.DataFrame({
             "PubChem CID": frame["CID"],
+            "PubChem_Acquisition_Status": ["ok"] * len(frame),
             "SMILES": [f"SMILES-{cid}" for cid in frame["CID"]],
         })
 
@@ -47,7 +48,11 @@ def test_harmonsmile_job_runs_merges_and_remains_queryable(tmp_path, monkeypatch
     assert launched.progress == 1.0
     assert launched.result["processed_cids"] == 2
     assert launched.result["merged_rows"] == 2
-    assert launched.result["output_columns"] == ["SMILES"]
+    assert launched.result["output_columns"] == [
+        "PubChem_Acquisition_Status",
+        "PubChem_Acquisition_Message",
+        "SMILES",
+    ]
 
     connection = sqlite3.connect(tmp_path / "SQL" / "test_db.db")
     assert connection.execute(
@@ -96,7 +101,13 @@ def test_created_job_is_queryable_while_background_execution_runs(
     def blocking_runner(frame):
         runner_started.set()
         release_runner.wait(timeout=2)
-        return pd.DataFrame({"PubChem CID": frame["CID"], "SMILES": ["CCO"]})
+        return pd.DataFrame(
+            {
+                "PubChem CID": frame["CID"],
+                "PubChem_Acquisition_Status": ["ok"],
+                "SMILES": ["CCO"],
+            }
+        )
 
     created = create_harmonsmile_job("test_db", "main", "CID")
     assert created.status == JobStatus.PENDING
@@ -173,6 +184,7 @@ def test_interrupted_job_recovers_same_id_and_reuses_committed_chunks(
         pd.DataFrame(
             {
                 "PubChem_CID": ["1", "2"],
+                "PubChem_Acquisition_Status": ["ok", "ok"],
                 "SMILES": ["cached-1", "cached-2"],
             }
         ),
@@ -193,6 +205,7 @@ def test_interrupted_job_recovers_same_id_and_reuses_committed_chunks(
         return pd.DataFrame(
             {
                 "PubChem_CID": frame["CID"],
+                "PubChem_Acquisition_Status": ["ok"] * len(frame),
                 "SMILES": [f"new-{cid}" for cid in frame["CID"]],
             }
         )
@@ -274,7 +287,11 @@ def test_recovery_repeats_already_committed_final_merge_safely(
     upsert_harmonsmile_cache(
         connection,
         pd.DataFrame(
-            {"PubChem_CID": ["1", "2"], "SMILES": ["CCO", "CCC"]}
+            {
+                "PubChem_CID": ["1", "2"],
+                "PubChem_Acquisition_Status": ["ok", "ok"],
+                "SMILES": ["CCO", "CCC"],
+            }
         ),
     )
     assert merge_harmonsmile_cache_to_table(
