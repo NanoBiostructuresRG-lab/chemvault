@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import ast
+import json
 import sqlite3
 
 import pytest
@@ -437,3 +438,83 @@ def test_completed_record_registration_persists_target_identity_notes(tmp_path):
 
     assert result is True
     assert persisted == ("protein_search", notes)
+
+def test_completed_record_projects_aid_completeness_to_operation_history(
+    tmp_path,
+):
+    db_path = tmp_path / "completed-aid-completeness.db"
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        "CREATE TABLE main (primary_id INTEGER PRIMARY KEY)"
+    )
+    connection.commit()
+    connection.close()
+
+    completeness = {
+        "contract": "pubchem_protein_search_aid_completeness_v1",
+        "source_enumeration_succeeded": True,
+        "certified_complete": False,
+        "reason": "aid_population_not_certified",
+        "counts": {
+            "source_observed": 652,
+            "terminal": 650,
+            "excluded_b1": 0,
+            "unresolved": 2,
+            "unexpected_persisted": 0,
+            "missing_materialization": 0,
+        },
+        "unresolved": [
+            {"protein": "P32245", "aid": "540307"},
+            {"protein": "P32245", "aid": "540319"},
+        ],
+    }
+
+    job = JobRecord(
+        job_id="job-aid-completeness",
+        job_type="pubchem_protein_search",
+        status=JobStatus.COMPLETED.value,
+        database_id="target_db",
+        metadata={
+            "proteins": ["P32245"],
+            "aid_completeness": completeness,
+        },
+    )
+
+    result = pubchem_job_service.register_completed_pubchem_job_record(
+        db_path,
+        job,
+    )
+
+    connection = sqlite3.connect(db_path)
+    details, status = connection.execute(
+        """
+        SELECT details, status
+        FROM _chemvault_operation_log
+        WHERE operation_type = ?
+          AND query_used = ?
+        """,
+        (
+            "protein_search_loaded",
+            "pubchem_job:job-aid-completeness",
+        ),
+    ).fetchone()
+    connection.close()
+
+    payload = json.loads(details)
+
+    assert result is True
+    assert status == "success"
+    assert payload == {
+        "proteins": ["P32245"],
+        "aid_completeness": {
+            "contract": completeness["contract"],
+            "source_enumeration_succeeded": True,
+            "certified_complete": False,
+            "reason": "aid_population_not_certified",
+            "counts": completeness["counts"],
+        },
+    }
+
+    # Detailed identities remain in job metadata; Operation history
+    # contains only the summary copied from that same source of truth.
+    assert "unresolved" not in payload["aid_completeness"]
