@@ -322,6 +322,10 @@ def _register_activity_repair_operation(
             result.get("failed_job_diagnostics", [])
         ),
         "inserted_rows": int(result.get("inserted_rows", 0) or 0),
+        "target_attribution": result.get(
+            "target_attribution",
+            _new_target_attribution_summary(),
+        ),
         "existing_activity_records_preserved": True,
         "chunk_size": int(chunk_size),
         "continue_on_error": bool(continue_on_error),
@@ -388,6 +392,131 @@ def build_activity_jobs_from_compound_assays(connection):
     return list(grouped_jobs.values())
 
 
+def _activity_record_matches_target(record, protein):
+    target_accessions = record.get("Target_Accessions")
+
+    # No row-level target field in the assay: preserve assay-level fallback.
+    if target_accessions is None:
+        return True
+
+    requested_protein = str(protein).strip().upper()
+    normalized_accessions = {
+        str(accession).strip().upper()
+        for accession in target_accessions
+        if str(accession).strip()
+    }
+
+    return requested_protein in normalized_accessions
+
+
+def _target_scoped_cids_from_fetch_result(aid_job, activity_by_cid):
+    expected_cids = {
+        str(cid) for cid in aid_job.get("cids", [])
+    }
+
+    target_column_present = bool(
+        getattr(activity_by_cid, "target_column_present", False)
+    )
+
+    # Assay does not expose row-level target accessions:
+    # preserve the existing assay-level CID contract.
+    if not target_column_present:
+        return sorted(expected_cids), False
+
+    protein = str(aid_job["protein"]).strip().upper()
+    target_cids_by_accession = getattr(
+        activity_by_cid,
+        "target_cids_by_accession",
+        {},
+    )
+
+    matching_cids = {
+        str(cid)
+        for cid in target_cids_by_accession.get(protein, set())
+    }
+
+    return sorted(expected_cids & matching_cids), True
+
+
+TARGET_ATTRIBUTION_POLICY = "row_target_accession_membership_v1"
+
+
+def _new_target_attribution_summary():
+    return {
+        "policy": TARGET_ATTRIBUTION_POLICY,
+        "row_level_jobs": 0,
+        "assay_level_fallback_jobs": 0,
+        "matching_source_rows": 0,
+        "nonmatching_source_rows": 0,
+        "unattributed_source_rows": 0,
+    }
+
+
+def _target_attribution_diagnostics_for_fetch_result(
+    aid_job,
+    activity_by_cid,
+):
+    diagnostics = _new_target_attribution_summary()
+    target_column_present = bool(
+        getattr(activity_by_cid, "target_column_present", False)
+    )
+
+    if not target_column_present:
+        diagnostics["assay_level_fallback_jobs"] = 1
+        return diagnostics
+
+    diagnostics["row_level_jobs"] = 1
+
+    protein = str(aid_job["protein"]).strip().upper()
+    expected_cids = {
+        str(cid) for cid in aid_job.get("cids", [])
+    }
+
+    target_rows = getattr(activity_by_cid, "target_rows", None)
+
+    if target_rows is None:
+        target_rows = []
+        for cid, activity in activity_by_cid.items():
+            cid = str(cid)
+            if cid not in expected_cids:
+                continue
+
+            for record in activity.get("records", []):
+                accessions = record.get("Target_Accessions")
+                if accessions is not None:
+                    target_rows.append((cid, tuple(accessions)))
+
+    for cid, accessions in target_rows:
+        if str(cid) not in expected_cids:
+            continue
+
+        normalized_accessions = {
+            str(accession).strip().upper()
+            for accession in accessions
+            if str(accession).strip()
+        }
+
+        if not normalized_accessions:
+            diagnostics["unattributed_source_rows"] += 1
+        elif protein in normalized_accessions:
+            diagnostics["matching_source_rows"] += 1
+        else:
+            diagnostics["nonmatching_source_rows"] += 1
+
+    return diagnostics
+
+
+def _merge_target_attribution_summary(summary, diagnostics):
+    for key in (
+        "row_level_jobs",
+        "assay_level_fallback_jobs",
+        "matching_source_rows",
+        "nonmatching_source_rows",
+        "unattributed_source_rows",
+    ):
+        summary[key] += diagnostics[key]
+
+
 def _activity_rows_from_fetch_result(aid_job, activity_by_cid):
     aid = str(aid_job["aid"])
     protein = str(aid_job["protein"])
@@ -396,9 +525,11 @@ def _activity_rows_from_fetch_result(aid_job, activity_by_cid):
 
     for cid, activity in activity_by_cid.items():
         cid = str(cid)
-        if expected_cids and cid not in expected_cids:
+        if cid not in expected_cids:
             continue
         for record in activity.get("records", []):
+            if not _activity_record_matches_target(record, protein):
+                continue
             rows.append([
                 str(record["CID"]),
                 aid,
@@ -470,6 +601,8 @@ def run_pubchem_activity_enrichment(
     failed_aids = []
     failed_job_diagnostics = []
     successful_cids = set()
+    target_scoped_jobs = []
+    target_attribution = _new_target_attribution_summary()
     inserted_rows = 0
     rate_limiter = _GlobalRateLimiter(rate_limit_per_second)
 
@@ -556,7 +689,36 @@ def run_pubchem_activity_enrichment(
                 if not continue_on_error:
                     continue
             else:
-                rows = _activity_rows_from_fetch_result(aid_job, activity_by_cid)
+                scoped_cids, target_column_present = (
+                    _target_scoped_cids_from_fetch_result(
+                        aid_job,
+                        activity_by_cid,
+                    )
+                )
+                target_scoped_jobs.append(
+                    {
+                        "protein": str(aid_job["protein"]),
+                        "aid": str(aid_job["aid"]),
+                        "cids": scoped_cids,
+                        "target_column_present": target_column_present,
+                    }
+                )
+
+                diagnostics = (
+                    _target_attribution_diagnostics_for_fetch_result(
+                        aid_job,
+                        activity_by_cid,
+                    )
+                )
+                _merge_target_attribution_summary(
+                    target_attribution,
+                    diagnostics,
+                )
+
+                rows = _activity_rows_from_fetch_result(
+                    aid_job,
+                    activity_by_cid,
+                )
                 successful_cids.update(row[0] for row in rows)
                 inserted_rows += upsert_compound_activity_rows(connection, rows)
                 processed_aids.append(aid)
@@ -589,6 +751,8 @@ def run_pubchem_activity_enrichment(
                 "failed_aid_values": failed_aids,
                 "failed_job_diagnostics": failed_job_diagnostics,
                 "successful_cid_values": sorted(successful_cids),
+                "target_scoped_jobs": target_scoped_jobs,
+                "target_attribution": target_attribution,
                 "inserted_rows": inserted_rows,
                 "error_message": str(failure_error),
             }
@@ -618,6 +782,8 @@ def run_pubchem_activity_enrichment(
         "failed_aid_values": failed_aids,
         "failed_job_diagnostics": failed_job_diagnostics,
         "successful_cid_values": sorted(successful_cids),
+        "target_scoped_jobs": target_scoped_jobs,
+        "target_attribution": target_attribution,
         "inserted_rows": inserted_rows,
         "error_message": None,
     }

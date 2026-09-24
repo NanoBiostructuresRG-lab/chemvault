@@ -47,6 +47,7 @@ STANDARD_TYPE_COLUMNS = ("PubChem Standard Type", "Standard Type")
 PUBCHEM_STANDARD_UNIT_COLUMNS = ("PubChem Standard Unit", "PubChem Standard Units")
 STANDARD_UNIT_COLUMNS = ("Standard Unit", "Standard Units")
 STANDARD_RELATION_COLUMNS = ("PubChem Standard Relation", "Standard Relation")
+TARGET_ACCESSION_COLUMNS = ("Target Accession(s)", "Target Accession")
 
 JOB_STAGE_PROGRESS = {
     "aid_search": (0.0, 0.05),
@@ -336,11 +337,13 @@ def _activity_record(
     unit,
     outcome,
     source_column,
+    target_accessions=None,
 ):
     numeric_value = _numeric_activity_value(raw_value)
     if numeric_value is None:
         return None
-    return {
+
+    record = {
         "CID": str(cid),
         "AID": str(aid),
         "Activity_Type": activity_type,
@@ -353,6 +356,11 @@ def _activity_record(
         "Activity_Status": "enriched",
         "Result_Tag": str(result_tag),
     }
+
+    if target_accessions is not None:
+        record["Target_Accessions"] = target_accessions
+
+    return record
 
 
 def _activity_qualifier(row, column):
@@ -449,14 +457,28 @@ def _fetch_paginated_assay_activity(
         count=first_count,
     )
 
-    if not _assay_csv_has_supported_activity_schema(first_page):
-        return activity_by_cid
+    supported_schema = _assay_csv_has_supported_activity_schema(
+        first_page
+    )
 
     _parse_assay_activity_csv(
         aid,
         first_page,
         activity_by_cid=activity_by_cid,
+        parse_activity=supported_schema,
     )
+
+    # Preserve the historical early stop when neither structured
+    # activity nor row-level target attribution can be recovered.
+    if (
+        not supported_schema
+        and not getattr(
+            activity_by_cid,
+            "target_column_present",
+            False,
+        )
+    ):
+        return activity_by_cid
 
     for start in range(ASSAY_SID_PAGE_SIZE, size, ASSAY_SID_PAGE_SIZE):
         count = min(ASSAY_SID_PAGE_SIZE, size - start)
@@ -471,18 +493,62 @@ def _fetch_paginated_assay_activity(
             aid,
             page,
             activity_by_cid=activity_by_cid,
+            parse_activity=supported_schema,
         )
 
     return activity_by_cid
 
 
-def _parse_assay_activity_csv(aid, text, activity_by_cid=None):
+class _AssayActivityResult(dict):
+    def __init__(self):
+        super().__init__()
+        self.target_column_present = False
+        self.target_cids_by_accession = {}
+        self.unattributed_target_cids = set()
+        self.target_rows = []
+
+
+def _target_accession_column(fieldnames):
+    for column in TARGET_ACCESSION_COLUMNS:
+        if column in fieldnames:
+            return column
+    return None
+
+
+def _row_target_accessions(row, target_accession_column):
+    if target_accession_column is None:
+        return None
+
+    raw_value = str(row.get(target_accession_column, "") or "")
+    normalized = raw_value.replace(";", ",").replace("|", ",")
+
+    return [
+        token.strip().upper()
+        for token in normalized.split(",")
+        if token.strip()
+    ]
+
+
+def _parse_assay_activity_csv(
+    aid,
+    text,
+    activity_by_cid=None,
+    parse_activity=True,
+):
     if activity_by_cid is None:
-        activity_by_cid = {}
+        activity_by_cid = _AssayActivityResult()
 
     reader = csv.DictReader(io.StringIO(text))
     rows = list(reader)
-    columns = _activity_columns(reader.fieldnames or [])
+    fieldnames = reader.fieldnames or []
+    columns = _activity_columns(fieldnames)
+    target_accession_column = _target_accession_column(fieldnames)
+    if (
+        isinstance(activity_by_cid, _AssayActivityResult)
+        and target_accession_column is not None
+    ):
+        activity_by_cid.target_column_present = True
+
     units = _activity_unit_map(rows, [*columns, *STANDARD_ACTIVITY_COLUMNS])
 
     for row in rows:
@@ -492,6 +558,31 @@ def _parse_assay_activity_csv(aid, text, activity_by_cid=None):
             continue
 
         outcome = row.get("PUBCHEM_ACTIVITY_OUTCOME", "").strip()
+        target_accessions = _row_target_accessions(
+            row,
+            target_accession_column,
+        )
+
+        if (
+            isinstance(activity_by_cid, _AssayActivityResult)
+            and target_accession_column is not None
+        ):
+            activity_by_cid.target_rows.append(
+                (cid, tuple(target_accessions))
+            )
+
+            if target_accessions:
+                for accession in target_accessions:
+                    activity_by_cid.target_cids_by_accession.setdefault(
+                        accession,
+                        set(),
+                    ).add(cid)
+            else:
+                activity_by_cid.unattributed_target_cids.add(cid)
+
+        if not parse_activity:
+            continue
+
         found_activity = False
         for column in columns:
             value = row.get(column, "").strip()
@@ -523,6 +614,7 @@ def _parse_assay_activity_csv(aid, text, activity_by_cid=None):
                 unit=units.get(column, ""),
                 outcome=outcome,
                 source_column=column,
+                target_accessions=target_accessions,
             )
             if record is not None:
                 activity["records"].append(record)
@@ -569,6 +661,7 @@ def _parse_assay_activity_csv(aid, text, activity_by_cid=None):
             unit=unit,
             outcome=outcome,
             source_column=standard_column,
+            target_accessions=target_accessions,
         )
         if record is not None:
             activity["records"].append(record)
@@ -581,7 +674,7 @@ def _fetch_assay_activity(
     raise_on_error=False,
     request_wait=None,
 ):
-    activity_by_cid = {}
+    activity_by_cid = _AssayActivityResult()
     try:
         _wait_for_activity_request(request_wait)
 
@@ -622,6 +715,59 @@ def fetch_pubchem_assay_activity(aid, request_wait=None):
         raise_on_error=True,
         request_wait=request_wait,
     )
+
+
+def _apply_target_scoped_associations(
+    records,
+    target_scoped_jobs,
+    failed_job_diagnostics=None,
+):
+    scopes = {
+        (str(job["protein"]), str(job["aid"])): {
+            str(cid) for cid in job.get("cids", [])
+        }
+        for job in target_scoped_jobs
+    }
+
+    failed_scopes = {
+        (str(job["protein"]), str(job["aid"]))
+        for job in (failed_job_diagnostics or [])
+    }
+
+    if not scopes and not failed_scopes:
+        return
+
+    for cid in list(records):
+        record = records[cid]
+        filtered_assays = set()
+
+        for assay_cid, aid, protein in record["assays"]:
+            key = (str(protein), str(aid))
+
+            # Acquisition failure supplies no positive CID-target evidence.
+            if key in failed_scopes:
+                continue
+
+            allowed_cids = scopes.get(key)
+
+            # A successfully acquired assay without a row-target column
+            # retains the explicit assay-level fallback scope.
+            if allowed_cids is None or str(assay_cid) in allowed_cids:
+                filtered_assays.add(
+                    (str(assay_cid), str(aid), str(protein))
+                )
+
+        if not filtered_assays:
+            del records[cid]
+            continue
+
+        record["assays"] = filtered_assays
+        record["aids"] = {
+            aid for _, aid, _ in filtered_assays
+        }
+        record["proteins"] = {
+            protein for _, _, protein in filtered_assays
+        }
 
 
 def _activity_status_for_record(cid, enriched_cids):
@@ -737,6 +883,12 @@ def _collect_pubchem_records(
         retry_max_delay=8.0,
     )
     timings.add("activity_enrichment", time.monotonic() - stage_start)
+    _apply_target_scoped_associations(
+        records,
+        activity_result.get("target_scoped_jobs", []),
+        activity_result.get("failed_job_diagnostics", []),
+    )
+
     enriched_cids = set(activity_result.get("successful_cid_values", []))
 
     for cid, record in records.items():

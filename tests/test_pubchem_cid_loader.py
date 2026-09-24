@@ -1091,3 +1091,502 @@ def test_fetch_pubchem_assay_activity_uses_strict_fetch_contract(monkeypatch):
         assert str(exc) == "network down"
     else:
         raise AssertionError("Expected RuntimeError")
+
+def _run_target_scoped_search_fixture(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT)"
+    )
+
+    assay_csv = "\n".join(
+        [
+            (
+                "PUBCHEM_RESULT_TAG,PUBCHEM_CID,PUBCHEM_ACTIVITY_OUTCOME,"
+                "Ki,Inhibition at 6.5 uM,Target Accession(s)"
+            ),
+            "RESULT_TYPE,,,FLOAT,FLOAT,STRING",
+            "RESULT_UNIT,,,NANOMOLAR,PERCENT,NONE",
+            "1,101,Active,10,,P08908",
+            "2,202,Inactive,20,,P35348",
+            '3,303,Inactive,30,,"P08908,P35348"',
+            "4,404,Active,40,,",
+            "5,505,Active,,73,P08908",
+        ]
+    )
+
+    def fake_get(url, timeout):
+        if "/assay/target/accession/P08908/aids/JSON" in url:
+            return FakeResponse(
+                {"IdentifierList": {"AID": [11]}}
+            )
+        if "/assay/aid/11/cids/JSON" in url:
+            return FakeResponse(
+                {
+                    "InformationList": {
+                        "Information": [
+                            {
+                                "AID": 11,
+                                "CID": [101, 202, 303, 404, 505],
+                            }
+                        ]
+                    }
+                }
+            )
+        if "/assay/aid/11/CSV" in url:
+            return FakeResponse(text=assay_csv)
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        cids = data["cid"].split(",")
+        return FakeResponse(
+            {
+                "PropertyTable": {
+                    "Properties": [
+                        {
+                            "CID": int(cid),
+                            "Title": f"Compound {cid}",
+                        }
+                        for cid in cids
+                    ]
+                }
+            }
+        )
+
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
+
+    pubchem_loader.obtener_CIDs_Pubchem(
+        connection,
+        ["P08908"],
+        FakeProgress(),
+    )
+
+    return connection
+
+
+def test_target_scoped_search_filters_main_by_row_target_accession(
+    monkeypatch,
+):
+    connection = _run_target_scoped_search_fixture(monkeypatch)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT CID FROM main ORDER BY CAST(CID AS INTEGER)"
+    )
+
+    assert cursor.fetchall() == [
+        ("101",),
+        ("303",),
+        ("505",),
+    ]
+
+
+def test_target_scoped_search_filters_compound_assays_by_row_target_accession(
+    monkeypatch,
+):
+    connection = _run_target_scoped_search_fixture(monkeypatch)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT CID, AID, Protein
+        FROM compound_assays
+        ORDER BY CAST(CID AS INTEGER)
+        """
+    )
+
+    assert cursor.fetchall() == [
+        ("101", "11", "P08908"),
+        ("303", "11", "P08908"),
+        ("505", "11", "P08908"),
+    ]
+
+
+def test_target_scoped_search_filters_compound_activities_by_row_target_accession(
+    monkeypatch,
+):
+    connection = _run_target_scoped_search_fixture(monkeypatch)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT CID, AID, Protein, Result_Tag
+        FROM compound_activities
+        ORDER BY CAST(CID AS INTEGER)
+        """
+    )
+
+    assert cursor.fetchall() == [
+        ("101", "11", "P08908", "1"),
+        ("303", "11", "P08908", "3"),
+    ]
+
+def test_target_scoped_search_applies_row_target_attribution_across_paginated_pages(
+    monkeypatch,
+):
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT)"
+    )
+
+    def fake_get(url, timeout):
+        if "/assay/target/accession/P08908/aids/JSON" in url:
+            return FakeResponse(
+                {"IdentifierList": {"AID": [11]}}
+            )
+        if "/assay/aid/11/cids/JSON" in url:
+            return FakeResponse(
+                {
+                    "InformationList": {
+                        "Information": [
+                            {
+                                "AID": 11,
+                                "CID": [101, 202],
+                            }
+                        ]
+                    }
+                }
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        cids = data["cid"].split(",")
+        return FakeResponse(
+            {
+                "PropertyTable": {
+                    "Properties": [
+                        {
+                            "CID": int(cid),
+                            "Title": f"Compound {cid}",
+                        }
+                        for cid in cids
+                    ]
+                }
+            }
+        )
+
+    pages = {
+        0: "\n".join(
+            [
+                (
+                    "PUBCHEM_RESULT_TAG,PUBCHEM_CID,"
+                    "PUBCHEM_ACTIVITY_OUTCOME,Ki,Target Accession(s)"
+                ),
+                "RESULT_TYPE,,,FLOAT,STRING",
+                "RESULT_UNIT,,,NANOMOLAR,NONE",
+                "1,101,Inactive,10,P35348",
+            ]
+        ),
+        10000: "\n".join(
+            [
+                (
+                    "PUBCHEM_RESULT_TAG,PUBCHEM_CID,"
+                    "PUBCHEM_ACTIVITY_OUTCOME,Ki,Target Accession(s)"
+                ),
+                "RESULT_TYPE,,,FLOAT,STRING",
+                "RESULT_UNIT,,,NANOMOLAR,NONE",
+                "2,202,Active,20,P08908",
+            ]
+        ),
+    }
+
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
+
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv",
+        lambda aid: (_ for _ in ()).throw(_fake_http_error(400)),
+    )
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_sid_listkey",
+        lambda aid: {
+            "listkey": "target-pages",
+            "size": 15000,
+        },
+    )
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv_page",
+        lambda aid, listkey, start, count: pages[start],
+    )
+
+    pubchem_loader.obtener_CIDs_Pubchem(
+        connection,
+        ["P08908"],
+        FakeProgress(),
+    )
+
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT CID FROM main ORDER BY CID")
+    assert cursor.fetchall() == [
+        ("202",),
+    ]
+
+    cursor.execute(
+        """
+        SELECT CID, AID, Protein
+        FROM compound_assays
+        ORDER BY CID
+        """
+    )
+    assert cursor.fetchall() == [
+        ("202", "11", "P08908"),
+    ]
+
+    cursor.execute(
+        """
+        SELECT CID, AID, Protein, Result_Tag
+        FROM compound_activities
+        ORDER BY CID
+        """
+    )
+    assert cursor.fetchall() == [
+        ("202", "11", "P08908", "2"),
+    ]
+
+def test_target_scoped_search_preserves_target_cids_across_paginated_unsupported_schema(
+    monkeypatch,
+):
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT)"
+    )
+
+    def fake_get(url, timeout):
+        if "/assay/target/accession/P08908/aids/JSON" in url:
+            return FakeResponse(
+                {"IdentifierList": {"AID": [11]}}
+            )
+        if "/assay/aid/11/cids/JSON" in url:
+            return FakeResponse(
+                {
+                    "InformationList": {
+                        "Information": [
+                            {
+                                "AID": 11,
+                                "CID": [101, 202, 303, 404],
+                            }
+                        ]
+                    }
+                }
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        cids = data["cid"].split(",")
+        return FakeResponse(
+            {
+                "PropertyTable": {
+                    "Properties": [
+                        {
+                            "CID": int(cid),
+                            "Title": f"Compound {cid}",
+                        }
+                        for cid in cids
+                    ]
+                }
+            }
+        )
+
+    pages = {
+        0: "\n".join(
+            [
+                (
+                    "PUBCHEM_RESULT_TAG,PUBCHEM_CID,"
+                    "PUBCHEM_ACTIVITY_OUTCOME,"
+                    "Inhibition at 6.5 uM,Target Accession(s)"
+                ),
+                "RESULT_TYPE,,,FLOAT,STRING",
+                "RESULT_UNIT,,,PERCENT,NONE",
+                "1,101,Active,73,P08908",
+                "2,202,Inactive,12,P35348",
+            ]
+        ),
+        10000: "\n".join(
+            [
+                (
+                    "PUBCHEM_RESULT_TAG,PUBCHEM_CID,"
+                    "PUBCHEM_ACTIVITY_OUTCOME,"
+                    "Inhibition at 6.5 uM,Target Accession(s)"
+                ),
+                "RESULT_TYPE,,,FLOAT,STRING",
+                "RESULT_UNIT,,,PERCENT,NONE",
+                "3,303,Inactive,8,",
+                "4,404,Active,66,P08908",
+            ]
+        ),
+    }
+
+    page_calls = []
+
+    def fake_page(aid, listkey, start, count):
+        page_calls.append((aid, listkey, start, count))
+        return pages[start]
+
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
+
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv",
+        lambda aid: (_ for _ in ()).throw(_fake_http_error(400)),
+    )
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_sid_listkey",
+        lambda aid: {
+            "listkey": "unsupported-target-pages",
+            "size": 15000,
+        },
+    )
+    monkeypatch.setattr(
+        pubchem_loader,
+        "fetch_assay_activity_csv_page",
+        fake_page,
+    )
+
+    pubchem_loader.obtener_CIDs_Pubchem(
+        connection,
+        ["P08908"],
+        FakeProgress(),
+    )
+
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT CID FROM main ORDER BY CID")
+    assert cursor.fetchall() == [
+        ("101",),
+        ("404",),
+    ]
+
+    cursor.execute(
+        """
+        SELECT CID, AID, Protein
+        FROM compound_assays
+        ORDER BY CID
+        """
+    )
+    assert cursor.fetchall() == [
+        ("101", "11", "P08908"),
+        ("404", "11", "P08908"),
+    ]
+
+    cursor.execute("SELECT COUNT(*) FROM compound_activities")
+    assert cursor.fetchone() == (0,)
+
+    assert page_calls == [
+        ("11", "unsupported-target-pages", 0, 10000),
+        ("11", "unsupported-target-pages", 10000, 5000),
+    ]
+
+def test_failed_row_target_retrieval_does_not_assert_target_cid_association(
+    monkeypatch,
+):
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE main (primary_id INTEGER PRIMARY KEY AUTOINCREMENT)"
+    )
+
+    def fake_get(url, timeout):
+        if "/assay/target/accession/P08908/aids/JSON" in url:
+            return FakeResponse(
+                {"IdentifierList": {"AID": [11]}}
+            )
+        if "/assay/aid/11/cids/JSON" in url:
+            return FakeResponse(
+                {
+                    "InformationList": {
+                        "Information": [
+                            {
+                                "AID": 11,
+                                "CID": [101],
+                            }
+                        ]
+                    }
+                }
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    def fake_post(url, data, timeout):
+        assert url.endswith("/compound/cid/property/Title/JSON")
+        return FakeResponse(
+            {
+                "PropertyTable": {
+                    "Properties": [
+                        {
+                            "CID": 101,
+                            "Title": "Compound 101",
+                        }
+                    ]
+                }
+            }
+        )
+
+    def fake_activity_runner(
+        connection,
+        aid_jobs,
+        activity_fetcher,
+        **kwargs,
+    ):
+        assert aid_jobs == [
+            {
+                "protein": "P08908",
+                "aid": "11",
+                "cids": ["101"],
+            }
+        ]
+
+        return {
+            "status": "success",
+            "total_aids": 1,
+            "processed_aids": 1,
+            "successful_aids": 0,
+            "failed_aids": 1,
+            "processed_aid_values": ["11"],
+            "successful_aid_values": [],
+            "failed_aid_values": ["11"],
+            "failed_job_diagnostics": [
+                {
+                    "protein": "P08908",
+                    "aid": "11",
+                    "error": "network down",
+                }
+            ],
+            "successful_cid_values": [],
+            "target_scoped_jobs": [],
+            "inserted_rows": 0,
+            "error_message": None,
+        }
+
+    monkeypatch.setattr(pubchem_client.requests, "get", fake_get)
+    monkeypatch.setattr(pubchem_client.requests, "post", fake_post)
+    monkeypatch.setattr(
+        pubchem_loader,
+        "run_pubchem_activity_enrichment",
+        fake_activity_runner,
+    )
+
+    pubchem_loader.obtener_CIDs_Pubchem(
+        connection,
+        ["P08908"],
+        FakeProgress(),
+    )
+
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT CID FROM main")
+    assert cursor.fetchall() == []
+
+    cursor.execute(
+        """
+        SELECT CID, AID, Protein
+        FROM compound_assays
+        """
+    )
+    assert cursor.fetchall() == []
