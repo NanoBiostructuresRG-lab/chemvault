@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.14.5] - 2026-09-24
+
+### Changed
+
+- Updated HARMONSMILE to version 0.3.4 and adopted explicit PubChem
+  acquisition provenance independently of molecular harmonization status.
+- Legacy HARMONSMILE cache records without explicit acquisition provenance are
+  no longer assumed to represent successful PubChem acquisition and are
+  eligible for reacquisition.
+- Applied row-level PubChem target-accession evidence when available to scope
+  target-specific compound-assay associations and structured activity records.
+
+### Fixed
+
+- Prevented PubChem assay rows belonging to other target accessions from being
+  attributed to the requested biological target when row-level target evidence
+  is available.
+- Prevented failed PubChem molecular acquisitions returned as HARMONSMILE rows
+  from being cached as reusable successful acquisitions.
+- Preserved the distinction between PubChem acquisition outcome and subsequent
+  molecular harmonization outcome.
+
+### Validation
+
+- Passed the complete test suite: 695 tests.
+- Confirmed `git diff --check` is clean after merging PR #30 into `main`.
+- Revalidated Q01959 / AID 2060761 target attribution: 33 target-specific
+  activity records across 32 CIDs were persisted from 1,503 scientific source
+  rows, with 33 matching, 1,470 nonmatching, and 0 unattributed source rows.
+- Revalidated the seven historical MC4R CIDs that motivated the acquisition
+  cache correction: 7/7 were reacquired with explicit
+  `PubChem_Acquisition_Status = ok`, and all 13 corresponding
+  `activity_subset_Ki` rows received the corrected acquisition provenance.
+- Confirmed that acquisition and harmonization remain independent: five of the
+  seven recovered MC4R compounds subsequently reached
+  `MaxTautomersReached`, while two completed harmonization successfully.
+
+---
+
 ## [v0.14.4] - 2026-09-21
 
 ### Added

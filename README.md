@@ -125,7 +125,7 @@ runtime dependencies are installed from `requirements.txt`.
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
 git fetch --tags
-git checkout v0.14.4
+git checkout v0.14.5
 ```
 
 2. Create and activate the environment:
@@ -157,7 +157,7 @@ Open `http://localhost:8501` in your browser.
 ```bash
 cd path/to/chemvault
 git fetch --tags origin
-git checkout v0.14.4
+git checkout v0.14.5
 conda activate chemvault_env
 python -m pip install -r requirements.txt
 ```
@@ -369,6 +369,9 @@ table.
 Important output fields include:
 
 - `PubChem_CID` - canonical PubChem identifier;
+- `PubChem_Acquisition_Status` - PubChem molecular acquisition outcome;
+- `PubChem_Acquisition_Message` - optional diagnostic information for the
+  acquisition stage;
 - `SMILES_RDKit` - the RDKit-derived representation used during processing;
 - `SMILES_Harmonized` - the final harmonized representation used by
   CHEMVAULT downstream workflows;
@@ -376,6 +379,10 @@ Important output fields include:
   `failed`;
 - `SMILES_Harmonization_Message` - record-level diagnostic information;
 - `InChI` and `InChIKey` when provided by the PubChem workflow.
+
+PubChem acquisition and molecular harmonization are separate processing
+stages. A successful acquisition can therefore coexist with a failed
+harmonization result.
 
 `SMILES_Harmonized`, not `SMILES_RDKit`, is the structural key used by
 ACTIVITY LABELS, structure consolidation, and MODELABILITY INDEX.
@@ -524,7 +531,7 @@ software as:
 Contreras-Torres, F. F., Castro-Flores, D., Murrieta, A. C., &
 Saldivar-González, F. I. (2026).
 CHEMVAULT: Target-centered bioactivity dataset curation from PubChem
-(Version 0.14.3) [Computer software].
+(Version 0.14.5) [Computer software].
 https://github.com/NanoBiostructuresRG-lab/chemvault
 ```
 
