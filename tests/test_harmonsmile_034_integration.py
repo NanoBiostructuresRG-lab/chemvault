@@ -15,7 +15,7 @@ from services.harmonsmile_cache import (
 )
 
 
-def test_harmonsmile_032_pubchem_ingest_returns_dataframe_contract(
+def test_harmonsmile_034_pubchem_ingest_returns_dataframe_contract(
     tmp_path,
     monkeypatch,
 ):
@@ -43,6 +43,8 @@ def test_harmonsmile_032_pubchem_ingest_returns_dataframe_contract(
             assert self.cfg.cid_col in loaded.columns
             return pd.DataFrame({
                 "PubChem_CID": ["1", "2"],
+                "PubChem_Acquisition_Status": ["ok", "ok"],
+                "PubChem_Acquisition_Message": [None, None],
                 "SMILES_RDKit": ["CCO", "C1=CC=CC=C1"],
                 "SMILES_Harmonized": ["CCO", "c1ccccc1"],
                 "SMILES_Harmonization_Status": ["ok", "ok_with_warnings"],
@@ -67,6 +69,8 @@ def test_harmonsmile_032_pubchem_ingest_returns_dataframe_contract(
     assert loaded_input_columns == ["CID"]
     assert list(result.columns) == [
         "PubChem_CID",
+        "PubChem_Acquisition_Status",
+        "PubChem_Acquisition_Message",
         "SMILES_RDKit",
         "SMILES_Harmonized",
         "SMILES_Harmonization_Status",
@@ -121,7 +125,7 @@ def test_harmonsmile_invocations_use_isolated_temporary_csv_paths(
     assert list((tmp_path / "tempFilesHarmonsile").iterdir()) == []
 
 
-def test_harmonsmile_cache_preserves_032_status_message_and_inchi_fields():
+def test_harmonsmile_cache_preserves_034_acquisition_and_harmonization_fields():
     connection = sqlite3.connect(":memory:")
     connection.execute('CREATE TABLE "main" (CID TEXT)')
     connection.executemany(
@@ -130,6 +134,8 @@ def test_harmonsmile_cache_preserves_032_status_message_and_inchi_fields():
     )
     result = pd.DataFrame({
         "PubChem_CID": ["1", "2", "3", "4"],
+        "PubChem_Acquisition_Status": ["ok", "ok", "ok", "ok"],
+        "PubChem_Acquisition_Message": [None, None, None, None],
         "SMILES_RDKit": ["CCO", "C[NH3+]", None, None],
         "SMILES_Harmonized": ["CCO", "CN", None, None],
         "SMILES_Harmonization_Status": [
@@ -163,6 +169,8 @@ def test_harmonsmile_cache_preserves_032_status_message_and_inchi_fields():
         """
         SELECT
             CID,
+            PubChem_Acquisition_Status,
+            PubChem_Acquisition_Message,
             SMILES_RDKit,
             SMILES_Harmonized,
             SMILES_Harmonization_Status,
@@ -174,7 +182,13 @@ def test_harmonsmile_cache_preserves_032_status_message_and_inchi_fields():
         """
     ).fetchall()
 
-    assert rows[0][1:] == (
+    assert [(row[1], row[2]) for row in rows] == [
+        ("ok", None),
+        ("ok", None),
+        ("ok", None),
+        ("ok", None),
+    ]
+    assert rows[0][3:] == (
         "CCO",
         "CCO",
         "ok",
@@ -182,6 +196,6 @@ def test_harmonsmile_cache_preserves_032_status_message_and_inchi_fields():
         "InChI=1S/C2H6O",
         "LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
     )
-    assert rows[1][3] == "ok_with_warnings"
-    assert rows[2][3:] == ("unsupported", "unsupported elements: Fe", None, None)
-    assert rows[3][3:] == ("failed", "invalid SMILES", None, None)
+    assert rows[1][5] == "ok_with_warnings"
+    assert rows[2][5:] == ("unsupported", "unsupported elements: Fe", None, None)
+    assert rows[3][5:] == ("failed", "invalid SMILES", None, None)

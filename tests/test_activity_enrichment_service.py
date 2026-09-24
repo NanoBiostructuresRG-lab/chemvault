@@ -929,3 +929,287 @@ def test_run_activity_enrichment_from_compound_assays_is_idempotent():
     assert first["inserted_rows"] == 1
     assert second["inserted_rows"] == 0
     assert cursor.fetchone() == (1,)
+
+def test_activity_runner_empty_expected_cids_accepts_no_activity_rows():
+    connection = sqlite3.connect(":memory:")
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        [
+            {
+                "protein": "P1",
+                "aid": "11",
+                "cids": [],
+            }
+        ],
+        lambda aid: activity_payload(aid, "101", "10"),
+    )
+
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM compound_activities")
+
+    assert result["inserted_rows"] == 0
+    assert cursor.fetchone() == (0,)
+
+def _mixed_target_activity_payload(aid):
+    return {
+        "101": {
+            "records": [
+                {
+                    "CID": "101",
+                    "AID": str(aid),
+                    "Activity_Type": "Ki",
+                    "Relation": "",
+                    "Activity_Value": 10.0,
+                    "Activity_Value_Raw": "10",
+                    "Unit": "NANOMOLAR",
+                    "Outcome": "Active",
+                    "Source_Column": "Ki",
+                    "Activity_Status": "enriched",
+                    "Result_Tag": "1",
+                    "Target_Accessions": ["P08908"],
+                },
+                {
+                    "CID": "101",
+                    "AID": str(aid),
+                    "Activity_Type": "Ki",
+                    "Relation": "",
+                    "Activity_Value": 20.0,
+                    "Activity_Value_Raw": "20",
+                    "Unit": "NANOMOLAR",
+                    "Outcome": "Inactive",
+                    "Source_Column": "Ki",
+                    "Activity_Status": "enriched",
+                    "Result_Tag": "2",
+                    "Target_Accessions": ["P35348"],
+                },
+            ]
+        }
+    }
+
+
+def test_activity_runner_same_cid_multiple_targets_keeps_only_matching_row():
+    connection = sqlite3.connect(":memory:")
+
+    result = run_pubchem_activity_enrichment(
+        connection,
+        [
+            {
+                "protein": "P08908",
+                "aid": "11",
+                "cids": ["101"],
+            }
+        ],
+        _mixed_target_activity_payload,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT
+            CID,
+            AID,
+            Protein,
+            Activity_Value,
+            Outcome,
+            Result_Tag
+        FROM compound_activities
+        ORDER BY Result_Tag
+        """
+    )
+
+    assert result["inserted_rows"] == 1
+    assert cursor.fetchall() == [
+        (
+            "101",
+            "11",
+            "P08908",
+            10.0,
+            "Active",
+            "1",
+        )
+    ]
+
+
+def test_activity_repair_filters_nonmatching_row_target_before_persistence():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        """
+        CREATE TABLE compound_assays (
+            CID TEXT,
+            AID TEXT,
+            Protein TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO compound_assays (CID, AID, Protein)
+        VALUES ('101', '11', 'P08908')
+        """
+    )
+
+    result = run_activity_enrichment_from_compound_assays(
+        connection,
+        _mixed_target_activity_payload,
+    )
+
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT
+            CID,
+            AID,
+            Protein,
+            Activity_Value,
+            Outcome,
+            Result_Tag
+        FROM compound_activities
+        ORDER BY Result_Tag
+        """
+    )
+
+    assert result["inserted_rows"] == 1
+    assert cursor.fetchall() == [
+        (
+            "101",
+            "11",
+            "P08908",
+            10.0,
+            "Active",
+            "1",
+        )
+    ]
+
+class _TargetAwareActivityResult(dict):
+    pass
+
+
+def _target_attribution_diagnostic_payload(aid):
+    result = _TargetAwareActivityResult(
+        {
+            "101": {
+                "records": [
+                    {
+                        "CID": "101",
+                        "AID": str(aid),
+                        "Activity_Type": "Ki",
+                        "Relation": "",
+                        "Activity_Value": 10.0,
+                        "Activity_Value_Raw": "10",
+                        "Unit": "NANOMOLAR",
+                        "Outcome": "Active",
+                        "Source_Column": "Ki",
+                        "Activity_Status": "enriched",
+                        "Result_Tag": "1",
+                        "Target_Accessions": ["P08908"],
+                    }
+                ]
+            },
+            "202": {
+                "records": [
+                    {
+                        "CID": "202",
+                        "AID": str(aid),
+                        "Activity_Type": "Ki",
+                        "Relation": "",
+                        "Activity_Value": 20.0,
+                        "Activity_Value_Raw": "20",
+                        "Unit": "NANOMOLAR",
+                        "Outcome": "Inactive",
+                        "Source_Column": "Ki",
+                        "Activity_Status": "enriched",
+                        "Result_Tag": "2",
+                        "Target_Accessions": ["P35348"],
+                    }
+                ]
+            },
+            "303": {
+                "records": [
+                    {
+                        "CID": "303",
+                        "AID": str(aid),
+                        "Activity_Type": "Ki",
+                        "Relation": "",
+                        "Activity_Value": 30.0,
+                        "Activity_Value_Raw": "30",
+                        "Unit": "NANOMOLAR",
+                        "Outcome": "Inactive",
+                        "Source_Column": "Ki",
+                        "Activity_Status": "enriched",
+                        "Result_Tag": "3",
+                        "Target_Accessions": [],
+                    }
+                ]
+            },
+        }
+    )
+
+    result.target_column_present = True
+    result.target_cids_by_accession = {
+        "P08908": {"101"},
+        "P35348": {"202"},
+    }
+    result.unattributed_target_cids = {"303"}
+
+    return result
+
+
+def test_activity_repair_records_target_attribution_diagnostics():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        """
+        CREATE TABLE compound_assays (
+            CID TEXT,
+            AID TEXT,
+            Protein TEXT
+        )
+        """
+    )
+    connection.executemany(
+        """
+        INSERT INTO compound_assays (CID, AID, Protein)
+        VALUES (?, ?, ?)
+        """,
+        [
+            ("101", "11", "P08908"),
+            ("202", "11", "P08908"),
+            ("303", "11", "P08908"),
+        ],
+    )
+
+    result = run_activity_enrichment_from_compound_assays(
+        connection,
+        _target_attribution_diagnostic_payload,
+    )
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT CID, Protein, Result_Tag
+        FROM compound_activities
+        ORDER BY CID
+        """
+    )
+    assert cursor.fetchall() == [
+        ("101", "P08908", "1"),
+    ]
+    assert result["inserted_rows"] == 1
+
+    cursor.execute(
+        """
+        SELECT details
+        FROM _chemvault_operation_log
+        """
+    )
+    details = json.loads(cursor.fetchone()[0])
+
+    assert details["target_attribution"] == {
+        "policy": "row_target_accession_membership_v1",
+        "row_level_jobs": 1,
+        "assay_level_fallback_jobs": 0,
+        "matching_source_rows": 1,
+        "nonmatching_source_rows": 1,
+        "unattributed_source_rows": 1,
+    }

@@ -69,18 +69,34 @@ Transport failures are separate from persisted job failures:
 - success is represented as `status=completed`, `progress=1.0`, and a stable
   workflow result summary
 
-## HARMONSMILE 0.3.2 result contract
+## HARMONSMILE 0.3.4 result contract
 
-CHEMVAULT pins `harmonsmile==0.3.2`. The PubChem integration now consumes
+CHEMVAULT pins `harmonsmile==0.3.4`. The PubChem integration consumes
 `PubChemIngest.run()` directly as a DataFrame. Expected output fields include:
 
 - `PubChem_CID`
+- `PubChem_Acquisition_Status`
+- `PubChem_Acquisition_Message`
 - `SMILES_RDKit`
 - `SMILES_Harmonized`
 - `SMILES_Harmonization_Status`
 - `SMILES_Harmonization_Message`
 - `InChI` and `InChIKey` when produced by the PubChem workflow
 
-Known harmonization status values are `ok`, `ok_with_warnings`, `unsupported`,
-and `failed`. CHEMVAULT preserves these values and messages through the
-HARMONSMILE cache and table merge.
+`PubChem_Acquisition_Status` is the authoritative acquisition outcome.
+`ok` indicates that PubChem returned a usable property record, even when an
+individual requested property is absent. `failed` indicates that no usable
+property record was obtained within the configured attempt budget for that
+invocation. `not_attempted` indicates that no PubChem request was made because
+the CID was missing or invalid after local handling.
+
+CHEMVAULT treats only records with `PubChem_Acquisition_Status=ok` as reusable
+successful cache entries. Cached records created without acquisition provenance
+are not assumed to represent successful acquisition and are therefore eligible
+for reacquisition.
+
+Acquisition and molecular harmonization are separate stages. Known
+harmonization status values are `ok`, `ok_with_warnings`, `unsupported`, and
+`failed`; a harmonization failure does not imply an acquisition failure.
+CHEMVAULT preserves acquisition and harmonization provenance through the cache
+and table merge.

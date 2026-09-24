@@ -30,3 +30,6 @@ Thumbs.db
 
 # VS Code
 .vscode/
+
+# Local scientific analysis and manuscript audit artifacts
+analysis_artifacts/

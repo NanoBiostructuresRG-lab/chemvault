@@ -9,11 +9,15 @@ from services.sql_utils import quote_identifier
 CACHE_TABLE = "_chemvault_harmonsmile_cache"
 DEFAULT_CHUNK_SIZE = 500
 SQLITE_MAX_INT = 9223372036854775807
+PUBCHEM_ACQUISITION_STATUS_COLUMN = "PubChem_Acquisition_Status"
+PUBCHEM_ACQUISITION_MESSAGE_COLUMN = "PubChem_Acquisition_Message"
 BASE_COLUMNS = {
     "PubChem_CID",
     "status",
     "fetched_at",
     "error_message",
+    PUBCHEM_ACQUISITION_STATUS_COLUMN,
+    PUBCHEM_ACQUISITION_MESSAGE_COLUMN,
 }
 MERGE_EXCLUDED_COLUMNS = {
     "PubChem_CID",
@@ -117,9 +121,25 @@ def ensure_harmonsmile_cache(connection):
             PubChem_CID TEXT PRIMARY KEY,
             status TEXT NOT NULL DEFAULT 'success',
             fetched_at TEXT NOT NULL,
-            error_message TEXT
+            error_message TEXT,
+            {quote_identifier(PUBCHEM_ACQUISITION_STATUS_COLUMN)} TEXT,
+            {quote_identifier(PUBCHEM_ACQUISITION_MESSAGE_COLUMN)} TEXT
         )
     """)
+
+    cursor.execute(f"PRAGMA table_info({quote_identifier(CACHE_TABLE)})")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    for column in (
+        PUBCHEM_ACQUISITION_STATUS_COLUMN,
+        PUBCHEM_ACQUISITION_MESSAGE_COLUMN,
+    ):
+        if column not in existing_columns:
+            cursor.execute(
+                f"ALTER TABLE {quote_identifier(CACHE_TABLE)} "
+                f"ADD COLUMN {quote_identifier(column)} TEXT"
+            )
+
     connection.commit()
 
 
@@ -185,9 +205,15 @@ def get_cached_harmonsmile_cids(connection, cids, status="success"):
         placeholders = ", ".join("?" for _ in batch)
         params = [*batch]
         status_clause = ""
+        acquisition_clause = ""
         if status is not None:
             status_clause = "AND status = ?"
             params.append(status)
+            if status == "success":
+                acquisition_clause = (
+                    f"AND {quote_identifier(PUBCHEM_ACQUISITION_STATUS_COLUMN)} = ?"
+                )
+                params.append("ok")
 
         cursor.execute(
             f"""
@@ -195,6 +221,7 @@ def get_cached_harmonsmile_cids(connection, cids, status="success"):
             FROM {quote_identifier(CACHE_TABLE)}
             WHERE PubChem_CID IN ({placeholders})
             {status_clause}
+            {acquisition_clause}
             """,
             params,
         )
@@ -213,8 +240,9 @@ def _read_success_cache_rows(connection, cids=None):
         SELECT {", ".join(quote_identifier(column) for column in selected_columns)}
         FROM {quote_identifier(CACHE_TABLE)}
         WHERE status = ?
+          AND {quote_identifier(PUBCHEM_ACQUISITION_STATUS_COLUMN)} = ?
     """
-    params = ["success"]
+    params = ["success", "ok"]
 
     if cids is not None:
         normalized_cids, _ = normalize_cids(cids)
@@ -456,9 +484,48 @@ def run_harmonsmile_chunks(
         try:
             result_df = harmonsmile_runner(chunk_df)
             normalized_result = normalize_harmonsmile_result(result_df)
-            upsert_harmonsmile_cache(connection, normalized_result)
             returned_cids = normalized_result["PubChem_CID"].tolist()
             returned_set = set(returned_cids)
+
+            if PUBCHEM_ACQUISITION_STATUS_COLUMN in normalized_result.columns:
+                successful_result = normalized_result[
+                    normalized_result[PUBCHEM_ACQUISITION_STATUS_COLUMN] == "ok"
+                ].copy()
+                failed_result = normalized_result[
+                    normalized_result[PUBCHEM_ACQUISITION_STATUS_COLUMN] != "ok"
+                ].copy()
+            else:
+                successful_result = normalized_result.iloc[0:0].copy()
+                failed_result = normalized_result.copy()
+
+            if not successful_result.empty:
+                upsert_harmonsmile_cache(connection, successful_result)
+
+            acquisition_failed_cids = []
+            for _, failed_row in failed_result.iterrows():
+                cid = failed_row["PubChem_CID"]
+                acquisition_status = failed_row.get(
+                    PUBCHEM_ACQUISITION_STATUS_COLUMN
+                )
+                acquisition_message = failed_row.get(
+                    PUBCHEM_ACQUISITION_MESSAGE_COLUMN
+                )
+
+                if pd.isna(acquisition_status) or str(acquisition_status).strip() == "":
+                    acquisition_message = "Missing PubChem acquisition status"
+                elif pd.isna(acquisition_message) or str(acquisition_message).strip() == "":
+                    acquisition_message = (
+                        f"PubChem acquisition status: {acquisition_status}"
+                    )
+
+                upsert_harmonsmile_cache(
+                    connection,
+                    pd.DataFrame([failed_row]),
+                    status="failed",
+                    error_message=str(acquisition_message),
+                )
+                acquisition_failed_cids.append(cid)
+
             missing_cids = [cid for cid in chunk if cid not in returned_set]
             if missing_cids:
                 mark_harmonsmile_cache_failed(
@@ -466,8 +533,12 @@ def run_harmonsmile_chunks(
                     missing_cids,
                     "Missing HARMONSMILE result for CID in processed chunk",
                 )
+
             processed_cids.extend(returned_cids)
-            successful_cids.extend(returned_cids)
+            successful_cids.extend(
+                successful_result["PubChem_CID"].tolist()
+            )
+            failed_cids.extend(acquisition_failed_cids)
             failed_cids.extend(missing_cids)
             missing_result_cids.extend(missing_cids)
             _emit_progress(
