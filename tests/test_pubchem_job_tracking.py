@@ -116,7 +116,19 @@ def test_run_pubchem_protein_search_job_tracks_all_stages_without_http(monkeypat
     assert completed.started_at
     assert completed.finished_at
     assert completed.database_id == "test-db"
-    assert completed.metadata == {"source": "test"}
+    assert completed.metadata["source"] == "test"
+    aid_completeness = completed.metadata["aid_completeness"]
+    assert aid_completeness["contract"] == (
+        "pubchem_protein_search_aid_completeness_v1"
+    )
+    assert aid_completeness["certified_complete"] is False
+    assert aid_completeness["source_enumeration"] == [
+        {
+            "protein": "P12345",
+            "status": "success",
+            "aids": ["101"],
+        }
+    ]
     assert progress.values[-1] == 1.0
     assert sum(stage == "activity_enrichment" for stage, _, _ in store.stages) >= 2
     activity_heartbeats = [

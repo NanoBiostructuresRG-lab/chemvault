@@ -10,6 +10,10 @@ from services.activity_enrichment import (
 )
 from services.job_models import JobNotActiveError, JobStatus, JobType
 from services.job_store import JobStore
+from services.pubchem_aid_completeness import (
+    AID_COMPLETENESS_CONTRACT,
+    certify_aid_completeness,
+)
 from services.pubchem_client import (
     ASSAY_SID_PAGE_SIZE,
     fetch_aids_for_protein,
@@ -111,6 +115,156 @@ class _JobTrackingProgress:
         if job is None:
             raise JobNotActiveError(f"Job is no longer active: {self.job_id}")
 
+    def _current_job(self):
+        job = self.job_store.get_job(self.job_id)
+        if job is None:
+            raise JobNotActiveError(
+                f"Job is no longer available: {self.job_id}"
+            )
+        return job
+
+    def _write_merged_metadata(self, metadata):
+        current = self._current_job()
+        stage = self.stage or current.current_stage
+        message = (
+            JOB_STAGE_MESSAGES.get(stage)
+            if stage
+            else current.message
+        )
+        job = self.job_store.update_progress(
+            self.job_id,
+            stage=stage,
+            progress=current.progress,
+            message=message,
+            metadata=metadata,
+        )
+        if job is None:
+            raise JobNotActiveError(
+                f"Job is no longer active: {self.job_id}"
+            )
+        return job
+
+    def persist_source_enumeration(self, source_enumeration):
+        """Persist the immutable same-run source denominator exactly once."""
+        current = self._current_job()
+        metadata = dict(current.metadata)
+
+        existing = metadata.get("aid_completeness")
+        if existing is None:
+            aid_completeness = {}
+        elif isinstance(existing, dict):
+            aid_completeness = dict(existing)
+        else:
+            raise RuntimeError(
+                "aid_completeness metadata must be a mapping."
+            )
+
+        if "source_enumeration" in aid_completeness:
+            if aid_completeness["source_enumeration"] != source_enumeration:
+                raise RuntimeError(
+                    "source_enumeration is immutable once persisted."
+                )
+            return current
+
+        aid_completeness.update(
+            {
+                "contract": AID_COMPLETENESS_CONTRACT,
+                "source_enumeration": source_enumeration,
+                "certified_complete": False,
+            }
+        )
+        metadata["aid_completeness"] = aid_completeness
+        return self._write_merged_metadata(metadata)
+
+    def finalize_aid_completeness(self, connection, proteins):
+        """Certify against persisted S and the materialized database."""
+        current = self._current_job()
+        metadata = dict(current.metadata)
+
+        aid_completeness = metadata.get("aid_completeness")
+        if isinstance(aid_completeness, dict):
+            source_enumeration = aid_completeness.get(
+                "source_enumeration"
+            )
+            aid_evidence = aid_completeness.get("aids", [])
+        else:
+            source_enumeration = None
+            aid_evidence = []
+
+        normalized_proteins = [
+            str(protein).strip().upper()
+            for protein in proteins
+            if str(protein).strip()
+        ]
+
+        persisted_pairs = set()
+
+        if normalized_proteins:
+            placeholders = ", ".join(
+                "?" for _ in normalized_proteins
+            )
+            rows = connection.execute(
+                f"""
+                SELECT DISTINCT Protein, AID
+                FROM compound_assays
+                WHERE Protein IN ({placeholders})
+                """,
+                normalized_proteins,
+            ).fetchall()
+
+            persisted_pairs = {
+                (str(protein), str(aid))
+                for protein, aid in rows
+            }
+
+        result = certify_aid_completeness(
+            source_enumeration=source_enumeration,
+            requested_proteins=normalized_proteins,
+            aid_evidence=aid_evidence,
+            persisted_pairs=persisted_pairs,
+        )
+
+        # source_enumeration is intentionally excluded here:
+        # it was written once and must never be re-serialized from memory.
+        self.merge_aid_completeness(result)
+        return result
+
+    def merge_aid_completeness(self, patch):
+        """Merge downstream provenance without redefining source_enumeration."""
+        if not isinstance(patch, dict):
+            raise TypeError("aid_completeness patch must be a mapping.")
+        if "source_enumeration" in patch:
+            raise ValueError(
+                "source_enumeration may only be written by "
+                "persist_source_enumeration()."
+            )
+
+        current = self._current_job()
+        metadata = dict(current.metadata)
+
+        existing = metadata.get("aid_completeness")
+        if existing is None:
+            aid_completeness = {}
+        elif isinstance(existing, dict):
+            aid_completeness = dict(existing)
+        else:
+            raise RuntimeError(
+                "aid_completeness metadata must be a mapping."
+            )
+
+        source_enumeration = aid_completeness.get(
+            "source_enumeration"
+        )
+
+        aid_completeness.update(patch)
+
+        # If S exists, every later write copies it from persisted metadata.
+        if source_enumeration is not None:
+            aid_completeness["source_enumeration"] = source_enumeration
+
+        metadata["aid_completeness"] = aid_completeness
+        return self._write_merged_metadata(metadata)
+
 
 def _new_stage_timings():
     return StageTimings()
@@ -209,27 +363,191 @@ def _fetch_aids_for_protein(protein):
     return data["IdentifierList"]["AID"]
 
 
-def _fetch_cids_for_aids(aids, progreso=None, start=0.0, end=1.0):
+def _source_enumeration_for_protein(protein):
+    """Return one explicit source-enumeration result for a protein."""
+    try:
+        aids = _fetch_aids_for_protein(protein)
+    except (KeyError, TypeError, ValueError) as error:
+        return {
+            "protein": str(protein),
+            "status": "invalid_response",
+            "aids": [],
+            "error": str(error),
+        }
+    except Exception as error:
+        return {
+            "protein": str(protein),
+            "status": "failed",
+            "aids": [],
+            "error": str(error),
+        }
+
+    if not isinstance(aids, list):
+        return {
+            "protein": str(protein),
+            "status": "invalid_response",
+            "aids": [],
+            "error": "PubChem AID enumeration was not a list.",
+        }
+
+    normalized = [str(aid).strip() for aid in aids]
+
+    if (
+        any(not aid for aid in normalized)
+        or len(set(normalized)) != len(normalized)
+    ):
+        return {
+            "protein": str(protein),
+            "status": "invalid_response",
+            "aids": [],
+            "error": "PubChem AID enumeration contained invalid identities.",
+        }
+
+    return {
+        "protein": str(protein),
+        "status": "success",
+        "aids": normalized,
+    }
+
+
+def _fetch_cids_for_aids_with_provenance(
+    aids,
+    progreso=None,
+    start=0.0,
+    end=1.0,
+):
+    """Fetch AID->CID mappings without collapsing acquisition states."""
+    normalized_aids = [str(aid).strip() for aid in aids]
     cids_by_aid = {}
-    batches = list(_batched(aids, AID_CID_BATCH_SIZE))
+    results = {
+        aid: {
+            "status": "not_attempted",
+            "cid_count": 0,
+        }
+        for aid in normalized_aids
+    }
+
+    batches = list(_batched(normalized_aids, AID_CID_BATCH_SIZE))
     if not batches:
         if progreso is not None:
             _update_progress(progreso, end)
-        return cids_by_aid
+        return cids_by_aid, results
 
     for index, batch in enumerate(batches, start=1):
         try:
             data = fetch_cids_for_aid_batch(batch)
-            for item in data.get("InformationList", {}).get("Information", []):
-                aid = str(item.get("AID", batch[0] if len(batch) == 1 else "")).strip()
-                cids = item.get("CID", [])
-                if aid:
-                    cids_by_aid[aid] = [str(cid) for cid in cids]
-        except Exception as e:
-            print(f"Error fetching CIDs for AID batch {batch}: {e}")
+        except Exception as error:
+            print(f"Error fetching CIDs for AID batch {batch}: {error}")
+            for aid in batch:
+                results[aid] = {
+                    "status": "failed",
+                    "cid_count": 0,
+                    "error": str(error),
+                }
+        else:
+            information_list = (
+                data.get("InformationList")
+                if isinstance(data, dict)
+                else None
+            )
+            information = (
+                information_list.get("Information")
+                if isinstance(information_list, dict)
+                else None
+            )
+
+            if not isinstance(information, list):
+                for aid in batch:
+                    results[aid] = {
+                        "status": "invalid_response",
+                        "cid_count": 0,
+                    }
+            else:
+                parsed = {}
+                invalid_aids = set()
+                seen = set()
+                has_unassignable_item = False
+
+                for item in information:
+                    if not isinstance(item, dict):
+                        has_unassignable_item = True
+                        continue
+
+                    aid = str(item.get("AID", "")).strip()
+
+                    if not aid or aid not in batch:
+                        has_unassignable_item = True
+                        continue
+
+                    if aid in seen:
+                        invalid_aids.add(aid)
+                        parsed.pop(aid, None)
+                        continue
+
+                    seen.add(aid)
+
+                    if (
+                        "CID" not in item
+                        or not isinstance(item["CID"], list)
+                    ):
+                        invalid_aids.add(aid)
+                        continue
+
+                    cids = [
+                        str(cid).strip()
+                        for cid in item["CID"]
+                    ]
+
+                    if any(not cid for cid in cids):
+                        invalid_aids.add(aid)
+                        continue
+
+                    parsed[aid] = cids
+
+                for aid in batch:
+                    if aid in invalid_aids:
+                        results[aid] = {
+                            "status": "invalid_response",
+                            "cid_count": 0,
+                        }
+                        continue
+
+                    if aid in parsed:
+                        cids = parsed[aid]
+                        cids_by_aid[aid] = cids
+                        results[aid] = {
+                            "status": "success",
+                            "cid_count": len(cids),
+                        }
+                        continue
+
+                    results[aid] = {
+                        "status": (
+                            "invalid_response"
+                            if has_unassignable_item
+                            else "missing_in_response"
+                        ),
+                        "cid_count": 0,
+                    }
+
         if progreso is not None:
             fraction = index / len(batches)
-            _update_progress(progreso, start + ((end - start) * fraction))
+            _update_progress(
+                progreso,
+                start + ((end - start) * fraction),
+            )
+
+    return cids_by_aid, results
+
+
+def _fetch_cids_for_aids(aids, progreso=None, start=0.0, end=1.0):
+    """Compatibility wrapper preserving the historical return contract."""
+    cids_by_aid, _ = _fetch_cids_for_aids_with_provenance(
+        aids,
+        progreso=progreso,
+        start=start,
+        end=end,
+    )
     return cids_by_aid
 
 
@@ -776,6 +1094,104 @@ def _activity_status_for_record(cid, enriched_cids):
     return "partial_or_failed"
 
 
+def _build_aid_completeness_evidence(
+    trabajos,
+    cid_results,
+    activity_result,
+):
+    """Build downstream evidence without redefining source enumeration."""
+    scoped_jobs = {
+        (str(job["protein"]), str(job["aid"])): job
+        for job in activity_result.get("target_scoped_jobs", [])
+    }
+    failed_jobs = {
+        (str(job["protein"]), str(job["aid"])): job
+        for job in activity_result.get("failed_job_diagnostics", [])
+    }
+
+    evidence = []
+
+    for protein, aid in trabajos:
+        protein = str(protein)
+        aid = str(aid)
+
+        cid_result = dict(
+            cid_results.get(
+                aid,
+                {
+                    "status": "not_attempted",
+                    "cid_count": 0,
+                },
+            )
+        )
+
+        item = {
+            "protein": protein,
+            "aid": aid,
+            "cid_collection_status": cid_result.get(
+                "status",
+                "not_attempted",
+            ),
+            "cid_count": int(
+                cid_result.get("cid_count", 0) or 0
+            ),
+            "activity_retrieval_status": "not_attempted",
+            "target_attribution": "not_evaluated",
+            "scoped_cid_count": 0,
+        }
+
+        cid_error = cid_result.get("error")
+        if cid_error:
+            item["cid_collection_error"] = str(cid_error)
+
+        key = (protein, aid)
+
+        if key in failed_jobs:
+            item["activity_retrieval_status"] = "failed"
+            error = failed_jobs[key].get("error")
+            if error:
+                item["activity_retrieval_error"] = str(error)
+
+        elif key in scoped_jobs:
+            scoped_job = scoped_jobs[key]
+            item["activity_retrieval_status"] = "success"
+
+            scoped_cids = {
+                str(cid)
+                for cid in scoped_job.get("cids", [])
+            }
+            item["scoped_cid_count"] = len(scoped_cids)
+
+            # B1 attribution is only interpreted after successful,
+            # non-empty AID->CID acquisition.
+            if (
+                item["cid_collection_status"] == "success"
+                and item["cid_count"] > 0
+            ):
+                if bool(
+                    scoped_job.get(
+                        "target_column_present",
+                        False,
+                    )
+                ):
+                    if scoped_cids:
+                        item["target_attribution"] = (
+                            "row_level_with_matches"
+                        )
+                    else:
+                        item["target_attribution"] = (
+                            "row_level_zero_matches"
+                        )
+                else:
+                    item["target_attribution"] = (
+                        "assay_level_fallback"
+                    )
+
+        evidence.append(item)
+
+    return evidence
+
+
 def _collect_pubchem_records(
     connection,
     proteins,
@@ -787,16 +1203,37 @@ def _collect_pubchem_records(
         timings = _new_stage_timings()
 
     protein_aids = {}
+    source_enumeration = []
+
     if stage_callback is not None:
         stage_callback("aid_search")
     stage_start = time.monotonic()
+
     for index, protein in enumerate(proteins, start=1):
-        try:
-            protein_aids[protein] = _fetch_aids_for_protein(protein)
-        except Exception as e:
-           print(f"Error con {protein}: {e}")
+        enumeration = _source_enumeration_for_protein(protein)
+        source_enumeration.append(enumeration)
+
+        if enumeration["status"] == "success":
+            protein_aids[protein] = list(enumeration["aids"])
+        else:
+            print(
+                f"Error enumerating AIDs for {protein}: "
+                f"{enumeration.get('error', enumeration['status'])}"
+            )
+
         _update_progress(progreso, 0.05 * (index / len(proteins)))
+
     timings.add("aid_search", time.monotonic() - stage_start)
+
+    # S is captured once, before any downstream stage can reduce the
+    # population. Later completeness writes must read this persisted copy.
+    persist_source = getattr(
+        progreso,
+        "persist_source_enumeration",
+        None,
+    )
+    if persist_source is not None:
+        persist_source(source_enumeration)
 
     trabajos = [
         (protein, aid)
@@ -806,6 +1243,13 @@ def _collect_pubchem_records(
     total_steps = len(trabajos)
     print(f"Total de AIDs: {total_steps}")
     if total_steps == 0:
+        merge_completeness = getattr(
+            progreso,
+            "merge_aid_completeness",
+            None,
+        )
+        if merge_completeness is not None:
+            merge_completeness({"aids": []})
         _update_progress(progreso, 1.0)
         return {}
 
@@ -813,7 +1257,12 @@ def _collect_pubchem_records(
     if stage_callback is not None:
         stage_callback("cid_collection")
     stage_start = time.monotonic()
-    cids_by_aid = _fetch_cids_for_aids(all_aids, progreso, start=0.05, end=0.55)
+    cids_by_aid, cid_results = _fetch_cids_for_aids_with_provenance(
+        all_aids,
+        progreso,
+        start=0.05,
+        end=0.55,
+    )
     records = {}
     for protein, aid in trabajos:
         for cid in cids_by_aid.get(str(aid), []):
@@ -850,6 +1299,14 @@ def _collect_pubchem_records(
             "cids": cids_by_aid.get(str(aid), []),
         }
         for protein, aid in trabajos
+        if (
+            cid_results.get(str(aid), {}).get("status")
+            == "success"
+            and cid_results.get(str(aid), {}).get(
+                "cid_count",
+                0,
+            ) > 0
+        )
     ]
 
     def activity_progress_callback(snapshot):
@@ -888,6 +1345,19 @@ def _collect_pubchem_records(
         activity_result.get("target_scoped_jobs", []),
         activity_result.get("failed_job_diagnostics", []),
     )
+
+    aid_evidence = _build_aid_completeness_evidence(
+        trabajos,
+        cid_results,
+        activity_result,
+    )
+    merge_completeness = getattr(
+        progreso,
+        "merge_aid_completeness",
+        None,
+    )
+    if merge_completeness is not None:
+        merge_completeness({"aids": aid_evidence})
 
     enriched_cids = set(activity_result.get("successful_cid_values", []))
 
@@ -951,6 +1421,15 @@ def _run_pubchem_protein_search(
     timings.add("compound_assays_insert", time.monotonic() - stage_start)
 
     connection.commit()
+
+    finalize_completeness = getattr(
+        progreso,
+        "finalize_aid_completeness",
+        None,
+    )
+    if finalize_completeness is not None:
+        finalize_completeness(connection, proteins)
+
     _update_progress(progreso, 1.0)
     _print_pubchem_stage_timings(timings, time.monotonic() - total_start)
 

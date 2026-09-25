@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Persistent lifecycle operations for PubChem protein-search jobs."""
+import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,12 +62,40 @@ def _to_pubchem_job_view(job: JobRecord) -> PubChemJobView:
     )
 
 
+def _protein_search_operation_details(
+    proteins,
+    aid_completeness=None,
+):
+    if not isinstance(aid_completeness, dict):
+        return (
+            "Loaded selected proteins: "
+            f"{', '.join(map(str, proteins))}."
+        )
+
+    summary = {
+        "proteins": [str(protein) for protein in proteins],
+        "aid_completeness": {
+            "contract": aid_completeness.get("contract"),
+            "source_enumeration_succeeded": aid_completeness.get(
+                "source_enumeration_succeeded"
+            ),
+            "certified_complete": aid_completeness.get(
+                "certified_complete"
+            ),
+            "reason": aid_completeness.get("reason"),
+            "counts": aid_completeness.get("counts"),
+        },
+    }
+    return json.dumps(summary, sort_keys=True)
+
+
 def register_protein_search_build(
     connection,
     proteins,
     *,
     job_id=None,
     metadata_notes=None,
+    aid_completeness=None,
 ):
     query_used = f"pubchem_job:{job_id}" if job_id else None
     try:
@@ -101,7 +130,10 @@ def register_protein_search_build(
                 "Activity_Enrichment_Status",
             ],
             created_by="build_from_proteins",
-            details=f"Loaded selected proteins: {', '.join(map(str, proteins))}.",
+            details=_protein_search_operation_details(
+                proteins,
+                aid_completeness=aid_completeness,
+            ),
             query_used=query_used,
             commit=False,
         )
@@ -215,6 +247,9 @@ def register_completed_pubchem_job_record(
             tuple(job.metadata.get("proteins", [])),
             job_id=job.job_id,
             metadata_notes=metadata_notes,
+            aid_completeness=job.metadata.get(
+                "aid_completeness"
+            ),
         )
     finally:
         connection.close()

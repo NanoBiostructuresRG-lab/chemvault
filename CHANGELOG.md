@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.14.6] - 2026-09-24
+
+### Added
+
+- Added AID-level source correspondence and completeness certification for
+  PubChem protein-search builds, using persisted `(protein, AID)` identities
+  from the source enumeration observed in the same execution.
+- Added an explicit completeness contract that distinguishes terminal AIDs,
+  row-level target exclusions, unresolved source AIDs, missing materialization,
+  and unexpected persisted identities.
+- Added a summarized AID-completeness projection to `Operation history` while
+  retaining the detailed identity-level evidence in the originating job
+  metadata.
+
+### Changed
+
+- Persisted the PubChem source AID enumeration before downstream reduction and
+  treated that persisted enumeration as the immutable denominator for later
+  completeness assessment.
+- Finalized AID completeness only after `compound_assays` materialization was
+  committed, requiring persisted `(protein, AID)` identities to correspond to
+  the terminal identities derived from the same run.
+- Preserved distinct AID-to-CID acquisition outcomes for successful,
+  failed, invalid, and missing responses, including successful responses with
+  an explicit empty CID list.
+- Restricted structured-activity retrieval to AIDs with successful, non-empty
+  AID-to-CID acquisition; upstream unresolved AIDs are recorded as
+  `not_attempted` for downstream activity retrieval.
+
+### Fixed
+
+- Prevented downstream state or previously persisted assay associations from
+  being used to reconstruct a missing or invalid source AID denominator.
+- Prevented unresolved AID acquisition states from being interpreted as valid
+  target-level exclusions or silently contributing to a complete population.
+- Prevented stale or unexpected `(protein, AID)` associations in
+  `compound_assays` from satisfying the current-run completeness contract.
+
+### Validation
+
+- Passed the complete test suite: 714 tests.
+- Confirmed `git diff --check` reports no whitespace errors.
+- Reconstructed the MC4R / P32245 PubChem protein-search population from a
+  same-run source enumeration of 652 AIDs: 650 reached terminal persisted
+  representation and 2 remained unresolved.
+- Confirmed that AIDs 540307 and 540319 were returned by the PubChem
+  AID-to-CID batch response without a `CID` field and therefore remained
+  unresolved rather than being converted to terminal or target-excluded
+  identities; the resulting population was correctly not certified complete.
+- The completeness contract applies only to the PubChem protein-search
+  `(protein, AID)` population observed in that execution. It does not certify
+  completeness of source rows, individual CIDs, structured activity records,
+  molecular properties, or other downstream content.
+
+---
+
 ## [v0.14.5] - 2026-09-24
 
 ### Changed
