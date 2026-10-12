@@ -338,4 +338,6 @@ def test_card_uses_only_gateway_for_consolidation_and_is_ordered_in_curate():
         "Select one CID column to enable SMILES calculations."
         in curate_source
     )
-    assert consolidation_position < curate_source.index("**CHAMANP**")
+    assert consolidation_position < curate_source.index(
+        "render_modelability_card()"
+    )

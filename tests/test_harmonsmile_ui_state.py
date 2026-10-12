@@ -298,10 +298,9 @@ def test_refresh_consumes_terminal_status_for_attached_job():
     assert refreshed == [state]
 
 
-def test_workflow_switch_clears_stale_harmonsmile_display(monkeypatch):
+def test_curate_selection_reset_clears_stale_harmonsmile_display(monkeypatch):
     state = {
         "selecting_harmonsmile": True,
-        "selecting_chamanp": False,
         "harmonsmile_running": True,
         "harmonsmile_job_id": "stale-job",
         "harmonsmile_feedback_kind": "error",
@@ -310,10 +309,8 @@ def test_workflow_switch_clears_stale_harmonsmile_display(monkeypatch):
     monkeypatch.setattr(sidebar.st, "session_state", state)
 
     sidebar._set_curados_false()
-    state["selecting_chamanp"] = True
 
     assert state["selecting_harmonsmile"] is False
-    assert state["selecting_chamanp"] is True
     assert state["harmonsmile_running"] is False
     assert state["harmonsmile_job_id"] == ""
     assert state["harmonsmile_feedback_message"] == ""

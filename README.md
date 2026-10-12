@@ -125,8 +125,8 @@ The supported release environment uses Python 3.12.
 > **macOS / Linux:** use the system terminal.
 
 CHEMVAULT is distributed from GitHub release tags. It is not installed from
-PyPI. Compatible versions of HARMONSMILE, CHAMANP, MOLRAPTOR, and the remaining
-runtime dependencies are installed from `requirements.txt`.
+PyPI. Compatible versions of HARMONSMILE, MOLRAPTOR, and the remaining runtime
+dependencies are installed from `requirements.txt`.
 
 1. Clone the repository and select the release tag:
 
@@ -158,7 +158,7 @@ streamlit run app.py
 
 Open `http://localhost:8501` in your browser.
 
-> Do not install HARMONSMILE, CHAMANP, or MOLRAPTOR separately for normal
+> Do not install HARMONSMILE or MOLRAPTOR separately for normal
 > CHEMVAULT use. The compatible versions are defined in `requirements.txt`.
 
 ### Updating an existing clone
@@ -256,9 +256,8 @@ strict UniProt gene-target resolution, PubChem protein-search jobs, structure
 consolidation, HARMONSMILE jobs, MODELABILITY INDEX jobs, and fingerprint
 `.npz` export through the backend gateway.
 
-CHAMANP execution and unsupported table mutations remain local workflows. The
-current backend runtime is process-local and is not a distributed worker
-platform.
+Unsupported table mutations remain local workflows. The current backend runtime
+is process-local and is not a distributed worker platform.
 
 ---
 
@@ -268,7 +267,7 @@ platform.
 
 1. Start CHEMVAULT and open `http://localhost:8501`.
 2. Enter a name in **SQL Database name**.
-3. Upload `examples/example_chamanp.csv` from the sidebar.
+3. Upload a CSV file using **Upload CSV** in the sidebar.
 4. Inspect the table using the **Columns** controls.
 5. Use **Refine** to filter rows or columns.
 6. Create a derived table when the selection should be preserved.
@@ -525,9 +524,7 @@ CHEMVAULT integrates tools developed by the NanoBiostructures Research Group:
 - [HARMONSMILE](https://pypi.org/project/harmonsmile/) - traceable SMILES
   harmonization;
 - [MOLRAPTOR](https://pypi.org/project/molraptor/) - reproducible molecular
-  fingerprint generation;
-- [CHAMANP](https://pypi.org/project/chamanp/) - molecular dataset curation and
-  preparation.
+  fingerprint generation.
 
 ---
 

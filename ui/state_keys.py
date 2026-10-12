@@ -27,7 +27,6 @@ INPUT_DATABASE_ID = "input_database_id"
 EXISTING_DB_SELECT = "existing_db_select"
 
 SELECTING_HARMONSMILE = "selecting_harmonsmile"
-SELECTING_CHAMANP = "selecting_chamanp"
 HARMONSMILE_RUNNING = "harmonsmile_running"
 HARMONSMILE_JOB_ID = "harmonsmile_job_id"
 HARMONSMILE_FEEDBACK_KIND = "harmonsmile_feedback_kind"
@@ -52,10 +51,6 @@ ORDER_BY_COLUMN = "order_by_column"
 ORDER_DIRECTION = "order_direction"
 DEPURADO_SUCCESS_TABLE = "depurado_success_table"
 DEPURADO_SUCCESS_MESSAGE = "depurado_success_message"
-
-SELECTED_IDENTIFIER = "selected_identifier"
-SELECTED_SMILES = "selected_smiles"
-SELECTED_COLLECTIONS = "selected_collections"
 
 SELECTED_SMILES_FOR_EXPORT = "selected_smiles_for_export"
 CODIGO_BUSCAR = "codigo_buscar"
@@ -83,7 +78,6 @@ ALL_SESSION_KEYS = (
     INPUT_DATABASE_ID,
     EXISTING_DB_SELECT,
     SELECTING_HARMONSMILE,
-    SELECTING_CHAMANP,
     HARMONSMILE_RUNNING,
     HARMONSMILE_JOB_ID,
     HARMONSMILE_FEEDBACK_KIND,
@@ -107,9 +101,6 @@ ALL_SESSION_KEYS = (
     ORDER_DIRECTION,
     DEPURADO_SUCCESS_TABLE,
     DEPURADO_SUCCESS_MESSAGE,
-    SELECTED_IDENTIFIER,
-    SELECTED_SMILES,
-    SELECTED_COLLECTIONS,
     SELECTED_SMILES_FOR_EXPORT,
     CODIGO_BUSCAR,
     COL_TO_CHANGE_SELECT,

@@ -1,16 +1,11 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import html
-import os
 
 import streamlit as st
 
-from application.curation_use_cases import (
-    is_cid_header,
-    run_chamanp,
-)
+from application.curation_use_cases import is_cid_header
 from application.table_use_cases import (
     export_filtered_selection,
-    load_selected_columns,
     resolve_selected_columns,
 )
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
@@ -37,11 +32,7 @@ from ui.state_keys import (
     TYPE_OF_FILTER,
     WHERE_COLUMN,
     WHERE_CONDITION,
-    SELECTED_COLLECTIONS,
-    SELECTED_IDENTIFIER,
-    SELECTED_SMILES,
     SELECTED_SMILES_FOR_EXPORT,
-    SELECTING_CHAMANP,
     SELECTING_HARMONSMILE,
 )
 from ui.harmonsmile_state import (
@@ -274,31 +265,7 @@ def render_refine_card(clear_preview_callback, build_query_callback):
 
 def _set_curados_false():
     st.session_state[SELECTING_HARMONSMILE] = False
-    st.session_state[SELECTING_CHAMANP] = False
     clear_harmonsmile_runtime(st.session_state, clear_feedback=True)
-
-
-def _safe_register_curate_operation(
-    operation_type,
-    target_table,
-    source_columns,
-    output_columns=None,
-    status="success",
-    details=None,
-):
-    try:
-        register_operation(
-            get_connection(st.session_state[DATABASE_ID]),
-            operation_type,
-            target_table=target_table,
-            source_columns=source_columns,
-            output_columns=output_columns,
-            created_by="render_curate_card",
-            status=status,
-            details=details,
-        )
-    except Exception:
-        pass
 
 
 def refresh_harmonsmile_status_once(database_id, table_name, gateway=None):
@@ -563,62 +530,6 @@ def render_curate_card():
 
         render_structure_consolidation_card()
         render_modelability_card()
-
-        with st.container(border=True):
-            st.markdown("**CHAMANP**")
-            if st.button("CHAMANP"):
-                _set_curados_false()
-                st.session_state[SELECTING_CHAMANP] = True
-
-            if st.session_state[SELECTING_CHAMANP]:
-                st.text("Select the columns to process")
-                st.text(f"Selected columns: {st.session_state[SELECTED_HEADERS]}")
-                st.selectbox("Select identifier", st.session_state[SELECTED_HEADERS], key=SELECTED_IDENTIFIER)
-                st.selectbox("Select canonical_smiles", st.session_state[SELECTED_HEADERS], key=SELECTED_SMILES)
-                st.selectbox("Select collections", st.session_state[SELECTED_HEADERS], key=SELECTED_COLLECTIONS)
-
-                if st.button("Run", key="curate_run_chamanp"):
-                    source_columns = [
-                        st.session_state[SELECTED_IDENTIFIER],
-                        st.session_state[SELECTED_SMILES],
-                        st.session_state[SELECTED_COLLECTIONS],
-                    ]
-                    run_chamanp(
-                        load_selected_columns(
-                            st.session_state.get(DATABASE_ID, ""),
-                            st.session_state.get(CURRENT_TABLE, ""),
-                            st.session_state.get(HEADERS, []),
-                            st.session_state.get(SELECTED_HEADERS, []),
-                        ),
-                        st.session_state[SELECTED_IDENTIFIER],
-                        st.session_state[SELECTED_SMILES],
-                        st.session_state[SELECTED_COLLECTIONS],
-                    )
-                    _safe_register_curate_operation(
-                        "chamanp_run",
-                        st.session_state[CURRENT_TABLE],
-                        source_columns,
-                        details="Ran CHAMANP and generated downloadable artifacts.",
-                    )
-                    st.text("Chamanp completed successfully")
-                    st.text("Downloading files")
-                folder_path = "artifacts"
-                files = os.listdir(folder_path)
-
-                for file_name in files:
-                    file_path = os.path.join(folder_path, file_name)
-                    if file_name != "notes.txt":
-                        with open(file_path, "rb") as f:
-                            downloaded = st.download_button(
-                                label=f"Download {file_name}",
-                                data=f,
-                                file_name=file_name,
-                                mime="application/octet-stream",
-                                key=file_name,
-                            )
-                        if downloaded:
-                            os.remove(file_path)
-                            st.success(f"{file_name} removed from the server")
 
 
 def render_export_card():

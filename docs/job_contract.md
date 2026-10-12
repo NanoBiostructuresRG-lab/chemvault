@@ -1,8 +1,8 @@
 # Scientific backend job contract
 
 CHEMVAULT v0.10.0 treats scientific backend work as a generic persisted job
-contract. HARMONSMILE is the first workflow behind this contract; CHAMANP and
-PubChem API execution are not migrated in this cycle.
+contract. HARMONSMILE is the first workflow behind this contract; PubChem API
+execution is not migrated in this cycle.
 
 ## Public status shape
 

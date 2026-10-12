@@ -46,19 +46,6 @@ from ui.theme import apply_global_theme
 def verify_directories():
     if not os.path.exists("SQL"):
         os.makedirs("SQL")
-    if not os.path.exists("artifacts"):
-        os.makedirs("artifacts")
-    else:
-        files = os.listdir("artifacts")
-        for file_name in files:
-            file_path = os.path.join("artifacts", file_name)
-            if os.path.isfile(file_path):
-                try:
-                    os.remove(file_path)
-                except PermissionError:
-                    pass
-    if not os.path.exists("tempFilesChamanp"):
-        os.makedirs("tempFilesChamanp")
     if not os.path.exists("tempFilesHarmonsile"):
         os.makedirs("tempFilesHarmonsile")
 

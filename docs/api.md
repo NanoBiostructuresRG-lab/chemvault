@@ -205,8 +205,8 @@ part of this endpoint.
 
 ## Current limitations
 
-The API does not create databases, run PubChem or CHAMANP, expose cancellation,
-or launch remote workers. Filtered subgroup and structured-activity exports and
+The API does not create databases, run PubChem, expose cancellation, or launch
+remote workers. Filtered subgroup and structured-activity exports and
 general table mutations other than structure consolidation remain outside this
 API surface.
 
