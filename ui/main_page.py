@@ -971,8 +971,10 @@ def render_structured_activity_section(connection):
     if summary is None:
         return
 
-    st.markdown("#### Structured activity")
-    st.caption("Inspect and export quantitative PubChem activity without changing molecular tables.")
+    st.markdown("#### Structured quantitative activity")
+    st.caption(
+        "Inspect and export structured quantitative activity records stored in this database."
+    )
     if summary["total_rows"] == 0:
         st.info("No structured activity rows are available yet.")
         return
@@ -989,19 +991,19 @@ def render_structured_activity_section(connection):
             border-bottom: 1px solid var(--cv-border);
         ">
             <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Activity rows</div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Structured activity records</div>
                 <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["total_rows"]}</div>
             </div>
             <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">CIDs with activity</div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">CIDs with structured activity</div>
                 <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_cids"]}</div>
             </div>
             <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">AIDs with activity</div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">AIDs with structured activity</div>
                 <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_aids"]}</div>
             </div>
             <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Activity types</div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Reported activity types</div>
                 <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
                     {html.escape(_format_activity_option_list(summary["activity_types"]))}
                 </div>

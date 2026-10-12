@@ -66,6 +66,93 @@ def test_activity_enrichment_final_status_reports_partial_completion_truthfully(
     ) == "Structured activity backfill completed."
 
 
+def test_structured_activity_summary_uses_quantitative_database_labels(monkeypatch):
+    summary = {
+        "total_rows": 73,
+        "unique_cids": 11,
+        "unique_aids": 5,
+        "activity_types": ["IC50", "Ki"],
+        "outcomes": ["Active", "Inactive"],
+        "units": ["NANOMOLAR"],
+        "source_columns": ["PubChem Standard Value"],
+        "aids": ["100", "200"],
+    }
+    markdown_calls = []
+    captions = []
+
+    class Context:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(main_page, "get_activity_summary", lambda _connection: summary)
+    monkeypatch.setattr(main_page, "get_activity_row_count", lambda _connection: 73)
+    monkeypatch.setattr(main_page, "get_activity_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(main_page, "get_activity_csv_bytes", lambda _connection: b"")
+    monkeypatch.setattr(
+        main_page.st,
+        "markdown",
+        lambda value, **kwargs: markdown_calls.append((value, kwargs)),
+    )
+    monkeypatch.setattr(main_page.st, "caption", captions.append)
+    monkeypatch.setattr(main_page.st, "dataframe", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main_page.st,
+        "download_button",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        main_page.st,
+        "expander",
+        lambda *_args, **_kwargs: Context(),
+    )
+    monkeypatch.setattr(
+        main_page.st,
+        "columns",
+        lambda count: [Context() for _ in range(count)],
+    )
+    monkeypatch.setattr(
+        main_page.st,
+        "multiselect",
+        lambda *_args, **_kwargs: [],
+    )
+
+    main_page.render_structured_activity_section(object())
+
+    assert markdown_calls[0] == ("#### Structured quantitative activity", {})
+    assert captions[0] == (
+        "Inspect and export structured quantitative activity records stored in this database."
+    )
+    summary_markup = next(
+        value
+        for value, kwargs in markdown_calls
+        if kwargs == {"unsafe_allow_html": True}
+    )
+    expected_metrics = (
+        ("Structured activity records", "73"),
+        ("CIDs with structured activity", "11"),
+        ("AIDs with structured activity", "5"),
+        ("Reported activity types", "IC50, Ki"),
+        ("Outcomes", "Active, Inactive"),
+        ("Units", "NANOMOLAR"),
+        ("Source columns", "PubChem Standard Value"),
+    )
+    metric_positions = [
+        summary_markup.index(f">{label}</div>")
+        for label, _value in expected_metrics
+    ]
+    assert metric_positions == sorted(metric_positions)
+    for index, (_label, value) in enumerate(expected_metrics):
+        metric_end = (
+            metric_positions[index + 1]
+            if index + 1 < len(metric_positions)
+            else len(summary_markup)
+        )
+        assert value in summary_markup[metric_positions[index]:metric_end]
+
+
 def test_main_column_options_hide_only_legacy_activity_summary_columns():
     headers = [
         "primary_id",
