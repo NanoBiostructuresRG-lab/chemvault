@@ -7,7 +7,7 @@ from threading import Barrier, Lock
 from harmonsmile import load_table
 import pandas as pd
 
-from modules import use_harmonsmile
+from services import harmonsmile_ingest
 from services.harmonsmile_cache import (
     merge_harmonsmile_cache_to_table,
     normalize_harmonsmile_result,
@@ -53,10 +53,10 @@ def test_harmonsmile_034_pubchem_ingest_returns_dataframe_contract(
                 "InChIKey": ["LFQSCWFLJHTTHZ-UHFFFAOYSA-N", "UHOVQNZJYSORNB-UHFFFAOYSA-N"],
             })
 
-    monkeypatch.setattr(use_harmonsmile, "PubChemConfig", FakePubChemConfig)
-    monkeypatch.setattr(use_harmonsmile, "PubChemIngest", FakePubChemIngest)
+    monkeypatch.setattr(harmonsmile_ingest, "PubChemConfig", FakePubChemConfig)
+    monkeypatch.setattr(harmonsmile_ingest, "PubChemIngest", FakePubChemIngest)
 
-    result = use_harmonsmile.use_PubchemIngest(pd.DataFrame({"CID": [1, 2]}))
+    result = harmonsmile_ingest.use_PubchemIngest(pd.DataFrame({"CID": [1, 2]}))
 
     assert len(captured_configs) == 1
     captured_path = Path(captured_configs[0]["input_path"])
@@ -106,13 +106,13 @@ def test_harmonsmile_invocations_use_isolated_temporary_csv_paths(
             assert input_path.exists()
             return pd.DataFrame({"PubChem_CID": [cid]})
 
-    monkeypatch.setattr(use_harmonsmile, "PubChemConfig", FakePubChemConfig)
-    monkeypatch.setattr(use_harmonsmile, "PubChemIngest", FakePubChemIngest)
+    monkeypatch.setattr(harmonsmile_ingest, "PubChemConfig", FakePubChemConfig)
+    monkeypatch.setattr(harmonsmile_ingest, "PubChemIngest", FakePubChemIngest)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(
             executor.map(
-                use_harmonsmile.use_PubchemIngest,
+                harmonsmile_ingest.use_PubchemIngest,
                 [pd.DataFrame({"CID": [1]}), pd.DataFrame({"CID": [2]})],
             )
         )

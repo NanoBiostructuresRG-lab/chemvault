@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from modules.use_harmonsmile import use_PubchemIngest
+from services.harmonsmile_ingest import use_PubchemIngest
 from services.database_core import get_connection
 
 
