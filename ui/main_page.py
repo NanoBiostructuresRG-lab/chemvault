@@ -465,9 +465,9 @@ def render_database_summary(
             )
         )
         activity_status_labels = {
-            "enriched": "Compounds with activity data",
+            "enriched": "Compounds with retrieved activity records",
             "partial_or_failed": (
-                "Compounds with incomplete activity data"
+                "Compounds with no retrieved activity records"
             ),
         }
         activity_metrics = tuple(
@@ -481,7 +481,7 @@ def render_database_summary(
             activity_metrics = (("", summary["activity_status"]),)
         sections.append(
             _database_summary_section_html(
-                "Activity data availability",
+                "Structured activity retrieval at build",
                 activity_metrics,
             )
         )

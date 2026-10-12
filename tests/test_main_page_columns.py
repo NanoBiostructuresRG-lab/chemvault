@@ -628,16 +628,16 @@ def test_database_summary_groups_pubchem_provenance_and_activity_status(
         "Proteins represented",
         "Persisted bioassays (AIDs)",
         "Compound–bioassay associations",
-        "Activity data availability",
-        "Compounds with activity data",
-        "Compounds with incomplete activity data",
+        "Structured activity retrieval at build",
+        "Compounds with retrieved activity records",
+        "Compounds with no retrieved activity records",
     ):
         assert text in rendered
     section_titles = (
         "Active table",
         "Target identity",
         "Target-centered PubChem dataset",
-        "Activity data availability",
+        "Structured activity retrieval at build",
     )
     section_fragments = []
     for index, title in enumerate(section_titles):
@@ -666,11 +666,13 @@ def test_database_summary_groups_pubchem_provenance_and_activity_status(
         for title in section_titles
     ]
     assert section_positions == sorted(section_positions)
-    assert "Compounds with activity data: 2" not in rendered
-    assert "Compounds with incomplete activity data: 1" not in rendered
-    activity_data_position = rendered.index("Compounds with activity data")
+    assert "Compounds with retrieved activity records: 2" not in rendered
+    assert "Compounds with no retrieved activity records: 1" not in rendered
+    activity_data_position = rendered.index(
+        "Compounds with retrieved activity records"
+    )
     incomplete_position = rendered.index(
-        "Compounds with incomplete activity data"
+        "Compounds with no retrieved activity records"
     )
     assert activity_data_position < incomplete_position
     first_metric_lines = {
