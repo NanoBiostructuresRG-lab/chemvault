@@ -623,11 +623,11 @@ def test_database_summary_groups_pubchem_provenance_and_activity_status(
         "9606",
         "UniProt status",
         "Reviewed",
-        "PubChem assay coverage",
-        "Compounds linked to assays",
+        "Target-centered PubChem dataset",
+        "Compounds (CIDs)",
         "Proteins represented",
-        "PubChem assays",
-        "Compound–assay links",
+        "Persisted bioassays (AIDs)",
+        "Compound–bioassay associations",
         "Activity data availability",
         "Compounds with activity data",
         "Compounds with incomplete activity data",
@@ -636,7 +636,7 @@ def test_database_summary_groups_pubchem_provenance_and_activity_status(
     section_titles = (
         "Active table",
         "Target identity",
-        "PubChem assay coverage",
+        "Target-centered PubChem dataset",
         "Activity data availability",
     )
     section_fragments = []

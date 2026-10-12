@@ -455,12 +455,12 @@ def render_database_summary(
         )
         sections.append(
             _database_summary_section_html(
-                "PubChem assay coverage",
+                "Target-centered PubChem dataset",
                 (
-                    ("Compounds linked to assays", summary["unique_cids"]),
+                    ("Compounds (CIDs)", summary["unique_cids"]),
                     ("Proteins represented", protein_text),
-                    ("PubChem assays", summary["individual_aids"]),
-                    ("Compound–assay links", summary["cid_aid_links"]),
+                    ("Persisted bioassays (AIDs)", summary["individual_aids"]),
+                    ("Compound–bioassay associations", summary["cid_aid_links"]),
                 ),
             )
         )
