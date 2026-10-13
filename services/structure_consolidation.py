@@ -173,6 +173,24 @@ def _stable_order(dataframe: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _output_text(row: dict[str, object], key: str) -> str:
+    value = row[key]
+    if not isinstance(value, str):
+        raise StructureConsolidationError(
+            f"Consolidation output field {key} must be text."
+        )
+    return value
+
+
+def _output_int(row: dict[str, object], key: str) -> int:
+    value = row[key]
+    if not isinstance(value, int):
+        raise StructureConsolidationError(
+            f"Consolidation output field {key} must be an integer."
+        )
+    return value
+
+
 def consolidate_harmonized_structures(
     dataframe: pd.DataFrame,
 ) -> StructureConsolidationResult:
@@ -208,20 +226,23 @@ def consolidate_harmonized_structures(
     excluded_non_binary: list[dict[str, object]] = []
     excluded_unusable: list[dict[str, object]] = []
 
-    for _, row in unusable.iterrows():
-        if row["__smiles"] == "":
+    for _, unusable_row in unusable.iterrows():
+        if unusable_row["__smiles"] == "":
             reason = "missing_smiles_harmonized"
         else:
-            reason = f"harmonization_status:{row['__status'] or 'missing'}"
+            reason = (
+                "harmonization_status:"
+                f"{unusable_row['__status'] or 'missing'}"
+            )
 
         excluded_unusable.append(
             {
-                "CID": _clean_text(row["CID"]),
-                "AID": _clean_text(row["AID"]),
-                "Outcome": _clean_text(row["Outcome"]),
-                "SMILES_Harmonized": row["__smiles"],
+                "CID": _clean_text(unusable_row["CID"]),
+                "AID": _clean_text(unusable_row["AID"]),
+                "Outcome": _clean_text(unusable_row["Outcome"]),
+                "SMILES_Harmonized": unusable_row["__smiles"],
                 "SMILES_Harmonization_Status": _clean_text(
-                    row["SMILES_Harmonization_Status"]
+                    unusable_row["SMILES_Harmonization_Status"]
                 ),
                 "reason": reason,
             }
@@ -408,23 +429,32 @@ def consolidate_harmonized_structures(
         if not output.empty
         else 0
     )
-    outcome_source_aids = {"Active": set(), "Inactive": set()}
-    outcome_source_observations = {"Active": 0, "Inactive": 0}
+    outcome_source_aids: dict[str, set[str]] = {
+        "Active": set(),
+        "Inactive": set(),
+    }
+    outcome_source_observations: dict[str, int] = {
+        "Active": 0,
+        "Inactive": 0,
+    }
     for row in output_rows:
-        outcome = row["Outcome"]
-        outcome_source_aids[outcome].update(json.loads(row["Source_AIDs"]))
-        outcome_source_observations[outcome] += int(
-            row["Source_Row_Count"]
+        outcome = _output_text(row, "Outcome")
+        outcome_source_aids[outcome].update(
+            json.loads(_output_text(row, "Source_AIDs"))
+        )
+        outcome_source_observations[outcome] += _output_int(
+            row,
+            "Source_Row_Count",
         )
 
     unique_structure_count = int(usable["__smiles"].nunique())
     valid_source_row_count = int(len(usable))
     created_row_count = int(len(output))
     represented_source_row_count = sum(
-        int(row["Source_Row_Count"]) for row in output_rows
+        _output_int(row, "Source_Row_Count") for row in output_rows
     )
     consolidated_duplicate_count = sum(
-        int(row["Source_Row_Count"]) - 1 for row in output_rows
+        _output_int(row, "Source_Row_Count") - 1 for row in output_rows
     )
     selected_reference_count = sum(
         row["Reference_Selection_Status"] == "selected"
