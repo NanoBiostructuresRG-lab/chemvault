@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ChemVault"
+dynamic = ["version"]
+description = "A Cheminformatics Application for Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment"
+readme = "README.md"
+license = "LGPL-3.0-or-later"
+license-files = ["LICENSE", "COPYING", "COPYING.LESSER"]
+authors = [
+    { name = "Flavio F. Contreras-Torres", email = "contreras.flavio@tec.mx" }
+]
+keywords = ["PubChem Bioassays", "bioactivity data curation", "chemical structure harmonization", "modelability assessment"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Cheminformatics",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["site", ".pytest_cache"]
+
+[tool.ruff.lint]
+select = ["F", "I", "UP", "RUF022"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+files = ["api", "application", "clients", "services", "ui", "app.py"]
+no_site_packages = true
+show_error_codes = true
+incremental = false
