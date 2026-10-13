@@ -6,6 +6,7 @@ from threading import Lock, Thread
 
 from application.database_use_cases import resolve_database_path
 from application.harmonsmile_jobs import recover_orphaned_harmonsmile_jobs
+from application.job_contracts import RecoveredJobContract
 from application.modelability_jobs import fail_orphaned_modelability_jobs
 from application.scientific_jobs import (
     claim_scientific_job_executor,
@@ -15,8 +16,8 @@ from services.job_models import JobType
 
 _runtime_lock = Lock()
 _activation_lock = Lock()
-_executors = {}
-_activated_databases = {}
+_executors: dict[tuple[str, str], Thread] = {}
+_activated_databases: dict[str, tuple[RecoveredJobContract, ...]] = {}
 
 
 def _executor_key(database_id, job_id):
