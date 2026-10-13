@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import json
 import sqlite3
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 from services.sql_utils import (
     is_user_facing_table_name,
@@ -24,6 +26,25 @@ INTERNAL_TABLES = {
     "_chemvault_jobs",
     "sqlite_sequence",
 }
+
+
+class _TableRowCount(TypedDict):
+    table: str
+    rows: int
+
+
+class _ColumnSchema(TypedDict):
+    cid: int
+    name: str
+    data_type: str
+    not_null: bool
+    default_value: object
+    primary_key: bool
+
+
+class _TableSchema(TypedDict):
+    table: str
+    columns: list[_ColumnSchema]
 
 
 def list_database_files(directory: Path) -> list[Path]:
@@ -323,25 +344,31 @@ def delete_user_table(connection, table_name: str, commit: bool = True) -> None:
         connection.commit()
 
 
-def get_table_row_counts(db_path: Path) -> list[dict[str, int | str]]:
-    """Return table names and row counts for a database."""
+def _get_table_row_counts(db_path: Path) -> list[_TableRowCount]:
     return [
         {"table": table, "rows": count_rows(db_path, table)}
         for table in list_tables(db_path)
     ]
 
 
-def get_database_schema(db_path: Path) -> list[dict[str, object]]:
-    """Return tables with SQLite column metadata."""
+def get_table_row_counts(db_path: Path) -> list[dict[str, int | str]]:
+    """Return table names and row counts for a database."""
+    row_counts: list[dict[str, int | str]] = []
+    for item in _get_table_row_counts(db_path):
+        row_counts.append({"table": item["table"], "rows": item["rows"]})
+    return row_counts
+
+
+def _get_database_schema(db_path: Path) -> list[_TableSchema]:
     if not db_path.exists():
         raise FileNotFoundError(f"Database not found: {db_path}")
 
-    schema = []
+    schema: list[_TableSchema] = []
     with sqlite3.connect(db_path) as con:
         cur = con.cursor()
         for table in list_tables(db_path):
             cur.execute(f"PRAGMA table_info({quote_identifier(table)})")
-            columns = []
+            columns: list[_ColumnSchema] = []
             for column in cur.fetchall():
                 cid, name, data_type, not_null, default_value, primary_key = column
                 columns.append(
@@ -358,6 +385,19 @@ def get_database_schema(db_path: Path) -> list[dict[str, object]]:
     return schema
 
 
+def get_database_schema(db_path: Path) -> list[dict[str, object]]:
+    """Return tables with SQLite column metadata."""
+    schema: list[dict[str, object]] = []
+    for table_schema in _get_database_schema(db_path):
+        schema.append(
+            {
+                "table": table_schema["table"],
+                "columns": table_schema["columns"],
+            }
+        )
+    return schema
+
+
 def get_table_schema(db_path: Path, table: str) -> dict[str, object]:
     """Return SQLite column metadata for one existing table."""
     if not db_path.exists():
@@ -368,7 +408,7 @@ def get_table_schema(db_path: Path, table: str) -> dict[str, object]:
             raise ValueError(f"Table not found: {table}")
         cur = con.cursor()
         cur.execute(f"PRAGMA table_info({quote_identifier(table)})")
-        columns = []
+        columns: list[_ColumnSchema] = []
         for column in cur.fetchall():
             cid, name, data_type, not_null, default_value, primary_key = column
             columns.append(
@@ -381,7 +421,8 @@ def get_table_schema(db_path: Path, table: str) -> dict[str, object]:
                     "primary_key": bool(primary_key),
                 }
             )
-    return {"table": table, "columns": columns}
+    schema: dict[str, object] = {"table": table, "columns": columns}
+    return schema
 
 
 def _classify_table_origin(table: str) -> str:
@@ -427,7 +468,10 @@ def _classify_table_status(
 def recommend_table_action(profile: dict[str, object]) -> str:
     """Return a conservative user-facing table action recommendation."""
     table = profile.get("table")
-    statuses = set(profile.get("status", []))
+    status_values = profile.get("status", [])
+    if not isinstance(status_values, Iterable):
+        raise TypeError("profile status must be iterable")
+    statuses = set(status_values)
     metadata_status = profile.get("metadata_status")
 
     if table == "main":
@@ -445,14 +489,16 @@ def recommend_table_action(profile: dict[str, object]) -> str:
 
 def get_table_profiles(db_path: Path) -> list[dict[str, object]]:
     """Return inferred table profiles for database overview and management."""
-    table_counts = {item["table"]: item["rows"] for item in get_table_row_counts(db_path)}
-    schema = get_database_schema(db_path)
+    table_counts = {item["table"]: item["rows"] for item in _get_table_row_counts(db_path)}
+    schema = _get_database_schema(db_path)
     table_metadata = get_table_metadata(db_path)
-    signatures = {}
+    signatures: dict[tuple[int, tuple[str, ...]], list[str]] = {}
 
     for table_schema in schema:
-        column_names = tuple(column["name"] for column in table_schema["columns"])
-        signature = (table_counts[table_schema["table"]], column_names)
+        signature_column_names = tuple(
+            column["name"] for column in table_schema["columns"]
+        )
+        signature = (table_counts[table_schema["table"]], signature_column_names)
         signatures.setdefault(signature, []).append(table_schema["table"])
 
     duplicate_candidates = {
