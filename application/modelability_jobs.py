@@ -29,7 +29,6 @@ from services.database_core import get_connection
 from services.job_models import JobStatus, JobType
 from services.job_store import JobStore
 
-
 MODELABILITY_INTERRUPTED_MESSAGE = (
     "Modelability Index calculation was interrupted by a backend restart. "
     "Run it again."

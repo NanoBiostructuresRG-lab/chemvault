@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Typed target identity provenance for PubChem protein-search builds."""
-from dataclasses import asdict, dataclass
 import json
+from dataclasses import asdict, dataclass
 from typing import Any
-
 
 TARGET_IDENTITY_ARTIFACT_CONTRACT = "protein_search_target_identity"
 TARGET_IDENTITY_ARTIFACT_VERSION = 1

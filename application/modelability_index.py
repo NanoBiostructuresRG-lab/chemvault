@@ -13,21 +13,17 @@ import numpy as np
 import pandas as pd
 from molraptor import (
     FingerprintType,
-    __version__ as MOLRAPTOR_VERSION,
     encode_fingerprints,
     resolve_fingerprint_profile,
+)
+from molraptor import (
+    __version__ as MOLRAPTOR_VERSION,
 )
 from rdkit import __version__ as RDKIT_VERSION
 
 from application.database_use_cases import (
     TableNotFoundError,
     resolve_database_path,
-)
-from services.modelability_index import (
-    ModelabilityIndexError,
-    NearestNeighborDiagnostics,
-    calculate_modelability_index,
-    calculate_nearest_neighbor_diagnostics,
 )
 from services.modelability_fingerprint_artifacts import (
     MATRIX_FORMAT,
@@ -37,6 +33,12 @@ from services.modelability_fingerprint_artifacts import (
     build_fingerprint_artifact,
     read_fingerprint_artifact,
     restore_or_calculate_fingerprint_artifact,
+)
+from services.modelability_index import (
+    ModelabilityIndexError,
+    NearestNeighborDiagnostics,
+    calculate_modelability_index,
+    calculate_nearest_neighbor_diagnostics,
 )
 from services.murcko_metrics import (
     MurckoStructuralMetrics,
@@ -51,7 +53,6 @@ from services.murcko_population import (
     analyze_murcko_population,
 )
 from services.sql_utils import get_tables_from_connection, quote_identifier
-
 
 REQUIRED_COLUMNS = (
     "SMILES_Harmonized",

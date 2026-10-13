@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import os
 
-import numpy as np
 import streamlit as st
 from PIL import Image
 
@@ -12,20 +11,6 @@ from services.selection import (
 from services.sql_utils import (
     is_valid_table_name,
     quote_identifier,
-)
-from ui.state_keys import (
-    CURRENT_TABLE,
-    CUSTOM_QUERY,
-    DATABASE_ID,
-    GROUP_BY_COLUMN,
-    HEADERS,
-    NEW_TABLE_NAME,
-    ORDER_BY_COLUMN,
-    ORDER_DIRECTION,
-    SELECTED_HEADERS,
-    TYPE_OF_FILTER,
-    WHERE_COLUMN,
-    WHERE_CONDITION,
 )
 from ui.dialogs import select_proteins
 from ui.main_page import (
@@ -40,6 +25,20 @@ from ui.main_page import (
 )
 from ui.session_state import initialize_session_state, refresh_database_state
 from ui.sidebar import render_sidebar
+from ui.state_keys import (
+    CURRENT_TABLE,
+    CUSTOM_QUERY,
+    DATABASE_ID,
+    GROUP_BY_COLUMN,
+    HEADERS,
+    NEW_TABLE_NAME,
+    ORDER_BY_COLUMN,
+    ORDER_DIRECTION,
+    SELECTED_HEADERS,
+    TYPE_OF_FILTER,
+    WHERE_COLUMN,
+    WHERE_CONDITION,
+)
 from ui.theme import apply_global_theme
 
 

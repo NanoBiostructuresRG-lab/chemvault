@@ -2,7 +2,6 @@
 import csv
 import io
 import re
-import sqlite3
 
 from services.sql_utils import quote_identifier, table_exists
 

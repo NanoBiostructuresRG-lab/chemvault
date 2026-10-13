@@ -10,11 +10,10 @@ import sqlite3
 import zlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import numpy.typing as npt
-
 
 FINGERPRINT_ARTIFACTS_TABLE = (
     "_chemvault_modelability_fingerprint_artifacts"
@@ -336,7 +335,7 @@ def _replace_artifact(
             ordered_smiles_json,
             zlib.compress(npy_payload),
             checksum,
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
         ),
     )
     connection.commit()

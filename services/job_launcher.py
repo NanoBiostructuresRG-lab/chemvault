@@ -1,13 +1,12 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Launch persistent CHEMVAULT jobs in a separate local process."""
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 from services.job_models import JobType
 from services.job_store import JobStore
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

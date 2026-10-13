@@ -14,7 +14,6 @@ from application.target_identity import (
     target_identity_notes,
 )
 
-
 GENE_TARGET = {
     "input_mode": "gene_symbol",
     "gene_symbol": " mc4r ",

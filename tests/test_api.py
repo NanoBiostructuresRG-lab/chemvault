@@ -1,20 +1,21 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import json
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from api import main as api_main
-from application.job_contracts import (
-    RecoveredJobContract,
-    job_status_from_payload,
-)
 from application.database_use_cases import (
     DatabaseMetrics,
     DatabaseNotFoundError,
     InvalidColumnError,
-    TableProvenance,
     TableNotFoundError,
+    TableProvenance,
+)
+from application.job_contracts import (
+    RecoveredJobContract,
+    job_status_from_payload,
 )
 from application.modelability_index import ModelabilityIndexUseCaseError
 from application.structure_consolidation import (
@@ -22,9 +23,8 @@ from application.structure_consolidation import (
     StructureConsolidationTableResult,
 )
 from services.database import DatabaseState
-from services.structure_consolidation import StructureConsolidationError
 from services.modelability_fingerprint_artifacts import FingerprintArtifactError
-
+from services.structure_consolidation import StructureConsolidationError
 
 client = TestClient(api_main.app)
 

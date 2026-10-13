@@ -4,8 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from application.job_contracts import JobStatusContract, job_status_from_record
 from application.database_use_cases import list_database_tables
+from application.job_contracts import JobStatusContract, job_status_from_record
 from services.database_core import get_connection
 from services.job_models import JobType
 from services.job_store import JobStore

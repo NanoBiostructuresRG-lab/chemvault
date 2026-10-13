@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from services.database import DatabaseState
 from application.job_contracts import JobStatusContract, RecoveredJobContract
-from services.job_models import JobStatus
 from clients.backend_gateway import BackendGatewayError, TableMetadata
+from services.database import DatabaseState
+from services.job_models import JobStatus
 from ui import session_state as session_state_module
 from ui.session_state import (
     apply_database_state,

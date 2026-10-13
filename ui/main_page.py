@@ -9,8 +9,8 @@ from textwrap import dedent
 
 import pandas as pd
 import streamlit as st
+
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
-from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
     create_activity_subset_table,
@@ -25,17 +25,24 @@ from services.activity_data import (
 from services.activity_enrichment import (
     run_activity_enrichment_from_compound_assays,
 )
-from services.pubchem_aid_completeness import AID_COMPLETENESS_CONTRACT
+from services.database import (
+    get_connection,
+)
 from services.db_audit import (
     delete_user_table,
     get_user_table_profiles,
     register_operation,
     register_table_metadata,
 )
-from services.database import (
-    get_connection,
-)
+from services.pubchem_aid_completeness import AID_COMPLETENESS_CONTRACT
+from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.sql_utils import quote_identifier, table_exists
+from ui.modelability_result import render_modelability_result_card
+from ui.session_state import (
+    load_database_from_selection,
+    refresh_database_state,
+    set_database_from_input,
+)
 from ui.state_keys import (
     ALL_TABLES,
     CURRENT_TABLE,
@@ -44,16 +51,10 @@ from ui.state_keys import (
     GROUP_COUNT_COLUMN,
     HEADERS,
     INPUT_DATABASE_ID,
-    SELECTED_HEADERS,
     SCIENTIFIC_RECOVERY_NOTICE,
+    SELECTED_HEADERS,
     SET_TEXT_INPUT_LOCKED,
 )
-from ui.session_state import (
-    load_database_from_selection,
-    refresh_database_state,
-    set_database_from_input,
-)
-from ui.modelability_result import render_modelability_result_card
 
 ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Type",

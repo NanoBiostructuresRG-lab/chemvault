@@ -4,15 +4,14 @@ import errno
 import os
 from threading import Lock, Thread
 
+from application.database_use_cases import resolve_database_path
 from application.harmonsmile_jobs import recover_orphaned_harmonsmile_jobs
 from application.modelability_jobs import fail_orphaned_modelability_jobs
-from application.database_use_cases import resolve_database_path
 from application.scientific_jobs import (
     claim_scientific_job_executor,
     execute_scientific_job,
 )
 from services.job_models import JobType
-
 
 _runtime_lock = Lock()
 _activation_lock = Lock()

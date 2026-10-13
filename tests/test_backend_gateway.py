@@ -6,15 +6,15 @@ import pandas as pd
 import pytest
 
 from application.database_use_cases import DatabaseMetrics, TableProvenance
+from application.job_contracts import JobStatusContract, RecoveredJobContract
 from application.structure_consolidation import (
     StructureConsolidationSummary,
     StructureConsolidationTableResult,
 )
 from clients import backend_gateway
 from clients.api_client import ChemVaultApiError
-from application.job_contracts import JobStatusContract, RecoveredJobContract
-from services.job_models import JobStatus
 from services.database import DatabaseState
+from services.job_models import JobStatus
 from services.structure_consolidation import StructureConsolidationError
 
 

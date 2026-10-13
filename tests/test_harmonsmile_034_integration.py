@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier, Lock
 
-from harmonsmile import load_table
 import pandas as pd
+from harmonsmile import load_table
 
 from services import harmonsmile_ingest
 from services.harmonsmile_cache import (

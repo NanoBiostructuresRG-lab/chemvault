@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 
-from contextlib import nullcontext
 import inspect
 import json
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
 from molraptor import FINGERPRINT_TYPES
 
-from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from application.job_contracts import JobStatusContract
+from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from services.job_models import JobStatus
 from ui import main_page, modelability_card, modelability_result
 from ui.modelability_state import (
@@ -19,7 +19,6 @@ from ui.modelability_state import (
     modelability_scope_matches,
     poll_modelability_job,
 )
-
 
 DATABASE_ID = "test_db"
 SOURCE_TABLE = "activity_subset_IC50"

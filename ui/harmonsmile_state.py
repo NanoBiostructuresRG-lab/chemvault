@@ -9,7 +9,6 @@ from ui.state_keys import (
     HARMONSMILE_RUNNING,
 )
 
-
 TERMINAL_JOB_STATUSES = {
     JobStatus.COMPLETED,
     JobStatus.FAILED,

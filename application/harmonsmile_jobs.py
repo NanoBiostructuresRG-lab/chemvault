@@ -1,13 +1,11 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Application orchestration for the minimal HARMONSMILE job runtime."""
-from collections.abc import Callable
 import sqlite3
+from collections.abc import Callable
 
 from application.curation_use_cases import run_harmonsmile
 from application.database_use_cases import (
-    DatabaseNotFoundError,
     InvalidColumnError,
-    TableNotFoundError,
     get_table_state,
     list_database_tables,
     resolve_database_path,

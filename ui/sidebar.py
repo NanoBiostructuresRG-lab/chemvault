@@ -13,28 +13,6 @@ from services.builders import build_from_csv
 from services.database import count_rows, get_connection
 from services.db_audit import register_operation, register_table_metadata
 from services.sql_utils import table_exists
-from ui.state_keys import (
-    CODIGO_BUSCAR,
-    CURRENT_TABLE,
-    CUSTOM_QUERY,
-    DATABASE_ID,
-    DEPURADO_SUCCESS_MESSAGE,
-    DEPURADO_SUCCESS_TABLE,
-    GROUP_BY_COLUMN,
-    HEADERS,
-    HARMONSMILE_RUNNING,
-    NEW_TABLE_NAME,
-    ORDER_BY_COLUMN,
-    ORDER_DIRECTION,
-    PUBCHEM_JOB_ID,
-    SELECTED_HEADERS,
-    SET_TEXT_INPUT_LOCKED,
-    TYPE_OF_FILTER,
-    WHERE_COLUMN,
-    WHERE_CONDITION,
-    SELECTED_SMILES_FOR_EXPORT,
-    SELECTING_HARMONSMILE,
-)
 from ui.harmonsmile_state import (
     TERMINAL_JOB_STATUSES,
     clear_harmonsmile_runtime,
@@ -44,7 +22,28 @@ from ui.harmonsmile_state import (
 )
 from ui.modelability_card import render_modelability_card
 from ui.session_state import refresh_database_state
-
+from ui.state_keys import (
+    CODIGO_BUSCAR,
+    CURRENT_TABLE,
+    CUSTOM_QUERY,
+    DATABASE_ID,
+    DEPURADO_SUCCESS_MESSAGE,
+    DEPURADO_SUCCESS_TABLE,
+    GROUP_BY_COLUMN,
+    HARMONSMILE_RUNNING,
+    HEADERS,
+    NEW_TABLE_NAME,
+    ORDER_BY_COLUMN,
+    ORDER_DIRECTION,
+    PUBCHEM_JOB_ID,
+    SELECTED_HEADERS,
+    SELECTED_SMILES_FOR_EXPORT,
+    SELECTING_HARMONSMILE,
+    SET_TEXT_INPUT_LOCKED,
+    TYPE_OF_FILTER,
+    WHERE_COLUMN,
+    WHERE_CONDITION,
+)
 
 STRUCTURE_CONSOLIDATION_REQUIRED_COLUMNS = frozenset(
     {

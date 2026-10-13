@@ -5,7 +5,6 @@ import pytest
 
 from ui import main_page
 
-
 INTRODUCTION = (
     "Review recorded database events such as builds, derived tables, "
     "and table cleanup."

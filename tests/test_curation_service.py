@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-import pytest
-import pandas as pd
 import sqlite3
+
+import pandas as pd
+import pytest
 
 from services import curation
 from services.curation import (

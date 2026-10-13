@@ -4,51 +4,27 @@ import os
 from dataclasses import dataclass
 from typing import Protocol
 
-from molraptor import FingerprintType
 import pandas as pd
+from molraptor import FingerprintType
 
+import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
+import application.modelability_jobs  # noqa: F401 - registers Modelability hooks
 from application.database_use_cases import (
     DatabaseMetrics,
-    get_operation_history as get_local_operation_history,
-    get_table_provenance as get_local_table_provenance,
-    get_table_metrics as get_local_table_metrics,
-    get_table_schema as get_local_table_schema,
     get_table_state,
     refresh_database,
 )
-from application.table_use_cases import (
-    export_table_csv,
-    preview_selected_columns,
+from application.database_use_cases import (
+    get_operation_history as get_local_operation_history,
 )
-from application.modelability_index import (
-    export_table_modelability_fingerprints_npz,
+from application.database_use_cases import (
+    get_table_metrics as get_local_table_metrics,
 )
-from application.structure_consolidation import (
-    StructureConsolidationSummary,
-    StructureConsolidationTableResult,
-    consolidate_structure_table as consolidate_local_structure_table,
-    structure_consolidation_summary_from_metadata,
+from application.database_use_cases import (
+    get_table_provenance as get_local_table_provenance,
 )
-import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
-import application.modelability_jobs  # noqa: F401 - registers Modelability hooks
-from application.pubchem_jobs import (
-    cancel_pubchem_protein_search,
-    finalize_pubchem_protein_search,
-    get_pubchem_protein_search_status,
-    launch_pubchem_protein_search,
-)
-from application.target_identity import (
-    TargetIdentity,
-    target_identity_from_notes,
-    target_identity_from_payload,
-)
-from application.protein_identifiers import (
-    ProteinIdentifierResolution,
-    SupportedOrganism,
-    list_supported_organisms as list_local_supported_organisms,
-    protein_identifier_resolution_from_payload,
-    resolve_gene_symbol as resolve_local_gene_symbol,
-    supported_organisms_from_payload,
+from application.database_use_cases import (
+    get_table_schema as get_local_table_schema,
 )
 from application.job_contracts import (
     JobStatusContract,
@@ -56,19 +32,56 @@ from application.job_contracts import (
     job_status_from_payload,
     recovered_job_from_payload,
 )
-from application.scientific_runtime import (
-    activate_scientific_runtime,
-    start_scientific_job_executor,
+from application.modelability_index import (
+    export_table_modelability_fingerprints_npz,
+)
+from application.protein_identifiers import (
+    ProteinIdentifierResolution,
+    SupportedOrganism,
+    protein_identifier_resolution_from_payload,
+    supported_organisms_from_payload,
+)
+from application.protein_identifiers import (
+    list_supported_organisms as list_local_supported_organisms,
+)
+from application.protein_identifiers import (
+    resolve_gene_symbol as resolve_local_gene_symbol,
+)
+from application.pubchem_jobs import (
+    cancel_pubchem_protein_search,
+    finalize_pubchem_protein_search,
+    get_pubchem_protein_search_status,
+    launch_pubchem_protein_search,
 )
 from application.scientific_jobs import (
     create_scientific_job,
     find_active_scientific_job,
     get_scientific_job_status,
 )
+from application.scientific_runtime import (
+    activate_scientific_runtime,
+    start_scientific_job_executor,
+)
+from application.structure_consolidation import (
+    StructureConsolidationSummary,
+    StructureConsolidationTableResult,
+    structure_consolidation_summary_from_metadata,
+)
+from application.structure_consolidation import (
+    consolidate_structure_table as consolidate_local_structure_table,
+)
+from application.table_use_cases import (
+    export_table_csv,
+    preview_selected_columns,
+)
+from application.target_identity import (
+    TargetIdentity,
+    target_identity_from_notes,
+    target_identity_from_payload,
+)
 from clients.api_client import ChemVaultApiClient, ChemVaultApiError
 from services.job_models import JobType
 from services.structure_consolidation import StructureConsolidationError
-
 
 DEFAULT_PREVIEW_LIMIT = 10
 

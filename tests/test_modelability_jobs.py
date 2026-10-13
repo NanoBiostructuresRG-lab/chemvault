@@ -7,7 +7,6 @@ import sqlite3
 import pytest
 
 from application import modelability_jobs
-from application.job_contracts import job_status_from_record
 from application.modelability_index import (
     POPULATION_POLICY,
     ModelabilityIndexUseCaseResult,
@@ -15,8 +14,8 @@ from application.modelability_index import (
     PreparedModelabilityInput,
 )
 from application.modelability_jobs import (
-    InvalidModelabilitySourceError,
     MODELABILITY_INTERRUPTED_MESSAGE,
+    InvalidModelabilitySourceError,
     create_modelability_job,
     execute_modelability_job,
     fail_orphaned_modelability_jobs,
@@ -30,13 +29,12 @@ from services.database_core import get_connection
 from services.db_audit import register_table_metadata
 from services.job_models import JobStatus, JobType
 from services.job_store import JobStore
-from services.modelability_index import NearestNeighborDiagnostics
 from services.modelability_fingerprint_artifacts import FINGERPRINT_ARTIFACTS_TABLE
+from services.modelability_index import NearestNeighborDiagnostics
 from services.murcko_metrics import MurckoStructuralMetrics
 from services.murcko_nn_interface import MurckoNNInterfaceResult
 from services.murcko_population import MurckoPopulationResult
 from services.sql_utils import get_tables_from_connection
-
 
 MODELABILITY_TABLE = "activity_subset_IC50_structure_consolidated"
 

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from services.sql_utils import (
@@ -147,7 +147,7 @@ def register_operation(
         raise ValueError("status is required.")
 
     ensure_operation_log(connection, commit=False)
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at = datetime.now(UTC).isoformat()
     cursor = connection.cursor()
     cursor.execute(
         f"""
@@ -247,7 +247,7 @@ def register_table_metadata(
 ) -> None:
     """Register a ChemVault table role and provenance."""
     ensure_table_metadata(connection, commit=False)
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at = datetime.now(UTC).isoformat()
     cursor = connection.cursor()
     cursor.execute(
         f"""

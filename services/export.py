@@ -6,7 +6,6 @@ from services.database_core import get_connection
 from services.selection import get_active_selected_headers
 from services.sql_utils import quote_identifier
 
-
 EXPORT_FETCH_SIZE = 5000
 
 

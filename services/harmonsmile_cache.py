@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
@@ -327,7 +327,7 @@ def upsert_harmonsmile_cache(connection, result_df, status="success", error_mess
     if normalized_df.empty:
         return 0
 
-    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fetched_at = datetime.now(UTC).isoformat(timespec="seconds")
     rows = []
     insert_columns = [
         "PubChem_CID",
@@ -379,7 +379,7 @@ def mark_harmonsmile_cache_failed(connection, cids, error_message):
         return 0
 
     ensure_harmonsmile_cache(connection)
-    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fetched_at = datetime.now(UTC).isoformat(timespec="seconds")
     rows = [
         (cid, "failed", fetched_at, str(error_message))
         for cid in normalized_cids

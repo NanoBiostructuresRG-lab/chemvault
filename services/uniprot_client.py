@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 import requests
 
-
 UNIPROT_SEARCH_URL = "https://rest.uniprot.org/uniprotkb/search"
 REVIEWED_ENTRY_TYPE = "UniProtKB reviewed (Swiss-Prot)"
 DEFAULT_TIMEOUT_SECONDS = 20.0

@@ -28,7 +28,6 @@ from services.sql_utils import (
 )
 from services.structure_consolidation import consolidate_harmonized_structures
 
-
 CONSOLIDATION_SQLITE_TYPES = {
     "SMILES_Harmonized": "TEXT",
     "InChIKey": "TEXT",
