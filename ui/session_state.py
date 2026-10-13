@@ -167,7 +167,7 @@ def refresh_database_state(session_state):
             recovered_jobs = get_backend_gateway().activate_scientific_runtime(
                 database_id
             )
-        except BackendGatewayError as error:
+        except BackendGatewayError as activation_error:
             return DatabaseState(
                 database_id=database_id,
                 current_table=session_state.get(CURRENT_TABLE, ""),
@@ -178,7 +178,7 @@ def refresh_database_state(session_state):
                 ),
                 message=(
                     "Unable to activate scientific recovery for the selected "
-                    f"database: {error}"
+                    f"database: {activation_error}"
                 ),
                 success=False,
             )
