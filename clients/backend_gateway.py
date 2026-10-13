@@ -2,7 +2,7 @@
 """Single backend boundary for Streamlit reads and supported commands."""
 import os
 from dataclasses import dataclass
-from typing import Protocol
+from typing import NoReturn, Protocol
 
 import pandas as pd
 from molraptor import FingerprintType
@@ -476,7 +476,7 @@ class _HttpBackend:
         self._client = ChemVaultApiClient(base_url=base_url)
 
     @staticmethod
-    def _raise_gateway_error(error: ChemVaultApiError):
+    def _raise_gateway_error(error: ChemVaultApiError) -> NoReturn:
         raise BackendGatewayError(str(error)) from error
 
     def activate_scientific_runtime(
