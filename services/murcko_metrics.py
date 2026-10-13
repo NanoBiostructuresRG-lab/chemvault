@@ -89,7 +89,11 @@ def calculate_murcko_structural_metrics(
         global_balance = None
         within_balance = None
 
-    if global_balance is not None and global_balance > 0.0:
+    if (
+        global_balance is not None
+        and within_balance is not None
+        and global_balance > 0.0
+    ):
         within_ratio = within_balance / global_balance
         eta_squared = 1.0 - within_ratio
     else:

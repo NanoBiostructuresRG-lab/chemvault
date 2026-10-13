@@ -260,7 +260,7 @@ def recover_orphaned_harmonsmile_jobs(
     current_pid: int,
 ):
     """Requeue orphaned HARMONSMILE jobs in one explicit database."""
-    recovered = []
+    recovered: list[RecoveredJobContract] = []
     db_path = resolve_database_path(database_id, db_dir=db_dir)
     connection = sqlite3.connect(db_path, check_same_thread=False)
     try:
