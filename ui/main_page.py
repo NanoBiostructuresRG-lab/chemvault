@@ -25,6 +25,7 @@ from services.activity_data import (
 from services.activity_enrichment import (
     run_activity_enrichment_from_compound_assays,
 )
+from services.pubchem_aid_completeness import AID_COMPLETENESS_CONTRACT
 from services.db_audit import (
     delete_user_table,
     get_user_table_profiles,
@@ -742,11 +743,125 @@ def _build_operation_history_dataframe(operations):
                 "Target": operation.get("target_table") or "-",
                 "Source": operation.get("source_table") or "-",
                 "Columns": _format_operation_columns(operation.get("source_columns")),
-                "Status": _format_audit_label(operation.get("status")),
+                "Operation status": _format_audit_label(operation.get("status")),
                 "Details": operation.get("details") or "-",
             }
         )
     return pd.DataFrame(rows)
+
+
+def _extract_aid_source_correspondence(operation):
+    if operation.get("operation_type") != "protein_search_loaded":
+        return None
+
+    details = operation.get("details")
+    if not isinstance(details, str):
+        return None
+
+    try:
+        payload = json.loads(details)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    certificate = payload.get("aid_completeness")
+    if (
+        not isinstance(certificate, dict)
+        or certificate.get("contract") != AID_COMPLETENESS_CONTRACT
+    ):
+        return None
+
+    proteins = payload.get("proteins")
+    if not isinstance(proteins, list):
+        proteins = []
+
+    return {
+        "proteins": tuple(
+            protein.strip()
+            for protein in proteins
+            if isinstance(protein, str) and protein.strip()
+        ),
+        "created_at": operation.get("created_at"),
+        "certified_complete": certificate.get("certified_complete"),
+        "source_enumeration_succeeded": certificate.get(
+            "source_enumeration_succeeded"
+        ),
+        "reason": certificate.get("reason"),
+        "counts": (
+            certificate.get("counts")
+            if isinstance(certificate.get("counts"), dict)
+            else {}
+        ),
+    }
+
+
+def _format_aid_source_correspondence(correspondence, include_date=False):
+    identifier_parts = []
+    if correspondence["proteins"]:
+        identifier_parts.append(", ".join(correspondence["proteins"]))
+    if include_date and correspondence["created_at"] not in (None, ""):
+        identifier_parts.append(_format_created_at(correspondence["created_at"]))
+
+    prefix = "AID source correspondence"
+    if identifier_parts:
+        prefix += " · " + " · ".join(identifier_parts)
+
+    certified_complete = correspondence["certified_complete"]
+    if certified_complete is True:
+        return f"{prefix}: Certified."
+    if certified_complete is not False:
+        return f"{prefix}: Not available."
+
+    diagnostics = []
+    if correspondence["source_enumeration_succeeded"] is False:
+        reason = correspondence["reason"]
+        source_diagnostics = {
+            "source_enumeration_failed": "source enumeration failed",
+            "source_enumeration_unavailable": (
+                "source enumeration metadata unavailable"
+            ),
+            "invalid_source_enumeration": (
+                "source enumeration metadata invalid"
+            ),
+            "invalid_requested_proteins": (
+                "source enumeration metadata invalid"
+            ),
+            "source_enumeration_scope_mismatch": (
+                "source enumeration metadata mismatched the recorded proteins"
+            ),
+        }
+        diagnostics.append(
+            source_diagnostics.get(
+                reason,
+                "source enumeration was not successfully established",
+            )
+        )
+
+    counts = correspondence["counts"]
+    count_diagnostics = (
+        ("unresolved", "unresolved AID identity", "unresolved AID identities"),
+        (
+            "unexpected_persisted",
+            "unexpected persisted AID identity",
+            "unexpected persisted AID identities",
+        ),
+        (
+            "missing_materialization",
+            "AID identity missing persisted materialization",
+            "AID identities missing persisted materialization",
+        ),
+    )
+    for key, singular, plural in count_diagnostics:
+        count = counts.get(key)
+        if type(count) is int and count > 0:
+            diagnostics.append(f"{count} {singular if count == 1 else plural}")
+
+    suffix = "Not certified"
+    if diagnostics:
+        suffix += " — " + "; ".join(diagnostics)
+    return f"{prefix}: {suffix}."
 
 
 def render_database_model_help():
@@ -809,6 +924,22 @@ def render_operation_history(database_id):
     if len(operations) == 0:
         st.info("No operations have been recorded for this database yet.")
         return
+
+    correspondences = [
+        correspondence
+        for operation in operations
+        if (
+            correspondence := _extract_aid_source_correspondence(operation)
+        ) is not None
+    ]
+    include_dates = len(correspondences) > 1
+    for correspondence in correspondences:
+        st.caption(
+            _format_aid_source_correspondence(
+                correspondence,
+                include_date=include_dates,
+            )
+        )
 
     st.dataframe(
         _build_operation_history_dataframe(operations),
