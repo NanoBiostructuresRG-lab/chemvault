@@ -281,11 +281,13 @@ def refresh_harmonsmile_status_once(database_id, table_name, gateway=None):
     if status is not None and status.status not in TERMINAL_JOB_STATUSES:
         st.progress(min(max(status.progress, 0.0), 1.0))
         st.caption(
-            status.message or "SMILES calculations are running in the backend."
+            status.message
+            or "Molecular structure processing is running in the backend."
         )
     elif st.session_state.get(HARMONSMILE_RUNNING, False):
         st.caption(
-            "Status for SMILES calculations is temporarily unavailable; retrying."
+            "Status for molecular structure processing is temporarily unavailable; "
+            "retrying."
         )
     return status
 
@@ -517,7 +519,9 @@ def render_curate_card():
                 target_table = st.session_state[CURRENT_TABLE]
                 cid_column = selected_headers[0]
                 gateway = harmonsmile_gateway or get_backend_gateway()
-                with st.spinner("Starting SMILES calculations through the backend..."):
+                with st.spinner(
+                    "Starting molecular structure processing through the backend..."
+                ):
                     execute_harmonsmile_command(
                         st.session_state,
                         gateway,

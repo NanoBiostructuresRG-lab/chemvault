@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import inspect
+
 from application.job_contracts import JobStatusContract
 from clients.backend_gateway import BackendGatewayError
 from services.job_models import JobStatus
@@ -9,7 +11,7 @@ from ui.harmonsmile_state import (
 )
 
 
-def _job(status=JobStatus.COMPLETED, error=None, progress=1.0):
+def _job(status=JobStatus.COMPLETED, error=None, progress=1.0, message=None):
     return JobStatusContract(
         job_id="job-1",
         job_type="harmonsmile",
@@ -17,7 +19,7 @@ def _job(status=JobStatus.COMPLETED, error=None, progress=1.0):
         database_id="test_db",
         stage=status.value,
         progress=progress,
-        message=None,
+        message=message,
         created_at="2026-07-03T10:00:00+00:00",
         started_at="2026-07-03T10:00:00+00:00",
         finished_at="2026-07-03T10:01:00+00:00",
@@ -54,8 +56,10 @@ def test_harmonsmile_success_clears_running_state_and_refreshes():
     assert state["harmonsmile_running"] is False
     assert state["harmonsmile_job_id"] == ""
     assert state["harmonsmile_feedback_kind"] == "success"
-    assert "Updated table 'main'" in state["harmonsmile_feedback_message"]
-    assert "processed 3 CIDs" in state["harmonsmile_feedback_message"]
+    assert state["harmonsmile_feedback_message"] == (
+        "Molecular structure processing job completed. Updated table 'main'; "
+        "processed 3 CIDs and merged 2 rows."
+    )
     assert refresh_calls == [state]
 
 
@@ -69,7 +73,11 @@ def test_harmonsmile_backend_failure_clears_running_and_surfaces_error():
             return None
 
         def launch_harmonsmile_job(self, *args):
-            return _job(JobStatus.FAILED, "PubChem unavailable")
+            return _job(
+                JobStatus.FAILED,
+                "PubChem unavailable",
+                message="Backend status message",
+            )
 
     execute_harmonsmile_command(
         state, Gateway(), "test_db", "main", "CID", lambda *_: None
@@ -79,6 +87,94 @@ def test_harmonsmile_backend_failure_clears_running_and_surfaces_error():
     assert state["harmonsmile_job_id"] == ""
     assert state["harmonsmile_feedback_kind"] == "error"
     assert state["harmonsmile_feedback_message"] == "PubChem unavailable"
+
+
+def test_cancelled_job_uses_molecular_structure_processing_fallback():
+    state = {"harmonsmile_running": True, "harmonsmile_job_id": "job-1"}
+
+    class Gateway:
+        def get_job_status(self, *args):
+            return _job(JobStatus.CANCELLED)
+
+    sync_harmonsmile_runtime(
+        state,
+        Gateway(),
+        "test_db",
+        "main",
+        lambda *_: None,
+    )
+
+    assert state["harmonsmile_feedback_kind"] == "warning"
+    assert state["harmonsmile_feedback_message"] == (
+        "Molecular structure processing job was cancelled."
+    )
+
+
+def test_cancelled_job_preserves_backend_status_message():
+    state = {"harmonsmile_running": True, "harmonsmile_job_id": "job-1"}
+
+    class Gateway:
+        def get_job_status(self, *args):
+            return _job(
+                JobStatus.CANCELLED,
+                message="Cancelled by the backend operator.",
+            )
+
+    sync_harmonsmile_runtime(
+        state,
+        Gateway(),
+        "test_db",
+        "main",
+        lambda *_: None,
+    )
+
+    assert state["harmonsmile_feedback_message"] == (
+        "Cancelled by the backend operator."
+    )
+
+
+def test_failed_job_uses_molecular_structure_processing_fallback():
+    state = {"harmonsmile_running": True, "harmonsmile_job_id": "job-1"}
+
+    class Gateway:
+        def get_job_status(self, *args):
+            return _job(JobStatus.FAILED)
+
+    sync_harmonsmile_runtime(
+        state,
+        Gateway(),
+        "test_db",
+        "main",
+        lambda *_: None,
+    )
+
+    assert state["harmonsmile_feedback_kind"] == "error"
+    assert state["harmonsmile_feedback_message"] == (
+        "Molecular structure processing job failed."
+    )
+
+
+def test_failed_job_preserves_backend_status_message_when_error_is_absent():
+    state = {"harmonsmile_running": True, "harmonsmile_job_id": "job-1"}
+
+    class Gateway:
+        def get_job_status(self, *args):
+            return _job(
+                JobStatus.FAILED,
+                message="Backend-reported processing failure.",
+            )
+
+    sync_harmonsmile_runtime(
+        state,
+        Gateway(),
+        "test_db",
+        "main",
+        lambda *_: None,
+    )
+
+    assert state["harmonsmile_feedback_message"] == (
+        "Backend-reported processing failure."
+    )
 
 
 def test_api_connection_failure_has_no_fallback_and_clears_running_state():
@@ -105,6 +201,84 @@ def test_api_connection_failure_has_no_fallback_and_clears_running_state():
     assert state["harmonsmile_feedback_kind"] == "error"
     assert state["harmonsmile_feedback_message"] == (
         "CHEMVAULT backend API is not available: connection refused"
+    )
+
+
+def test_local_launch_failure_uses_molecular_structure_processing_wording():
+    state = {}
+
+    class Gateway:
+        mode = "local"
+
+        def find_active_harmonsmile_job(self, *args):
+            return None
+
+        def launch_harmonsmile_job(self, *args):
+            raise RuntimeError("local worker unavailable")
+
+    execute_harmonsmile_command(
+        state,
+        Gateway(),
+        "test_db",
+        "main",
+        "CID",
+        lambda *_: None,
+    )
+
+    assert state["harmonsmile_feedback_kind"] == "error"
+    assert state["harmonsmile_feedback_message"] == (
+        "Molecular structure processing job could not be completed: "
+        "local worker unavailable"
+    )
+
+
+def test_sync_monitoring_failure_uses_molecular_structure_processing_wording():
+    state = {"harmonsmile_running": True, "harmonsmile_job_id": "job-1"}
+
+    class Gateway:
+        def get_job_status(self, *args):
+            raise RuntimeError("status timeout")
+
+    status = sync_harmonsmile_runtime(
+        state,
+        Gateway(),
+        "test_db",
+        "main",
+        lambda *_: None,
+    )
+
+    assert status is None
+    assert state["harmonsmile_running"] is True
+    assert state["harmonsmile_job_id"] == "job-1"
+    assert state["harmonsmile_feedback_kind"] == "warning"
+    assert state["harmonsmile_feedback_message"] == (
+        "Monitoring molecular structure processing is temporarily unavailable: "
+        "status timeout"
+    )
+
+
+def test_command_monitoring_failure_preserves_possible_backend_execution():
+    state = {"harmonsmile_running": True, "harmonsmile_job_id": "job-1"}
+
+    class Gateway:
+        def get_job_status(self, *args):
+            raise RuntimeError("status timeout")
+
+    status = execute_harmonsmile_command(
+        state,
+        Gateway(),
+        "test_db",
+        "main",
+        "CID",
+        lambda *_: None,
+    )
+
+    assert status is None
+    assert state["harmonsmile_running"] is True
+    assert state["harmonsmile_feedback_kind"] == "warning"
+    assert state["harmonsmile_feedback_message"] == (
+        "Monitoring molecular structure processing is temporarily unavailable; "
+        "the backend job may still be running: status timeout"
     )
 
 
@@ -206,7 +380,69 @@ def test_periodic_refresh_reads_status_once_and_never_resubmits(monkeypatch):
     assert result.status == JobStatus.RUNNING
     assert calls == [("status", ("test_db", "job-1"))]
     assert progress == [0.4]
-    assert captions == ["SMILES calculations are running in the backend."]
+    assert captions == [
+        "Molecular structure processing is running in the backend."
+    ]
+
+
+def test_running_status_preserves_backend_message(monkeypatch):
+    state = {
+        "harmonsmile_running": True,
+        "harmonsmile_job_id": "job-1",
+    }
+    captions = []
+    monkeypatch.setattr(sidebar.st, "session_state", state)
+    monkeypatch.setattr(sidebar.st, "progress", lambda *_: None)
+    monkeypatch.setattr(sidebar.st, "caption", captions.append)
+
+    class Gateway:
+        def get_job_status(self, *args):
+            return _job(
+                JobStatus.RUNNING,
+                progress=0.4,
+                message="Backend processing phase 2.",
+            )
+
+    sidebar.refresh_harmonsmile_status_once(
+        "test_db",
+        "main",
+        gateway=Gateway(),
+    )
+
+    assert captions == ["Backend processing phase 2."]
+
+
+def test_periodic_unavailable_status_uses_molecular_structure_wording(monkeypatch):
+    state = {
+        "harmonsmile_running": True,
+        "harmonsmile_job_id": "job-1",
+    }
+    captions = []
+    monkeypatch.setattr(sidebar.st, "session_state", state)
+    monkeypatch.setattr(sidebar.st, "caption", captions.append)
+
+    class Gateway:
+        def get_job_status(self, *args):
+            raise RuntimeError("status timeout")
+
+    status = sidebar.refresh_harmonsmile_status_once(
+        "test_db",
+        "main",
+        gateway=Gateway(),
+    )
+
+    assert status is None
+    assert captions == [
+        "Status for molecular structure processing is temporarily unavailable; "
+        "retrying."
+    ]
+
+
+def test_curate_launch_spinner_uses_molecular_structure_processing_wording():
+    source = inspect.getsource(sidebar.render_curate_card)
+
+    assert "Starting molecular structure processing through the backend..." in source
+    assert "Starting SMILES calculations through the backend..." not in source
 
 
 def test_periodic_terminal_status_stops_monitoring(monkeypatch):
