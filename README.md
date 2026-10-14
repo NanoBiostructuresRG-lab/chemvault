@@ -1,6 +1,6 @@
 # CHEMVAULT
 
-**Target-centered bioactivity dataset curation from PubChem**
+**Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment**
 
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](LICENSE)
 
@@ -171,6 +171,20 @@ Open `http://localhost:8501` in your browser.
 
 > Do not install HARMONSMILE or MOLRAPTOR separately for normal
 > CHEMVAULT use. The compatible versions are defined in `pyproject.toml`.
+
+### Documentation
+
+The documentation source provides the [Usage guide](docs/usage.md),
+[API reference](docs/api.md), and [Changelog](CHANGELOG.md). To build or
+serve it locally from the current source branch:
+
+```bash
+python -m pip install -e ".[docs]"
+python -m mkdocs serve
+```
+
+This development documentation does not imply that CHEMVAULT 0.14.7 has been
+published to PyPI.
 
 ### Updating a development checkout
 

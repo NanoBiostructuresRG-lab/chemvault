@@ -1,0 +1,352 @@
+/* SPDX-License-Identifier: LGPL-3.0-or-later */
+/* CHEMVAULT documentation identity */
+
+:root {
+  --md-primary-fg-color: #334155;
+  --md-primary-fg-color--light: #64748b;
+  --md-primary-fg-color--dark: #1f2937;
+  --md-accent-fg-color: #b45309;
+  --cv-doc-surface: #ffffff;
+  --cv-doc-surface-soft: #f8fafc;
+  --cv-doc-border: #d6dbe1;
+  --cv-doc-heading: #1f2937;
+  --cv-doc-muted: #5f6b7a;
+  --cv-doc-accent: #b45309;
+  --cv-doc-accent-soft: #fff7ed;
+  --cv-doc-release-link-hover: #7c2d12;
+  --cv-doc-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.1);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #1f2937;
+  --md-primary-fg-color--light: #475569;
+  --md-primary-fg-color--dark: #111827;
+  --md-accent-fg-color: #f59e0b;
+  --cv-doc-surface: #18212f;
+  --cv-doc-surface-soft: #111827;
+  --cv-doc-border: #374151;
+  --cv-doc-heading: #f3f4f6;
+  --cv-doc-muted: #cbd5e1;
+  --cv-doc-accent: #f59e0b;
+  --cv-doc-accent-soft: #292016;
+  --cv-doc-release-link-hover: #fcd34d;
+  --cv-doc-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.3);
+}
+
+[data-md-color-scheme="slate"] .md-sidebar--primary .md-nav__link--active {
+  color: var(--cv-doc-accent);
+}
+
+.md-header,
+.md-tabs {
+  box-shadow: none;
+}
+
+.md-main__inner {
+  margin-top: 1.4rem;
+}
+
+.md-content__inner {
+  padding-bottom: 3rem;
+}
+
+.md-content,
+.md-content__inner,
+.md-typeset,
+.md-typeset > * {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.md-typeset img,
+.md-typeset svg,
+.md-typeset video,
+.md-typeset iframe {
+  max-width: 100%;
+}
+
+.md-typeset pre,
+.md-typeset .highlight {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+  color: var(--cv-doc-heading);
+  font-weight: 750;
+}
+
+.md-typeset h2 {
+  margin-top: 2.4rem;
+}
+
+.md-typeset a {
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.md-typeset h2 > a:is(
+  [href^="https://github.com/NanoBiostructuresRG-lab/chemvault/compare/"],
+  [href^="https://github.com/NanoBiostructuresRG-lab/chemvault/releases/tag/"]
+) {
+  color: var(--cv-doc-accent);
+  text-decoration-line: underline;
+}
+
+.md-typeset h2 > a:is(
+  [href^="https://github.com/NanoBiostructuresRG-lab/chemvault/compare/"],
+  [href^="https://github.com/NanoBiostructuresRG-lab/chemvault/releases/tag/"]
+):hover {
+  color: var(--cv-doc-release-link-hover);
+}
+
+.md-typeset h2 > a:is(
+  [href^="https://github.com/NanoBiostructuresRG-lab/chemvault/compare/"],
+  [href^="https://github.com/NanoBiostructuresRG-lab/chemvault/releases/tag/"]
+):focus-visible {
+  border-radius: 0.1rem;
+  color: var(--cv-doc-release-link-hover);
+  outline: 0.12rem solid var(--cv-doc-accent);
+  outline-offset: 0.15rem;
+}
+
+.md-typeset .md-button {
+  border-radius: 0.45rem;
+  font-weight: 700;
+}
+
+.md-typeset .md-button--primary {
+  background-color: var(--cv-doc-accent);
+  border-color: var(--cv-doc-accent);
+  color: #ffffff;
+}
+
+.md-typeset .md-button--primary:hover {
+  background-color: var(--md-primary-fg-color);
+  border-color: var(--md-primary-fg-color);
+}
+
+.md-typeset code {
+  border-radius: 0.25rem;
+}
+
+.md-typeset table:not([class]) {
+  border-radius: 0.55rem;
+  box-shadow: 0 0 0 1px var(--cv-doc-border);
+  overflow: hidden;
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--cv-doc-surface-soft);
+  color: var(--cv-doc-heading);
+}
+
+.cv-hero {
+  align-items: center;
+  background:
+    radial-gradient(circle at 50% 15%, rgba(180, 83, 9, 0.13), transparent 22rem),
+    linear-gradient(135deg, var(--cv-doc-surface-soft) 0%, var(--cv-doc-surface) 65%);
+  border: 1px solid var(--cv-doc-border);
+  border-radius: 0.8rem;
+  box-shadow: 0 0.65rem 1.75rem rgba(15, 23, 42, 0.09);
+  display: flex;
+  justify-content: center;
+  margin: 0 0 1.6rem;
+  overflow: hidden;
+  padding: clamp(1.1rem, 3vw, 1.8rem);
+  position: relative;
+  text-align: center;
+  width: 100%;
+}
+
+.md-typeset > h1:first-child:has(+ .cv-hero) {
+  display: none;
+}
+
+.cv-hero::before {
+  background: linear-gradient(180deg, var(--cv-doc-accent), #334155);
+  content: "";
+  inset: 0 auto 0 0;
+  position: absolute;
+  width: 0.35rem;
+}
+
+.cv-hero__content {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  max-width: 42rem;
+  width: 100%;
+}
+
+.cv-eyebrow {
+  color: var(--cv-doc-accent);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.cv-brand {
+  align-items: center;
+  display: flex;
+  gap: clamp(0.7rem, 2vw, 1.1rem);
+  justify-content: center;
+  margin: 0.75rem auto 0.65rem;
+}
+
+.cv-brand__logo {
+  border-radius: 0.65rem;
+  display: block;
+  height: auto;
+  margin: 0;
+  max-height: 4.4rem;
+  max-width: 5rem;
+  object-fit: contain;
+  width: auto;
+}
+
+.cv-brand__wordmark {
+  color: var(--cv-doc-heading);
+  font-size: clamp(1.9rem, 5vw, 3rem);
+  font-weight: 750;
+  letter-spacing: 0.035em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.cv-subtitle {
+  color: var(--cv-doc-muted);
+  font-size: clamp(0.8rem, 1.35vw, 0.92rem);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 35rem;
+}
+
+.cv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: center;
+  margin-top: 1.1rem;
+}
+
+.cv-actions .md-button {
+  font-size: 0.7rem;
+  line-height: 1.2;
+  margin: 0;
+  padding: 0.55em 0.9em;
+}
+
+[data-md-color-scheme="slate"]
+  .cv-actions
+  .md-button:not(.md-button--primary) {
+  border-color: #cbd5e1;
+  color: #f3f4f6;
+}
+
+[data-md-color-scheme="slate"]
+  .cv-actions
+  .md-button:not(.md-button--primary):hover,
+[data-md-color-scheme="slate"]
+  .cv-actions
+  .md-button:not(.md-button--primary):focus-visible {
+  background-color: var(--cv-doc-accent-soft);
+  border-color: var(--cv-doc-accent);
+  color: #ffffff;
+}
+
+[data-md-color-scheme="slate"]
+  .cv-actions
+  .md-button:not(.md-button--primary):focus-visible {
+  outline: 0.12rem solid var(--cv-doc-accent);
+  outline-offset: 0.15rem;
+}
+
+.cv-panel {
+  margin: 1.5rem 0 2.2rem;
+}
+
+.cv-grid {
+  display: grid;
+  gap: 1rem;
+  max-width: 100%;
+}
+
+.cv-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.cv-card {
+  background: var(--cv-doc-surface);
+  border: 1px solid var(--cv-doc-border);
+  border-radius: 0.65rem;
+  box-shadow: 0 0.45rem 1.25rem rgba(15, 23, 42, 0.07);
+  min-width: 0;
+  padding: 1.15rem;
+}
+
+.cv-card h3 {
+  color: var(--cv-doc-heading);
+  font-size: 1rem;
+  margin: 0.35rem 0 0.45rem;
+}
+
+.cv-card p {
+  color: var(--cv-doc-muted);
+  margin: 0;
+}
+
+.cv-card__tag {
+  align-items: center;
+  background: var(--cv-doc-accent-soft);
+  border: 1px solid var(--cv-doc-border);
+  border-radius: 999px;
+  color: var(--cv-doc-accent);
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  height: 2rem;
+  justify-content: center;
+  width: 2rem;
+}
+
+@media screen and (max-width: 58rem) {
+  .cv-grid--three {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media screen and (max-width: 36rem) {
+  .cv-hero {
+    padding: 1rem;
+  }
+
+  .cv-brand {
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .cv-brand__logo {
+    max-height: 3.8rem;
+    max-width: 4.25rem;
+  }
+
+  .cv-brand__wordmark {
+    font-size: clamp(1.6rem, 8vw, 2.2rem);
+  }
+
+  .cv-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .cv-actions .md-button {
+    text-align: center;
+    width: 100%;
+  }
+}

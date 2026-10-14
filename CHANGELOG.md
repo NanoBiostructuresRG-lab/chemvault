@@ -1220,3 +1220,37 @@ First formal tagged release of CHEMVAULT as a local Streamlit + SQLite applicati
     - Opening existing SQLite databases.
     - CSV export.
     - Structured activity filtering and export.
+
+---
+
+[v0.14.6]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.5...v0.14.6
+[v0.14.5]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.4...v0.14.5
+[v0.14.4]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.3...v0.14.4
+[v0.14.3]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.2...v0.14.3
+[v0.14.2]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.1...v0.14.2
+[v0.14.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.0...v0.14.1
+[v0.14.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.13.1...v0.14.0
+[v0.13.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.13.0...v0.13.1
+[v0.13.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.12.0...v0.13.0
+[v0.12.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.4...v0.12.0
+[v0.11.4]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.3...v0.11.4
+[v0.11.3]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.2...v0.11.3
+[v0.11.2]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.1...v0.11.2
+[v0.11.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.0...v0.11.1
+[v0.11.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.5...v0.11.0
+[v0.10.5]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.4...v0.10.5
+[v0.10.4]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.3...v0.10.4
+[v0.10.3]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.2...v0.10.3
+[v0.10.2]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.1...v0.10.2
+[v0.10.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.0...v0.10.1
+[v0.10.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.9.0...v0.10.0
+[v0.9.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.8.0...v0.9.0
+[v0.8.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.7.0...v0.8.0
+[v0.7.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.6.0...v0.7.0
+[v0.6.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/releases/tag/v0.1.0
