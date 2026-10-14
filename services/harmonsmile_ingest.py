@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from harmonsmile import PubChemIngest, PubChemConfig
-import pandas as pd
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+import pandas as pd
+from harmonsmile import PubChemConfig, PubChemIngest
 
 HARMONSMILE_INPUT_CID_COLUMN = "CID"
 

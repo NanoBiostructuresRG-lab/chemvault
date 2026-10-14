@@ -32,29 +32,6 @@ def test_run_harmonsmile_delegates_dataframe(monkeypatch):
     assert calls == [dataframe]
 
 
-def test_run_chamanp_maps_explicit_columns(monkeypatch):
-    dataframe = object()
-    expected = object()
-    calls = []
-    monkeypatch.setattr(
-        curation_use_cases.curation_service,
-        "run_chamanp",
-        lambda *args: calls.append(args) or expected,
-    )
-
-    result = curation_use_cases.run_chamanp(
-        dataframe,
-        "identifier",
-        "canonical_smiles",
-        "collections",
-    )
-
-    assert result is expected
-    assert calls == [
-        (dataframe, "identifier", "canonical_smiles", "collections")
-    ]
-
-
 def test_merge_curated_dataframe_maps_explicit_database_state(monkeypatch):
     dataframe = object()
     calls = []

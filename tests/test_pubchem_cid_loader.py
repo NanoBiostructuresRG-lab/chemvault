@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
 
-from services import pubchem_protein_search as pubchem_loader
 from services import pubchem_client
+from services import pubchem_protein_search as pubchem_loader
 
 
 class FakeResponse:

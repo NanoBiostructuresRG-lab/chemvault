@@ -21,7 +21,6 @@ from services.modelability_fingerprint_artifacts import (
     restore_or_calculate_fingerprint_artifact,
 )
 
-
 DATABASE_ID = "P37231"
 SOURCE_TABLE = "activity_subset_EC50_structure_consolidated"
 

@@ -9,7 +9,6 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-
 _BLOCK_SIZE = 512
 _BINARY_OUTCOMES = {"Active", "Inactive"}
 

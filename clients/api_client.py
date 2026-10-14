@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from typing import Any
 from email.message import Message
+from typing import Any
 from urllib.parse import quote
 
-from molraptor import FingerprintType
 import requests
-
+from molraptor import FingerprintType
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 UNIPROT_RESOLUTION_TIMEOUT_SECONDS = 25.0

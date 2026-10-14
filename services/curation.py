@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from modules.use_chamanp import use_chamanp
-from modules.use_harmonsmile import use_PubchemIngest
 from services.database_core import get_connection
+from services.harmonsmile_ingest import use_PubchemIngest
 
 
 class CurationUpdateError(RuntimeError):
@@ -15,10 +14,6 @@ def is_cid_header(header):
 
 def run_harmonsmile(selected_columns_df):
     return use_PubchemIngest(selected_columns_df)
-
-
-def run_chamanp(selected_columns_df, identifier_col, smiles_col, collections_col):
-    return use_chamanp(selected_columns_df, identifier_col, smiles_col, collections_col)
 
 
 def agregar_df_por_pk(df, pk, fk, database_id, current_table):

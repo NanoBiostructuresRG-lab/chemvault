@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-import pytest
-import pandas as pd
 import sqlite3
+
+import pandas as pd
+import pytest
 
 from services import curation
 from services.curation import (
     CurationUpdateError,
     agregar_df_por_pk,
     is_cid_header,
-    run_chamanp,
     run_harmonsmile,
 )
 
@@ -43,19 +43,6 @@ def test_run_harmonsmile_delegates_to_pubchem_ingest(monkeypatch):
 
     assert run_harmonsmile(input_df) is output_df
     assert calls == [input_df]
-
-
-def test_run_chamanp_delegates_to_chamanp(monkeypatch):
-    input_df = pd.DataFrame([{"identifier": "mol-1"}])
-    calls = []
-
-    def fake_chamanp(df, identifier_col, smiles_col, collections_col):
-        calls.append((df, identifier_col, smiles_col, collections_col))
-
-    monkeypatch.setattr(curation, "use_chamanp", fake_chamanp)
-
-    assert run_chamanp(input_df, "identifier", "canonical_smiles", "collections") is None
-    assert calls == [(input_df, "identifier", "canonical_smiles", "collections")]
 
 
 def create_merge_db():

@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.14.7] - 2026-10-14
+
+### Added
+
+- Added Hatchling-based Python 3.12 packaging for wheel and source
+  distributions, with application assets and a `chemvault` console command
+  that supports `--help` and `--version` and launches the installed Streamlit
+  application without changing the caller's working directory.
+- Added a dedicated `Operation history` UI summary for the persisted v0.14.6
+  AID-completeness contract, distinguishing certified, not-certified, and
+  unavailable source-correspondence states while preserving the recorded
+  operation details.
+- Added an `About` sidebar card with the GitHub repository link and application
+  version resolved from source or installed distribution metadata.
+- Added a four-page MkDocs Material site covering the project overview, usage,
+  API reference, and changelog, with searchable light- and dark-mode content.
+- Added Python 3.12 GitHub Actions workflows for continuous integration,
+  main-branch GitHub Pages artifact deployment, and manually dispatched,
+  tag-validated PyPI Trusted Publishing.
+- Added contributor guidelines and a community code of conduct.
+- Added `CITATION.cff` with standardized software citation metadata, including authors, title, version, and repository information.
+
+### Changed
+
+- Made `pyproject.toml` authoritative for project metadata and runtime
+  dependencies, and consolidated pytest discovery plus Ruff and mypy settings
+  there; the redundant `requirements.txt` and `pytest.ini` files were removed.
+- Relocated the CHEMVAULT logo to `docs/assets/chemvault-logo.jpeg`, resolved
+  it relative to the installed modules, and included it in both wheel and
+  source distributions while excluding generated databases and caches.
+- Relocated the active HARMONSMILE ingest adapter from `modules/` to
+  `services/harmonsmile_ingest.py` and updated its canonical consumers.
+- Established clean Ruff and mypy baselines through targeted import cleanup
+  plus precise internal type annotations and narrowing, with corresponding
+  regression coverage.
+- Updated the application identity subtitle to describe traceable
+  target-centered bioactivity dataset construction and modelability
+  assessment.
+
+### Fixed
+
+- Corrected UI terminology to distinguish the target-centered PubChem dataset,
+  persisted CID-AID associations, build-time structured-activity retrieval,
+  stored structured quantitative activity, and molecular structure processing
+  from live availability or raw source coverage.
+- Resolved relative PubChem worker database paths against the caller's working
+  directory so installed executions retain user-workspace database ownership
+  without injecting a source-tree working directory or `PYTHONPATH`.
+- Handled normal `Ctrl+C` interruption of the installed launcher with exit
+  status 130, avoiding a launcher traceback while preserving other subprocess
+  exit codes and exceptions.
+- Replaced deprecated Streamlit `use_container_width` arguments with the
+  equivalent `width="stretch"` behavior.
+
+### Removed
+
+- Removed the obsolete CHAMANP dependency and integration, including its
+  adapter, use case, sidebar controls, session state, temporary and artifact
+  handling, taxonomy resource, example input, and exclusive tests.
+- Removed obsolete manual and experimental scripts, generated JSON fixtures,
+  and historical generated reports that were not part of the automated test
+  suite or active application.
+- Removed the unused `modules/obtener_CIDs_Pubchem.py` compatibility adapter
+  and standalone `tools/db_audit.py` CLI while retaining the canonical PubChem
+  and database-audit services and their automated coverage.
+
+### Validation
+
+- Passed the complete local test suite: 745 tests.
+- Confirmed Ruff, mypy, and `pip check` complete without findings or broken
+  requirements.
+- Confirmed the GitHub Actions CI run for commit `0f5a4e9` completed both jobs
+  successfully, including tests, static analysis, CLI/version checks,
+  distribution inspection, Twine validation, isolated wheel and source-
+  distribution installations, and a strict MkDocs build.
+
+---
+
 ## [v0.14.6] - 2026-09-24
 
 ### Added
@@ -1220,3 +1298,37 @@ First formal tagged release of CHEMVAULT as a local Streamlit + SQLite applicati
     - Opening existing SQLite databases.
     - CSV export.
     - Structured activity filtering and export.
+
+---
+
+[v0.14.6]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.5...v0.14.6
+[v0.14.5]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.4...v0.14.5
+[v0.14.4]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.3...v0.14.4
+[v0.14.3]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.2...v0.14.3
+[v0.14.2]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.1...v0.14.2
+[v0.14.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.0...v0.14.1
+[v0.14.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.13.1...v0.14.0
+[v0.13.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.13.0...v0.13.1
+[v0.13.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.12.0...v0.13.0
+[v0.12.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.4...v0.12.0
+[v0.11.4]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.3...v0.11.4
+[v0.11.3]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.2...v0.11.3
+[v0.11.2]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.1...v0.11.2
+[v0.11.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.11.0...v0.11.1
+[v0.11.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.5...v0.11.0
+[v0.10.5]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.4...v0.10.5
+[v0.10.4]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.3...v0.10.4
+[v0.10.3]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.2...v0.10.3
+[v0.10.2]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.1...v0.10.2
+[v0.10.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.10.0...v0.10.1
+[v0.10.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.9.0...v0.10.0
+[v0.9.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.8.0...v0.9.0
+[v0.8.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.7.0...v0.8.0
+[v0.7.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.6.0...v0.7.0
+[v0.6.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/NanoBiostructuresRG-lab/chemvault/releases/tag/v0.1.0

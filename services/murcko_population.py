@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 from services.murcko_scaffold import derive_murcko_scaffold
 
-
 _BINARY_OUTCOMES = {"Active", "Inactive"}
 
 

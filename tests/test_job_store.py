@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -505,7 +505,7 @@ def test_recent_running_heartbeat_is_not_marked_stale():
     store = JobStore(connection)
     store.create_job(job_id="job-1")
     store.start_job("job-1")
-    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     _set_heartbeat(connection, "job-1", now - timedelta(seconds=30))
 
     marked = store.fail_stale_job("job-1", timeout_seconds=60, now=now)
@@ -521,7 +521,7 @@ def test_old_active_heartbeat_is_atomically_marked_failed(status):
     store.create_job(job_id="job-1")
     if status == "running":
         store.start_job("job-1")
-    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     _set_heartbeat(connection, "job-1", now - timedelta(seconds=61))
 
     assert store.fail_stale_job("job-1", timeout_seconds=60, now=now) is True
@@ -537,7 +537,7 @@ def test_stale_job_is_not_returned_as_active():
     store = JobStore(connection)
     store.create_job(job_id="stale")
     store.create_job(job_id="recent")
-    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     _set_heartbeat(connection, "stale", now - timedelta(seconds=61))
     _set_heartbeat(connection, "recent", now - timedelta(seconds=10))
 

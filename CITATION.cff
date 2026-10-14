@@ -1,0 +1,46 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "CHEMVAULT — Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment"
+version: "0.14.7"
+date-released: "2026-10-14"
+authors:
+  - family-names: "Contreras-Torres"
+    given-names: "Flavio F."
+    orcid: "https://orcid.org/0000-0003-2375-131X"
+    affiliation: "Tecnologico de Monterrey"
+  - family-names: "Murrieta"
+    given-names: "Ana C."
+    orcid: "https://orcid.org/0000-0002-7619-8880"
+    affiliation: "Tecnologico de Monterrey"
+  - family-names: "Castro-Flores"
+    given-names: "Diego"
+    orcid: "https://orcid.org/0009-0008-7089-6451"
+    affiliation: "Tecnologico de Monterrey"
+  - family-names: "Saldívar-González"
+    given-names: "Fernanda I."
+    orcid: "https://orcid.org/0000-0002-0435-8662"
+    affiliation: "Tecnologico de Monterrey"
+repository-code: "https://github.com/NanoBiostructuresRG-lab/chemvault"
+license: "LGPL-3.0-or-later"
+abstract: >-
+  CHEMVAULT is a cheminformatics application for the construction,
+  curation, and modelability assessment of target-centered molecular bioactivity
+  datasets from PubChem. It stores target-associated bioassays,
+  compounds, and structured activity records in SQLite together
+  with their provenance and processing history.
+  CHEMVAULT centers on three principal operations: molecular-structure harmonization,
+  structure-level activity-label consolidation, and fingerprint-based modelability assessment.
+  For target-centered PubChem builds, the application records every target–bioassay
+  identity returned by the query and its disposition, distinguishing provenance
+  from source-population correspondence. A versioned scientific
+  contract governs source-population completeness certification.
+  Bemis–Murcko scaffolds provide complementary structural context
+  for modelability analysis.
+
+keywords:
+  - PubChem BioAssay
+  - bioactivity data curation
+  - chemical structure harmonization
+  - modelability assessment
+  - molecular fingerprints

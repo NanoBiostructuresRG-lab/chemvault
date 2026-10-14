@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Application contract for singular gene-to-UniProt resolution."""
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 from services.uniprot_client import UniProtClient
-
 
 _GENE_SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 

@@ -1,27 +1,22 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Launch persistent CHEMVAULT jobs in a separate local process."""
-import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 from services.job_models import JobType
 from services.job_store import JobStore
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def resolve_database_path(db_path, repo_root=None):
-    root = Path(repo_root or REPO_ROOT).resolve()
+def resolve_database_path(db_path):
     path = Path(db_path).expanduser()
     if not path.is_absolute():
-        path = root / path
+        path = Path.cwd() / path
     return path.resolve()
 
 
-def build_pubchem_worker_command(db_path, job_id, repo_root=None):
-    resolved_db_path = resolve_database_path(db_path, repo_root=repo_root)
+def build_pubchem_worker_command(db_path, job_id):
+    resolved_db_path = resolve_database_path(db_path)
     return [
         sys.executable,
         "-m",
@@ -34,24 +29,10 @@ def build_pubchem_worker_command(db_path, job_id, repo_root=None):
     ]
 
 
-def _worker_environment(repo_root):
-    environment = os.environ.copy()
-    root = str(repo_root)
-    existing_pythonpath = environment.get("PYTHONPATH", "")
-    pythonpath_entries = [root]
-    if existing_pythonpath:
-        pythonpath_entries.append(existing_pythonpath)
-    environment["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
-    return environment
-
-
-def launch_pubchem_worker(db_path, job_id, repo_root=None, popen=None):
-    root = Path(repo_root or REPO_ROOT).resolve()
-    command = build_pubchem_worker_command(db_path, job_id, repo_root=root)
+def launch_pubchem_worker(db_path, job_id, popen=None):
+    command = build_pubchem_worker_command(db_path, job_id)
     popen = popen or subprocess.Popen
     kwargs = {
-        "cwd": str(root),
-        "env": _worker_environment(root),
         "shell": False,
     }
     create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)

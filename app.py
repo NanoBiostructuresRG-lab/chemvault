@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import os
 
-import numpy as np
 import streamlit as st
 from PIL import Image
 
@@ -13,6 +12,20 @@ from services.sql_utils import (
     is_valid_table_name,
     quote_identifier,
 )
+from ui.dialogs import select_proteins
+from ui.main_page import (
+    CHEMVAULT_LOGO_PATH,
+    create_main_layout,
+    render_app_identity,
+    render_columns_card,
+    render_database_card,
+    render_footer,
+    render_operation_history_card,
+    render_table_maintenance_card,
+    render_table_manager_card,
+)
+from ui.session_state import initialize_session_state, refresh_database_state
+from ui.sidebar import render_sidebar
 from ui.state_keys import (
     CURRENT_TABLE,
     CUSTOM_QUERY,
@@ -27,45 +40,19 @@ from ui.state_keys import (
     WHERE_COLUMN,
     WHERE_CONDITION,
 )
-from ui.dialogs import select_proteins
-from ui.main_page import (
-    create_main_layout,
-    render_app_identity,
-    render_columns_card,
-    render_database_card,
-    render_footer,
-    render_operation_history_card,
-    render_table_maintenance_card,
-    render_table_manager_card,
-)
-from ui.session_state import initialize_session_state, refresh_database_state
-from ui.sidebar import render_sidebar
 from ui.theme import apply_global_theme
 
 
 def verify_directories():
     if not os.path.exists("SQL"):
         os.makedirs("SQL")
-    if not os.path.exists("artifacts"):
-        os.makedirs("artifacts")
-    else:
-        files = os.listdir("artifacts")
-        for file_name in files:
-            file_path = os.path.join("artifacts", file_name)
-            if os.path.isfile(file_path):
-                try:
-                    os.remove(file_path)
-                except PermissionError:
-                    pass
-    if not os.path.exists("tempFilesChamanp"):
-        os.makedirs("tempFilesChamanp")
     if not os.path.exists("tempFilesHarmonsile"):
         os.makedirs("tempFilesHarmonsile")
 
 
 initialize_session_state(st.session_state, verify_directories)
 
-logo = Image.open("assets/logo.jpeg")
+logo = Image.open(CHEMVAULT_LOGO_PATH)
 
 st.set_page_config(
     page_title="ChemVault",

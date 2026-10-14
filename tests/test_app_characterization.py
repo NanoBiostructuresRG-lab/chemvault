@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from services.selection import get_active_selected_headers
+from services.sql_utils import is_valid_table_name, quote_identifier
 from ui.state_keys import (
     CURRENT_TABLE,
     CUSTOM_QUERY,
@@ -19,9 +21,6 @@ from ui.state_keys import (
     WHERE_COLUMN,
     WHERE_CONDITION,
 )
-from services.sql_utils import is_valid_table_name, quote_identifier
-from services.selection import get_active_selected_headers
-
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 

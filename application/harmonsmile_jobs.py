@@ -1,13 +1,11 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Application orchestration for the minimal HARMONSMILE job runtime."""
-from collections.abc import Callable
 import sqlite3
+from collections.abc import Callable
 
 from application.curation_use_cases import run_harmonsmile
 from application.database_use_cases import (
-    DatabaseNotFoundError,
     InvalidColumnError,
-    TableNotFoundError,
     get_table_state,
     list_database_tables,
     resolve_database_path,
@@ -262,7 +260,7 @@ def recover_orphaned_harmonsmile_jobs(
     current_pid: int,
 ):
     """Requeue orphaned HARMONSMILE jobs in one explicit database."""
-    recovered = []
+    recovered: list[RecoveredJobContract] = []
     db_path = resolve_database_path(database_id, db_dir=db_dir)
     connection = sqlite3.connect(db_path, check_same_thread=False)
     try:

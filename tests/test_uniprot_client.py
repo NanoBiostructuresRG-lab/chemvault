@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-import requests
 import pytest
+import requests
 
 from services.uniprot_client import (
     REVIEWED_ENTRY_TYPE,

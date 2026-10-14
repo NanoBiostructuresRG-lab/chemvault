@@ -5,27 +5,38 @@ from fastapi import FastAPI, HTTPException, Path, Query
 from fastapi.responses import Response
 from molraptor import FingerprintType
 
+import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
+import application.modelability_jobs  # noqa: F401 - registers Modelability hooks
 from api.job_runtime import start_scientific_background_job
 from api.schemas import (
     DatabaseTablesResponse,
-    HealthResponse,
     HarmonsmileJobRequest,
+    HealthResponse,
     JobStatusResponse,
     ModelabilityIndexJobRequest,
-    PubChemProteinSearchRequest,
     OperationHistoryResponse,
+    PubChemProteinSearchRequest,
     RecoveredJobResponse,
     ScientificRuntimeActivationResponse,
     StructureConsolidationResponse,
     SupportedOrganismsResponse,
     TableMetadataResponse,
     TableMetricsResponse,
+    TablePreviewResponse,
     TargetIdentityPayload,
     UniProtResolutionResponse,
-    TablePreviewResponse,
 )
-import application.harmonsmile_jobs  # noqa: F401 - registers HARMONSMILE job hooks
-import application.modelability_jobs  # noqa: F401 - registers Modelability hooks
+from application.database_use_cases import (
+    DatabaseNotFoundError,
+    InvalidColumnError,
+    TableNotFoundError,
+    get_operation_history,
+    get_table_metrics,
+    get_table_provenance,
+    get_table_schema,
+    get_table_state,
+    list_database_tables,
+)
 from application.modelability_index import (
     ModelabilityIndexUseCaseError,
     export_table_modelability_fingerprints_npz,
@@ -40,7 +51,6 @@ from application.protein_identifiers import (
     list_supported_organisms,
     resolve_gene_symbol,
 )
-from application.target_identity import target_identity_from_notes
 from application.pubchem_jobs import (
     InvalidPubChemProteinSearchError,
     PubChemJobStateError,
@@ -50,7 +60,6 @@ from application.pubchem_jobs import (
     get_pubchem_protein_search_status,
     launch_pubchem_protein_search,
 )
-from application.scientific_runtime import activate_scientific_runtime
 from application.scientific_jobs import (
     JobNotFoundError,
     UnsupportedJobTypeError,
@@ -58,33 +67,23 @@ from application.scientific_jobs import (
     find_active_scientific_job,
     get_scientific_job_status,
 )
-from application.database_use_cases import (
-    DatabaseNotFoundError,
-    InvalidColumnError,
-    TableNotFoundError,
-    get_table_metrics,
-    get_operation_history,
-    get_table_provenance,
-    get_table_schema,
-    get_table_state,
-    list_database_tables,
+from application.scientific_runtime import activate_scientific_runtime
+from application.structure_consolidation import (
+    consolidate_structure_table,
+    structure_consolidation_summary_from_metadata,
 )
 from application.table_use_cases import (
     export_table_csv,
     preview_selected_columns,
 )
-from application.structure_consolidation import (
-    consolidate_structure_table,
-    structure_consolidation_summary_from_metadata,
-)
-from services.structure_consolidation import StructureConsolidationError
+from application.target_identity import target_identity_from_notes
 from services.job_models import (
     JobCancellationNotSupportedError,
     JobType,
 )
 from services.modelability_fingerprint_artifacts import FingerprintArtifactError
+from services.structure_consolidation import StructureConsolidationError
 from services.uniprot_client import UniProtClientError
-
 
 app = FastAPI(title="ChemVault API", version="0.1.0")
 

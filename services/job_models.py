@@ -3,7 +3,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 
-class JobStatus(str, Enum):
+# Preserve Enum.__str__; StrEnum would return the raw persisted value.
+class JobStatus(str, Enum):  # noqa: UP042
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -11,7 +12,8 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class JobType(str, Enum):
+# Preserve Enum.__str__; StrEnum would return the raw persisted value.
+class JobType(str, Enum):  # noqa: UP042
     PUBCHEM_PROTEIN_SEARCH = "pubchem_protein_search"
     HARMONSMILE = "harmonsmile"
     MODELABILITY_INDEX = "modelability_index"

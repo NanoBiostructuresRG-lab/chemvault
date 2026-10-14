@@ -9,7 +9,6 @@ from services.job_models import (
     job_supports_cancellation,
 )
 
-
 CANCELLABLE_STATUSES = frozenset({
     JobStatus.PENDING,
     JobStatus.RUNNING,

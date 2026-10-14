@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from services.modelability_index import ModelabilityIndexResult
 from services.murcko_population import MurckoPopulationResult
 
-
 _BINARY_OUTCOMES = {"Active", "Inactive"}
 
 

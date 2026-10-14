@@ -6,6 +6,12 @@ from molraptor import FINGERPRINT_TYPES, FingerprintType
 
 from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
+from ui.modelability_state import (
+    TERMINAL_JOB_STATUSES,
+    launch_modelability_job,
+    modelability_scope_matches,
+    poll_modelability_job,
+)
 from ui.state_keys import (
     CURRENT_TABLE,
     DATABASE_ID,
@@ -13,12 +19,6 @@ from ui.state_keys import (
     MODELABILITY_FEEDBACK_MESSAGE,
     MODELABILITY_FINGERPRINT_TYPE,
     MODELABILITY_RUNNING,
-)
-from ui.modelability_state import (
-    TERMINAL_JOB_STATUSES,
-    launch_modelability_job,
-    modelability_scope_matches,
-    poll_modelability_job,
 )
 
 FINGERPRINT_TYPE_LABELS = {

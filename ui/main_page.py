@@ -9,8 +9,8 @@ from textwrap import dedent
 
 import pandas as pd
 import streamlit as st
+
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
-from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.activity_data import (
     ACTIVITY_EXPORT_COLUMNS,
     create_activity_subset_table,
@@ -25,16 +25,24 @@ from services.activity_data import (
 from services.activity_enrichment import (
     run_activity_enrichment_from_compound_assays,
 )
+from services.database import (
+    get_connection,
+)
 from services.db_audit import (
     delete_user_table,
     get_user_table_profiles,
     register_operation,
     register_table_metadata,
 )
-from services.database import (
-    get_connection,
-)
+from services.pubchem_aid_completeness import AID_COMPLETENESS_CONTRACT
+from services.pubchem_protein_search import fetch_pubchem_assay_activity
 from services.sql_utils import quote_identifier, table_exists
+from ui.modelability_result import render_modelability_result_card
+from ui.session_state import (
+    load_database_from_selection,
+    refresh_database_state,
+    set_database_from_input,
+)
 from ui.state_keys import (
     ALL_TABLES,
     CURRENT_TABLE,
@@ -43,16 +51,17 @@ from ui.state_keys import (
     GROUP_COUNT_COLUMN,
     HEADERS,
     INPUT_DATABASE_ID,
-    SELECTED_HEADERS,
     SCIENTIFIC_RECOVERY_NOTICE,
+    SELECTED_HEADERS,
     SET_TEXT_INPUT_LOCKED,
 )
-from ui.session_state import (
-    load_database_from_selection,
-    refresh_database_state,
-    set_database_from_input,
+
+CHEMVAULT_LOGO_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "docs"
+    / "assets"
+    / "chemvault-logo.jpeg"
 )
-from ui.modelability_result import render_modelability_result_card
 
 ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Type",
@@ -236,7 +245,7 @@ def render_app_identity(container):
     col_logo, col_titulo = container.columns([0.12, 0.88], vertical_alignment="center")
 
     with col_logo:
-        st.image("assets/logo.jpeg", use_container_width=True)
+        st.image(CHEMVAULT_LOGO_PATH, width="stretch")
 
     with col_titulo:
         st.markdown(
@@ -251,7 +260,7 @@ def render_app_identity(container):
                     ChemVault
                 </div>
                 <div style="margin-top: 0.25rem; font-size: 0.98rem; color: var(--cv-muted);">
-                    Target-centered bioactivity dataset curation from PubChem
+                    Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment
                 </div>
             </div>
             """,
@@ -455,19 +464,19 @@ def render_database_summary(
         )
         sections.append(
             _database_summary_section_html(
-                "PubChem assay coverage",
+                "Target-centered PubChem dataset",
                 (
-                    ("Compounds linked to assays", summary["unique_cids"]),
+                    ("Compounds (CIDs)", summary["unique_cids"]),
                     ("Proteins represented", protein_text),
-                    ("PubChem assays", summary["individual_aids"]),
-                    ("Compound–assay links", summary["cid_aid_links"]),
+                    ("Persisted bioassays (AIDs)", summary["individual_aids"]),
+                    ("Compound–bioassay associations", summary["cid_aid_links"]),
                 ),
             )
         )
         activity_status_labels = {
-            "enriched": "Compounds with activity data",
+            "enriched": "Compounds with retrieved activity records",
             "partial_or_failed": (
-                "Compounds with incomplete activity data"
+                "Compounds with no retrieved activity records"
             ),
         }
         activity_metrics = tuple(
@@ -481,7 +490,7 @@ def render_database_summary(
             activity_metrics = (("", summary["activity_status"]),)
         sections.append(
             _database_summary_section_html(
-                "Activity data availability",
+                "Structured activity retrieval at build",
                 activity_metrics,
             )
         )
@@ -742,11 +751,125 @@ def _build_operation_history_dataframe(operations):
                 "Target": operation.get("target_table") or "-",
                 "Source": operation.get("source_table") or "-",
                 "Columns": _format_operation_columns(operation.get("source_columns")),
-                "Status": _format_audit_label(operation.get("status")),
+                "Operation status": _format_audit_label(operation.get("status")),
                 "Details": operation.get("details") or "-",
             }
         )
     return pd.DataFrame(rows)
+
+
+def _extract_aid_source_correspondence(operation):
+    if operation.get("operation_type") != "protein_search_loaded":
+        return None
+
+    details = operation.get("details")
+    if not isinstance(details, str):
+        return None
+
+    try:
+        payload = json.loads(details)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    certificate = payload.get("aid_completeness")
+    if (
+        not isinstance(certificate, dict)
+        or certificate.get("contract") != AID_COMPLETENESS_CONTRACT
+    ):
+        return None
+
+    proteins = payload.get("proteins")
+    if not isinstance(proteins, list):
+        proteins = []
+
+    return {
+        "proteins": tuple(
+            protein.strip()
+            for protein in proteins
+            if isinstance(protein, str) and protein.strip()
+        ),
+        "created_at": operation.get("created_at"),
+        "certified_complete": certificate.get("certified_complete"),
+        "source_enumeration_succeeded": certificate.get(
+            "source_enumeration_succeeded"
+        ),
+        "reason": certificate.get("reason"),
+        "counts": (
+            certificate.get("counts")
+            if isinstance(certificate.get("counts"), dict)
+            else {}
+        ),
+    }
+
+
+def _format_aid_source_correspondence(correspondence, include_date=False):
+    identifier_parts = []
+    if correspondence["proteins"]:
+        identifier_parts.append(", ".join(correspondence["proteins"]))
+    if include_date and correspondence["created_at"] not in (None, ""):
+        identifier_parts.append(_format_created_at(correspondence["created_at"]))
+
+    prefix = "AID source correspondence"
+    if identifier_parts:
+        prefix += " · " + " · ".join(identifier_parts)
+
+    certified_complete = correspondence["certified_complete"]
+    if certified_complete is True:
+        return f"{prefix}: Certified."
+    if certified_complete is not False:
+        return f"{prefix}: Not available."
+
+    diagnostics = []
+    if correspondence["source_enumeration_succeeded"] is False:
+        reason = correspondence["reason"]
+        source_diagnostics = {
+            "source_enumeration_failed": "source enumeration failed",
+            "source_enumeration_unavailable": (
+                "source enumeration metadata unavailable"
+            ),
+            "invalid_source_enumeration": (
+                "source enumeration metadata invalid"
+            ),
+            "invalid_requested_proteins": (
+                "source enumeration metadata invalid"
+            ),
+            "source_enumeration_scope_mismatch": (
+                "source enumeration metadata mismatched the recorded proteins"
+            ),
+        }
+        diagnostics.append(
+            source_diagnostics.get(
+                reason,
+                "source enumeration was not successfully established",
+            )
+        )
+
+    counts = correspondence["counts"]
+    count_diagnostics = (
+        ("unresolved", "unresolved AID identity", "unresolved AID identities"),
+        (
+            "unexpected_persisted",
+            "unexpected persisted AID identity",
+            "unexpected persisted AID identities",
+        ),
+        (
+            "missing_materialization",
+            "AID identity missing persisted materialization",
+            "AID identities missing persisted materialization",
+        ),
+    )
+    for key, singular, plural in count_diagnostics:
+        count = counts.get(key)
+        if type(count) is int and count > 0:
+            diagnostics.append(f"{count} {singular if count == 1 else plural}")
+
+    suffix = "Not certified"
+    if diagnostics:
+        suffix += " — " + "; ".join(diagnostics)
+    return f"{prefix}: {suffix}."
 
 
 def render_database_model_help():
@@ -810,10 +933,26 @@ def render_operation_history(database_id):
         st.info("No operations have been recorded for this database yet.")
         return
 
+    correspondences = [
+        correspondence
+        for operation in operations
+        if (
+            correspondence := _extract_aid_source_correspondence(operation)
+        ) is not None
+    ]
+    include_dates = len(correspondences) > 1
+    for correspondence in correspondences:
+        st.caption(
+            _format_aid_source_correspondence(
+                correspondence,
+                include_date=include_dates,
+            )
+        )
+
     st.dataframe(
         _build_operation_history_dataframe(operations),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -971,8 +1110,10 @@ def render_structured_activity_section(connection):
     if summary is None:
         return
 
-    st.markdown("#### Structured activity")
-    st.caption("Inspect and export quantitative PubChem activity without changing molecular tables.")
+    st.markdown("#### Structured quantitative activity")
+    st.caption(
+        "Inspect and export structured quantitative activity records stored in this database."
+    )
     if summary["total_rows"] == 0:
         st.info("No structured activity rows are available yet.")
         return
@@ -989,19 +1130,19 @@ def render_structured_activity_section(connection):
             border-bottom: 1px solid var(--cv-border);
         ">
             <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Activity rows</div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Structured activity records</div>
                 <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["total_rows"]}</div>
             </div>
             <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">CIDs with activity</div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">CIDs with structured activity</div>
                 <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_cids"]}</div>
             </div>
             <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">AIDs with activity</div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">AIDs with structured activity</div>
                 <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_aids"]}</div>
             </div>
             <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Activity types</div>
+                <div style="font-size: 0.72rem; color: var(--cv-muted);">Reported activity types</div>
                 <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
                     {html.escape(_format_activity_option_list(summary["activity_types"]))}
                 </div>
@@ -1047,7 +1188,7 @@ def render_structured_activity_section(connection):
             f"Showing {activity_count} structured activity "
             f"row{'s' if activity_count != 1 else ''}."
         )
-    st.dataframe(preview_df, hide_index=True, use_container_width=True)
+    st.dataframe(preview_df, hide_index=True, width="stretch")
     st.download_button(
         "Download structured activity CSV",
         data=get_activity_csv_bytes(connection),
@@ -1162,7 +1303,7 @@ def render_structured_activity_section(connection):
             f"Showing {filtered_count} filtered activity "
             f"row{'s' if filtered_count != 1 else ''}."
         )
-    st.dataframe(filtered_preview_df, hide_index=True, use_container_width=True)
+    st.dataframe(filtered_preview_df, hide_index=True, width="stretch")
 
     filtered_cids = get_activity_cids(connection, **filter_kwargs)
     filter_signature = _structured_activity_filter_signature(
@@ -1490,7 +1631,7 @@ def render_table_manager_card(container):
         st.dataframe(
             _build_table_manager_dataframe(profiles),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
         with st.container(border=True):
             st.markdown("**Database maintenance**")

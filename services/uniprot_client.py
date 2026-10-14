@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 import requests
 
-
 UNIPROT_SEARCH_URL = "https://rest.uniprot.org/uniprotkb/search"
 REVIEWED_ENTRY_TYPE = "UniProtKB reviewed (Swiss-Prot)"
 DEFAULT_TIMEOUT_SECONDS = 20.0
@@ -92,6 +91,7 @@ def _parse_entry(payload) -> UniProtEntry:
 
     entry_name = _text(payload.get("uniProtkbId"), "uniProtkbId")
     entry_type = _text(payload.get("entryType"), "entryType")
+    common_name = organism.get("commonName")
     return UniProtEntry(
         accession=_text(
             payload.get("primaryAccession"),
@@ -104,9 +104,8 @@ def _parse_entry(payload) -> UniProtEntry:
             "organism.scientificName",
         ),
         common_name=(
-            organism.get("commonName").strip()
-            if isinstance(organism.get("commonName"), str)
-            and organism.get("commonName").strip()
+            common_name.strip()
+            if isinstance(common_name, str) and common_name.strip()
             else None
         ),
         primary_gene_symbols=tuple(primary_gene_symbols),

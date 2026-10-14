@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+site_name: CHEMVAULT
+site_description: Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment
+site_url: https://nanobiostructuresrg-lab.github.io/chemvault/
+repo_url: https://github.com/NanoBiostructuresRG-lab/chemvault
+repo_name: NanoBiostructuresRG-lab/chemvault
+
+theme:
+  name: material
+  logo: assets/chemvault-logo.jpeg
+  favicon: assets/chemvault-logo.jpeg
+  palette:
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.tabs.link
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/NanoBiostructuresRG-lab/chemvault
+      name: NanoBiostructuresRG-lab/chemvault
+    - icon: material/account-group
+      link: https://github.com/NanoBiostructuresRG-lab
+      name: NanoBiostructures Research Group
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Usage: usage.md
+  - API Reference: api.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path:
+        - .
+      check_paths: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true

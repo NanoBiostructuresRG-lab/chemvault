@@ -11,20 +11,6 @@ def run_harmonsmile(selected_columns_df):
     return curation_service.run_harmonsmile(selected_columns_df)
 
 
-def run_chamanp(
-    selected_columns_df,
-    identifier_column,
-    smiles_column,
-    collections_column,
-):
-    return curation_service.run_chamanp(
-        selected_columns_df,
-        identifier_column,
-        smiles_column,
-        collections_column,
-    )
-
-
 def merge_curated_dataframe(
     dataframe,
     primary_key,

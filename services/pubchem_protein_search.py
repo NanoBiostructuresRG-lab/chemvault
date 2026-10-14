@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import csv
 import io
-import requests
 import time
+
+import requests
 
 from services.activity_enrichment import (
     ensure_compound_activities_table,
@@ -1491,8 +1492,8 @@ def run_pubchem_protein_search_job(
 
 
 __all__ = [
+    "fetch_pubchem_assay_activity",
     "obtener_CIDs_Pubchem",
     "run_pubchem_protein_search",
     "run_pubchem_protein_search_job",
-    "fetch_pubchem_assay_activity",
 ]

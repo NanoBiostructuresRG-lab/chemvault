@@ -1,11 +1,23 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """Application use cases for database selection and inspection."""
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict, cast
 
 from services import database as database_service
 from services import db_audit
 from services.database import DatabaseState
+
+
+class _TableSchemaRecord(TypedDict):
+    columns: Iterable[dict[str, object]]
+
+
+class _TableProvenanceMetadata(TypedDict, total=False):
+    origin: str | None
+    source_table: str | None
+    notes: str | None
 
 
 @dataclass(frozen=True)
@@ -142,9 +154,12 @@ def get_table_schema(
 ) -> tuple[dict[str, object], ...]:
     """Inspect the SQLite schema for a validated user table."""
     get_table_state(database_id, current_table)
-    schema = db_audit.get_table_schema(
-        Path("SQL") / f"{database_id}.db",
-        current_table,
+    schema = cast(
+        _TableSchemaRecord,
+        db_audit.get_table_schema(
+            Path("SQL") / f"{database_id}.db",
+            current_table,
+        ),
     )
     return tuple(schema["columns"])
 
@@ -155,9 +170,12 @@ def get_table_provenance(
 ) -> TableProvenance:
     """Return persisted provenance for a validated table when registered."""
     get_table_state(database_id, current_table)
-    metadata = db_audit.get_table_metadata(
-        resolve_database_path(database_id)
-    ).get(current_table, {})
+    metadata = cast(
+        _TableProvenanceMetadata,
+        db_audit.get_table_metadata(
+            resolve_database_path(database_id)
+        ).get(current_table, {}),
+    )
     return TableProvenance(
         origin=metadata.get("origin"),
         source_table=metadata.get("source_table"),

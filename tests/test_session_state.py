@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from services.database import DatabaseState
 from application.job_contracts import JobStatusContract, RecoveredJobContract
-from services.job_models import JobStatus
 from clients.backend_gateway import BackendGatewayError, TableMetadata
+from services.database import DatabaseState
+from services.job_models import JobStatus
 from ui import session_state as session_state_module
 from ui.session_state import (
     apply_database_state,
@@ -38,7 +38,6 @@ def test_initialize_session_state_sets_current_defaults_when_database_is_missing
     assert session_state["selected_organism_id"] is None
     assert session_state["resolved_target"] is None
     assert session_state["selecting_harmonsmile"] == ""
-    assert session_state["selecting_chamanp"] == ""
     assert session_state["harmonsmile_running"] is False
     assert session_state["harmonsmile_job_id"] == ""
     assert session_state["harmonsmile_feedback_kind"] == ""
@@ -75,7 +74,6 @@ def test_initialize_session_state_preserves_existing_values():
     assert session_state["selecting_harmonsmile"] is True
     assert session_state["target_input_mode"] == "UniProt accession"
     assert session_state["input_protein"] == "P48357"
-    assert session_state["selecting_chamanp"] == ""
 
 
 def test_initialize_session_state_uses_independent_default_lists():

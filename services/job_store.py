@@ -2,7 +2,7 @@
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from services.job_models import (
     JobCancellationNotSupportedError,
@@ -19,7 +19,7 @@ STALE_JOB_ERROR_MESSAGE = "Backend job stopped unexpectedly. Please try again."
 
 
 def _utc_now():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _enum_value(value):
@@ -609,7 +609,7 @@ class JobStore:
         now=None,
     ):
         self.ensure_jobs_table()
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(UTC)
         cutoff = (now - timedelta(seconds=float(timeout_seconds))).isoformat()
         cursor = self.connection.cursor()
         cursor.execute(

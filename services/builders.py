@@ -3,13 +3,13 @@ import os
 
 import pandas as pd
 
-from services.pubchem_protein_search import obtener_CIDs_Pubchem
 from services.database_core import get_connection
 from services.db_audit import register_operation, register_table_metadata
 from services.pubchem_job_service import (
     register_protein_search_build,
     start_pubchem_search,
 )
+from services.pubchem_protein_search import obtener_CIDs_Pubchem
 
 
 def build_from_csv(uploaded_file, database_id, current_table=""):

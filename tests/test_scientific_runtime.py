@@ -9,8 +9,7 @@ from application.job_contracts import (
     JobStatusContract,
     RecoveredJobContract,
 )
-from services.job_models import JobStatus
-from services.job_models import JobType
+from services.job_models import JobStatus, JobType
 
 
 def _recovered(database_id, job_id):

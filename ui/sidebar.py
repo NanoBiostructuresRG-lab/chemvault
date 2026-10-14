@@ -1,16 +1,14 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import html
-import os
+import importlib.metadata
+import tomllib
+from pathlib import Path
 
 import streamlit as st
 
-from application.curation_use_cases import (
-    is_cid_header,
-    run_chamanp,
-)
+from application.curation_use_cases import is_cid_header
 from application.table_use_cases import (
     export_filtered_selection,
-    load_selected_columns,
     resolve_selected_columns,
 )
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
@@ -18,32 +16,6 @@ from services.builders import build_from_csv
 from services.database import count_rows, get_connection
 from services.db_audit import register_operation, register_table_metadata
 from services.sql_utils import table_exists
-from ui.state_keys import (
-    CODIGO_BUSCAR,
-    CURRENT_TABLE,
-    CUSTOM_QUERY,
-    DATABASE_ID,
-    DEPURADO_SUCCESS_MESSAGE,
-    DEPURADO_SUCCESS_TABLE,
-    GROUP_BY_COLUMN,
-    HEADERS,
-    HARMONSMILE_RUNNING,
-    NEW_TABLE_NAME,
-    ORDER_BY_COLUMN,
-    ORDER_DIRECTION,
-    PUBCHEM_JOB_ID,
-    SELECTED_HEADERS,
-    SET_TEXT_INPUT_LOCKED,
-    TYPE_OF_FILTER,
-    WHERE_COLUMN,
-    WHERE_CONDITION,
-    SELECTED_COLLECTIONS,
-    SELECTED_IDENTIFIER,
-    SELECTED_SMILES,
-    SELECTED_SMILES_FOR_EXPORT,
-    SELECTING_CHAMANP,
-    SELECTING_HARMONSMILE,
-)
 from ui.harmonsmile_state import (
     TERMINAL_JOB_STATUSES,
     clear_harmonsmile_runtime,
@@ -53,7 +25,28 @@ from ui.harmonsmile_state import (
 )
 from ui.modelability_card import render_modelability_card
 from ui.session_state import refresh_database_state
-
+from ui.state_keys import (
+    CODIGO_BUSCAR,
+    CURRENT_TABLE,
+    CUSTOM_QUERY,
+    DATABASE_ID,
+    DEPURADO_SUCCESS_MESSAGE,
+    DEPURADO_SUCCESS_TABLE,
+    GROUP_BY_COLUMN,
+    HARMONSMILE_RUNNING,
+    HEADERS,
+    NEW_TABLE_NAME,
+    ORDER_BY_COLUMN,
+    ORDER_DIRECTION,
+    PUBCHEM_JOB_ID,
+    SELECTED_HEADERS,
+    SELECTED_SMILES_FOR_EXPORT,
+    SELECTING_HARMONSMILE,
+    SET_TEXT_INPUT_LOCKED,
+    TYPE_OF_FILTER,
+    WHERE_COLUMN,
+    WHERE_CONDITION,
+)
 
 STRUCTURE_CONSOLIDATION_REQUIRED_COLUMNS = frozenset(
     {
@@ -70,6 +63,80 @@ STRUCTURE_CONSOLIDATION_REQUIRED_COLUMNS = frozenset(
         "Unit",
     }
 )
+GITHUB_REPOSITORY_URL = "https://github.com/NanoBiostructuresRG-lab/chemvault"
+_GITHUB_MARK_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" '
+    'viewBox="0 0 16 16" role="img" aria-label="GitHub">'
+    "<title>GitHub</title>"
+    '<path fill="currentColor" d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 '
+    "6.64 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.5-2.01.38-2.53-"
+    ".5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.52-.01-.53.63-.01 "
+    "1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-"
+    ".21-3.64-.91-3.64-4.02 0-.89.31-1.62.82-2.19-.08-.21-.36-1.07.08-2.16 "
+    "0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.87c.68 0 1.36.09 2 .27 1.53-1.06 "
+    "2.2-.84 2.2-.84.44 1.09.16 1.95.08 2.16.51.57.82 1.3.82 2.19 0 "
+    "3.12-1.87 3.81-3.65 4.02.29.26.54.75.54 1.52 0 1.1-.01 1.99-.01 "
+    '2.27 0 .21.15.47.55.39A8.04 8.04 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/>'
+    "</svg>"
+)
+
+
+def resolve_application_version() -> str:
+    """Resolve the source or installed CHEMVAULT version."""
+    project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    if project_path.is_file():
+        try:
+            with project_path.open("rb") as project_file:
+                metadata = tomllib.load(project_file)
+        except (OSError, tomllib.TOMLDecodeError) as error:
+            raise RuntimeError(
+                "CHEMVAULT source version metadata is invalid."
+            ) from error
+
+        project = metadata.get("project")
+        if not isinstance(project, dict) or project.get("name") != "ChemVault":
+            raise RuntimeError(
+                "The source project metadata does not identify CHEMVAULT."
+            )
+        version = project.get("version")
+        if (
+            not isinstance(version, str)
+            or not version
+            or version != version.strip()
+        ):
+            raise RuntimeError(
+                "CHEMVAULT source version metadata is unavailable."
+            )
+        return version
+
+    try:
+        version = importlib.metadata.version("ChemVault")
+    except importlib.metadata.PackageNotFoundError as error:
+        raise RuntimeError(
+            "CHEMVAULT distribution version metadata is unavailable."
+        ) from error
+    if not version or version != version.strip():
+        raise RuntimeError(
+            "CHEMVAULT distribution version metadata is invalid."
+        )
+    return version
+
+
+def render_about_card():
+    with st.container(border=True):
+        st.subheader("About")
+        st.markdown(
+            (
+                f'<a href="{GITHUB_REPOSITORY_URL}" target="_blank" '
+                'rel="noopener noreferrer" '
+                'style="display: inline-flex; align-items: center; gap: 0.45rem;">'
+                f"{_GITHUB_MARK_SVG}"
+                "<span>GitHub repository</span>"
+                "</a>"
+            ),
+            unsafe_allow_html=True,
+        )
+        st.markdown(f"**Version:** v{resolve_application_version()}")
 
 
 def render_build_card(select_proteins_callback):
@@ -111,6 +178,7 @@ def render_sidebar(select_proteins_callback, clear_preview_callback, build_query
 
         render_curate_card()
         render_export_card()
+        render_about_card()
 
     if st.session_state.get(PUBCHEM_JOB_ID, ""):
         select_proteins_callback()
@@ -274,31 +342,7 @@ def render_refine_card(clear_preview_callback, build_query_callback):
 
 def _set_curados_false():
     st.session_state[SELECTING_HARMONSMILE] = False
-    st.session_state[SELECTING_CHAMANP] = False
     clear_harmonsmile_runtime(st.session_state, clear_feedback=True)
-
-
-def _safe_register_curate_operation(
-    operation_type,
-    target_table,
-    source_columns,
-    output_columns=None,
-    status="success",
-    details=None,
-):
-    try:
-        register_operation(
-            get_connection(st.session_state[DATABASE_ID]),
-            operation_type,
-            target_table=target_table,
-            source_columns=source_columns,
-            output_columns=output_columns,
-            created_by="render_curate_card",
-            status=status,
-            details=details,
-        )
-    except Exception:
-        pass
 
 
 def refresh_harmonsmile_status_once(database_id, table_name, gateway=None):
@@ -314,11 +358,13 @@ def refresh_harmonsmile_status_once(database_id, table_name, gateway=None):
     if status is not None and status.status not in TERMINAL_JOB_STATUSES:
         st.progress(min(max(status.progress, 0.0), 1.0))
         st.caption(
-            status.message or "SMILES calculations are running in the backend."
+            status.message
+            or "Molecular structure processing is running in the backend."
         )
     elif st.session_state.get(HARMONSMILE_RUNNING, False):
         st.caption(
-            "Status for SMILES calculations is temporarily unavailable; retrying."
+            "Status for molecular structure processing is temporarily unavailable; "
+            "retrying."
         )
     return status
 
@@ -550,7 +596,9 @@ def render_curate_card():
                 target_table = st.session_state[CURRENT_TABLE]
                 cid_column = selected_headers[0]
                 gateway = harmonsmile_gateway or get_backend_gateway()
-                with st.spinner("Starting SMILES calculations through the backend..."):
+                with st.spinner(
+                    "Starting molecular structure processing through the backend..."
+                ):
                     execute_harmonsmile_command(
                         st.session_state,
                         gateway,
@@ -563,62 +611,6 @@ def render_curate_card():
 
         render_structure_consolidation_card()
         render_modelability_card()
-
-        with st.container(border=True):
-            st.markdown("**CHAMANP**")
-            if st.button("CHAMANP"):
-                _set_curados_false()
-                st.session_state[SELECTING_CHAMANP] = True
-
-            if st.session_state[SELECTING_CHAMANP]:
-                st.text("Select the columns to process")
-                st.text(f"Selected columns: {st.session_state[SELECTED_HEADERS]}")
-                st.selectbox("Select identifier", st.session_state[SELECTED_HEADERS], key=SELECTED_IDENTIFIER)
-                st.selectbox("Select canonical_smiles", st.session_state[SELECTED_HEADERS], key=SELECTED_SMILES)
-                st.selectbox("Select collections", st.session_state[SELECTED_HEADERS], key=SELECTED_COLLECTIONS)
-
-                if st.button("Run", key="curate_run_chamanp"):
-                    source_columns = [
-                        st.session_state[SELECTED_IDENTIFIER],
-                        st.session_state[SELECTED_SMILES],
-                        st.session_state[SELECTED_COLLECTIONS],
-                    ]
-                    run_chamanp(
-                        load_selected_columns(
-                            st.session_state.get(DATABASE_ID, ""),
-                            st.session_state.get(CURRENT_TABLE, ""),
-                            st.session_state.get(HEADERS, []),
-                            st.session_state.get(SELECTED_HEADERS, []),
-                        ),
-                        st.session_state[SELECTED_IDENTIFIER],
-                        st.session_state[SELECTED_SMILES],
-                        st.session_state[SELECTED_COLLECTIONS],
-                    )
-                    _safe_register_curate_operation(
-                        "chamanp_run",
-                        st.session_state[CURRENT_TABLE],
-                        source_columns,
-                        details="Ran CHAMANP and generated downloadable artifacts.",
-                    )
-                    st.text("Chamanp completed successfully")
-                    st.text("Downloading files")
-                folder_path = "artifacts"
-                files = os.listdir(folder_path)
-
-                for file_name in files:
-                    file_path = os.path.join(folder_path, file_name)
-                    if file_name != "notes.txt":
-                        with open(file_path, "rb") as f:
-                            downloaded = st.download_button(
-                                label=f"Download {file_name}",
-                                data=f,
-                                file_name=file_name,
-                                mime="application/octet-stream",
-                                key=file_name,
-                            )
-                        if downloaded:
-                            os.remove(file_path)
-                            st.success(f"{file_name} removed from the server")
 
 
 def render_export_card():

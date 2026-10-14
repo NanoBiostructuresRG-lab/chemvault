@@ -1,6 +1,6 @@
 # CHEMVAULT
 
-**Target-centered bioactivity dataset curation from PubChem**
+**Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment**
 
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](LICENSE)
 
@@ -124,55 +124,86 @@ The supported release environment uses Python 3.12.
 >
 > **macOS / Linux:** use the system terminal.
 
-CHEMVAULT is distributed from GitHub release tags. It is not installed from
-PyPI. Compatible versions of HARMONSMILE, CHAMANP, MOLRAPTOR, and the remaining
-runtime dependencies are installed from `requirements.txt`.
-
-1. Clone the repository and select the release tag:
-
-```bash
-git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
-cd chemvault
-git fetch --tags
-git checkout v0.14.6
-```
-
-2. Create and activate the environment:
+CHEMVAULT declares its compatible runtime dependencies in `pyproject.toml`.
+Create and activate a Python 3.12 environment before installing it:
 
 ```bash
 conda create -n chemvault_env python=3.12
 conda activate chemvault_env
 ```
 
-3. Install the pinned dependencies:
+### Install a published distribution from PyPI
+
+For a CHEMVAULT release that is available from PyPI, install the published
+distribution with:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install ChemVault
 ```
 
-4. Run CHEMVAULT:
+### Install from the source repository
+
+Clone the repository and, when required, select the release tag or development
+branch that you intend to install:
 
 ```bash
+git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
+cd chemvault
+```
+
+Install CHEMVAULT and its declared dependencies from the selected checkout:
+
+```bash
+python -m pip install .
+```
+
+For either installation method, launch the installed application with:
+
+```bash
+chemvault
+```
+
+Use `chemvault --help` for CLI help or `chemvault --version` to display the
+installed version.
+
+### Development installation and execution
+
+For development directly from a source checkout, install CHEMVAULT in editable
+mode and run the Streamlit application from the repository root:
+
+```bash
+python -m pip install -e .
 streamlit run app.py
 ```
 
 Open `http://localhost:8501` in your browser.
 
-> Do not install HARMONSMILE, CHAMANP, or MOLRAPTOR separately for normal
-> CHEMVAULT use. The compatible versions are defined in `requirements.txt`.
+> Do not install HARMONSMILE or MOLRAPTOR separately for normal
+> CHEMVAULT use. The compatible versions are defined in `pyproject.toml`.
 
-### Updating an existing clone
+### Documentation
+
+The documentation source provides the [Usage guide](docs/usage.md),
+[API reference](docs/api.md), and [Changelog](CHANGELOG.md). To install the
+documentation dependencies and serve the site locally from a source checkout:
+
+```bash
+python -m pip install -e ".[docs]"
+python -m mkdocs serve
+```
+
+These commands serve the documentation locally and do not indicate that the
+GitHub Pages site has been deployed.
+
+### Updating a development checkout
 
 ```bash
 cd path/to/chemvault
-git fetch --tags origin
-git checkout v0.14.6
+git fetch origin
+git pull --ff-only
 conda activate chemvault_env
-python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
-
-A release checkout is normally in a detached `HEAD` state. That is expected
-when running a tagged version.
 
 ---
 
@@ -256,9 +287,8 @@ strict UniProt gene-target resolution, PubChem protein-search jobs, structure
 consolidation, HARMONSMILE jobs, MODELABILITY INDEX jobs, and fingerprint
 `.npz` export through the backend gateway.
 
-CHAMANP execution and unsupported table mutations remain local workflows. The
-current backend runtime is process-local and is not a distributed worker
-platform.
+Unsupported table mutations remain local workflows. The current backend runtime
+is process-local and is not a distributed worker platform.
 
 ---
 
@@ -268,7 +298,7 @@ platform.
 
 1. Start CHEMVAULT and open `http://localhost:8501`.
 2. Enter a name in **SQL Database name**.
-3. Upload `examples/example_chamanp.csv` from the sidebar.
+3. Upload a CSV file using **Upload CSV** in the sidebar.
 4. Inspect the table using the **Columns** controls.
 5. Use **Refine** to filter rows or columns.
 6. Create a derived table when the selection should be preserved.
@@ -518,6 +548,14 @@ It does not invalidate a successful test run.
 
 ---
 
+## Contributing
+
+See the [Contributing guide](CONTRIBUTING.md) for development setup,
+validation, and pull-request guidance. Participation in CHEMVAULT is governed
+by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+---
+
 ## Related tools
 
 CHEMVAULT integrates tools developed by the NanoBiostructures Research Group:
@@ -525,22 +563,22 @@ CHEMVAULT integrates tools developed by the NanoBiostructures Research Group:
 - [HARMONSMILE](https://pypi.org/project/harmonsmile/) - traceable SMILES
   harmonization;
 - [MOLRAPTOR](https://pypi.org/project/molraptor/) - reproducible molecular
-  fingerprint generation;
-- [CHAMANP](https://pypi.org/project/chamanp/) - molecular dataset curation and
-  preparation.
+  fingerprint generation.
 
 ---
 
 ## Citation
 
-Until a `CITATION.cff` file or archived release citation is provided, cite the
-software as:
+To cite CHEMVAULT, use the citation metadata provided in
+[CITATION.cff](CITATION.cff).
+
+The recommended software citation is:
 
 ```text
-Contreras-Torres, F. F., Castro-Flores, D., Murrieta, A. C., &
-Saldivar-González, F. I. (2026).
-CHEMVAULT: Target-centered bioactivity dataset curation from PubChem
-(Version 0.14.5) [Computer software].
+Contreras-Torres, F. F., Murrieta, A. C., Castro-Flores, D., &
+Saldívar-González, F. I. (2026).
+CHEMVAULT — Traceable Target-Centered Bioactivity Dataset Construction and
+Modelability Assessment (Version 0.14.7) [Computer software].
 https://github.com/NanoBiostructuresRG-lab/chemvault
 ```
 

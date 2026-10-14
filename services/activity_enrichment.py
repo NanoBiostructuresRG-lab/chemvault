@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import json
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from services.db_audit import register_operation
 

@@ -3,6 +3,7 @@ import streamlit as st
 
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.job_models import JobStatus
+from ui.session_state import refresh_database_state
 from ui.state_keys import (
     CURRENT_TABLE,
     DATABASE_ID,
@@ -15,8 +16,6 @@ from ui.state_keys import (
     SELECTED_PROTEINS,
     TARGET_INPUT_MODE,
 )
-from ui.session_state import refresh_database_state
-
 
 GENE_SYMBOL_MODE = "Gene symbol"
 UNIPROT_ACCESSION_MODE = "UniProt accession"

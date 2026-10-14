@@ -8,13 +8,12 @@ import streamlit as st
 
 from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
-from ui.state_keys import MODELABILITY_FINGERPRINT_TYPE, MODELABILITY_RESULT
 from ui.modelability_state import (
     analysis_report_json,
     diagnostics_csv,
     modelability_scope_matches,
 )
-
+from ui.state_keys import MODELABILITY_FINGERPRINT_TYPE, MODELABILITY_RESULT
 
 DIAGNOSTICS_PREVIEW_ROWS = 10
 ANALYSIS_DETAIL_FIELDS = (
@@ -413,7 +412,7 @@ def render_modelability_result_card(session_state, database_id, table_name):
         st.dataframe(
             list(diagnostics)[:DIAGNOSTICS_PREVIEW_ROWS],
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
         analysis_identity = provenance.get("chemvault_analysis_hash")
         result_fingerprint_type = provenance.get(
@@ -477,6 +476,6 @@ def render_modelability_result_card(session_state, database_id, table_name):
             st.dataframe(
                 analysis_detail_rows(provenance),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
     return True

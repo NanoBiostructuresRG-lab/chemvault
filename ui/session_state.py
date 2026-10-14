@@ -8,16 +8,16 @@ from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from services.database import DatabaseState
 from ui.state_keys import (
     ALL_TABLES,
-    CUSTOM_QUERY,
     CURRENT_TABLE,
+    CUSTOM_QUERY,
     DATABASE_ID,
     EXISTING_DB_SELECT,
     GROUP_COUNT_COLUMN,
-    HEADERS,
     HARMONSMILE_FEEDBACK_KIND,
     HARMONSMILE_FEEDBACK_MESSAGE,
     HARMONSMILE_JOB_ID,
     HARMONSMILE_RUNNING,
+    HEADERS,
     INPUT_DATABASE_ID,
     INPUT_GENE_SYMBOL,
     INPUT_PROTEIN,
@@ -33,13 +33,12 @@ from ui.state_keys import (
     PUBCHEM_JOB_COMPLETION_HANDLED,
     PUBCHEM_JOB_ID,
     RESOLVED_TARGET,
+    SCIENTIFIC_RECOVERY_NOTICE,
     SELECTED_HEADERS,
     SELECTED_ORGANISM_ID,
     SELECTED_PROTEINS,
-    SELECTING_CHAMANP,
     SELECTING_HARMONSMILE,
     SET_TEXT_INPUT_LOCKED,
-    SCIENTIFIC_RECOVERY_NOTICE,
     TARGET_INPUT_MODE,
 )
 
@@ -67,7 +66,6 @@ def initialize_session_state(session_state, verify_directories_callback):
         SELECTED_ORGANISM_ID: None,
         RESOLVED_TARGET: None,
         SELECTING_HARMONSMILE: "",
-        SELECTING_CHAMANP: "",
         HARMONSMILE_RUNNING: False,
         HARMONSMILE_JOB_ID: "",
         HARMONSMILE_FEEDBACK_KIND: "",
@@ -169,7 +167,7 @@ def refresh_database_state(session_state):
             recovered_jobs = get_backend_gateway().activate_scientific_runtime(
                 database_id
             )
-        except BackendGatewayError as error:
+        except BackendGatewayError as activation_error:
             return DatabaseState(
                 database_id=database_id,
                 current_table=session_state.get(CURRENT_TABLE, ""),
@@ -180,7 +178,7 @@ def refresh_database_state(session_state):
                 ),
                 message=(
                     "Unable to activate scientific recovery for the selected "
-                    f"database: {error}"
+                    f"database: {activation_error}"
                 ),
                 success=False,
             )

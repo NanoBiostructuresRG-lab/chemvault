@@ -6,6 +6,8 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Iterable
+from typing import TypedDict, cast
 
 from molraptor import FingerprintType
 
@@ -21,7 +23,6 @@ from ui.state_keys import (
     MODELABILITY_RESULT,
     MODELABILITY_RUNNING,
 )
-
 
 TERMINAL_JOB_STATUSES = {
     JobStatus.COMPLETED,
@@ -121,6 +122,11 @@ MURCKO_NN_INTERFACE_FIELDS = (
     "reconstructed_modelability_index",
     "transition_counts",
 )
+
+
+class _ModelabilityExportResult(TypedDict, total=False):
+    provenance: dict[str, object]
+    diagnostics: Iterable[dict[str, object]]
 
 
 def modelability_scope_matches(
@@ -248,7 +254,8 @@ def poll_modelability_job(
 
 def diagnostics_csv(result: dict[str, object]) -> str:
     """Serialize diagnostics in memory without persisting an artifact."""
-    provenance = result.get("provenance", {})
+    export_result = cast(_ModelabilityExportResult, result)
+    provenance = export_result.get("provenance", {})
     analysis_fields = {
         field: provenance.get(field)
         for field in DIAGNOSTIC_COLUMNS[:3]
@@ -261,14 +268,15 @@ def diagnostics_csv(result: dict[str, object]) -> str:
         lineterminator="\n",
     )
     writer.writeheader()
-    for diagnostic in result.get("diagnostics", ()):
+    for diagnostic in export_result.get("diagnostics", ()):
         writer.writerow({**diagnostic, **analysis_fields})
     return output.getvalue()
 
 
 def analysis_report_json(result: dict[str, object]) -> str:
     """Serialize the existing analysis result without recomputation."""
-    provenance = result.get("provenance", {})
+    export_result = cast(_ModelabilityExportResult, result)
+    provenance = export_result.get("provenance", {})
     structural_context = result.get("structural_context", {})
     if not isinstance(structural_context, dict):
         structural_context = {}
