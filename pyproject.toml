@@ -11,7 +11,10 @@ readme = "README.md"
 license = "LGPL-3.0-or-later"
 license-files = ["LICENSE", "COPYING", "COPYING.LESSER"]
 authors = [
-    { name = "Flavio F. Contreras-Torres", email = "contreras.flavio@tec.mx" }
+    { name = "Flavio F. Contreras-Torres", email = "contreras.flavio@tec.mx" },
+    { name = "Ana C. Murrieta" },
+    { name = "Diego Castro-Flores" },
+    { name = "Fernanda I. Saldívar-González" }
 ]
 keywords = ["PubChem Bioassays", "bioactivity data curation", "chemical structure harmonization", "modelability assessment"]
 classifiers = [

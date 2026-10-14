@@ -124,46 +124,55 @@ The supported release environment uses Python 3.12.
 >
 > **macOS / Linux:** use the system terminal.
 
-Version `0.14.7` is currently available only from the `dev/v0.14.7` source
-branch; it has not been published to PyPI. This branch declares its compatible
-runtime dependencies in `pyproject.toml`.
-
-The published `v0.14.6` tag uses its own `requirements.txt` workflow. For that
-release, check out `v0.14.6` and follow the
-[tagged README](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/v0.14.6/README.md)
-instead of the development instructions below.
-
-1. Clone the repository and select the current development branch:
-
-```bash
-git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
-cd chemvault
-git checkout dev/v0.14.7
-```
-
-2. Create and activate the environment:
+CHEMVAULT declares its compatible runtime dependencies in `pyproject.toml`.
+Create and activate a Python 3.12 environment before installing it:
 
 ```bash
 conda create -n chemvault_env python=3.12
 conda activate chemvault_env
 ```
 
-3. Install CHEMVAULT and its declared dependencies:
+### Install a published distribution from PyPI
+
+For a CHEMVAULT release that is available from PyPI, install the published
+distribution with:
+
+```bash
+python -m pip install ChemVault
+```
+
+### Install from the source repository
+
+Clone the repository and, when required, select the release tag or development
+branch that you intend to install:
+
+```bash
+git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
+cd chemvault
+```
+
+Install CHEMVAULT and its declared dependencies from the selected checkout:
 
 ```bash
 python -m pip install .
 ```
 
-4. Launch the installed application:
+For either installation method, launch the installed application with:
 
 ```bash
 chemvault
 ```
 
 Use `chemvault --help` for CLI help or `chemvault --version` to display the
-installed version. For development directly from the source checkout, use:
+installed version.
+
+### Development installation and execution
+
+For development directly from a source checkout, install CHEMVAULT in editable
+mode and run the Streamlit application from the repository root:
 
 ```bash
+python -m pip install -e .
 streamlit run app.py
 ```
 
@@ -175,26 +184,25 @@ Open `http://localhost:8501` in your browser.
 ### Documentation
 
 The documentation source provides the [Usage guide](docs/usage.md),
-[API reference](docs/api.md), and [Changelog](CHANGELOG.md). To build or
-serve it locally from the current source branch:
+[API reference](docs/api.md), and [Changelog](CHANGELOG.md). To install the
+documentation dependencies and serve the site locally from a source checkout:
 
 ```bash
 python -m pip install -e ".[docs]"
 python -m mkdocs serve
 ```
 
-This development documentation does not imply that CHEMVAULT 0.14.7 has been
-published to PyPI.
+These commands serve the documentation locally and do not indicate that the
+GitHub Pages site has been deployed.
 
 ### Updating a development checkout
 
 ```bash
 cd path/to/chemvault
 git fetch origin
-git checkout dev/v0.14.7
-git pull --ff-only origin dev/v0.14.7
+git pull --ff-only
 conda activate chemvault_env
-python -m pip install .
+python -m pip install -e .
 ```
 
 ---
@@ -540,6 +548,14 @@ It does not invalidate a successful test run.
 
 ---
 
+## Contributing
+
+See the [Contributing guide](CONTRIBUTING.md) for development setup,
+validation, and pull-request guidance. Participation in CHEMVAULT is governed
+by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+---
+
 ## Related tools
 
 CHEMVAULT integrates tools developed by the NanoBiostructures Research Group:
@@ -553,14 +569,16 @@ CHEMVAULT integrates tools developed by the NanoBiostructures Research Group:
 
 ## Citation
 
-Until a `CITATION.cff` file or archived release citation is provided, cite the
-software as:
+To cite CHEMVAULT, use the citation metadata provided in
+[CITATION.cff](CITATION.cff).
+
+The recommended software citation is:
 
 ```text
-Contreras-Torres, F. F., Castro-Flores, D., Murrieta, A. C., &
-Saldivar-González, F. I. (2026).
-CHEMVAULT: Target-centered bioactivity dataset curation from PubChem
-(Version 0.14.5) [Computer software].
+Contreras-Torres, F. F., Murrieta, A. C., Castro-Flores, D., &
+Saldívar-González, F. I. (2026).
+CHEMVAULT — Traceable Target-Centered Bioactivity Dataset Construction and
+Modelability Assessment (Version 0.14.7) [Computer software].
 https://github.com/NanoBiostructuresRG-lab/chemvault
 ```
 
