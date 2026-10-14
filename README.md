@@ -124,17 +124,21 @@ The supported release environment uses Python 3.12.
 >
 > **macOS / Linux:** use the system terminal.
 
-CHEMVAULT is distributed from GitHub release tags. It is not installed from
-PyPI. Compatible versions of HARMONSMILE, MOLRAPTOR, and the remaining runtime
-dependencies are installed from `requirements.txt`.
+Version `0.14.7` is currently available only from the `dev/v0.14.7` source
+branch; it has not been published to PyPI. This branch declares its compatible
+runtime dependencies in `pyproject.toml`.
 
-1. Clone the repository and select the release tag:
+The published `v0.14.6` tag uses its own `requirements.txt` workflow. For that
+release, check out `v0.14.6` and follow the
+[tagged README](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/v0.14.6/README.md)
+instead of the development instructions below.
+
+1. Clone the repository and select the current development branch:
 
 ```bash
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
-git fetch --tags
-git checkout v0.14.6
+git checkout dev/v0.14.7
 ```
 
 2. Create and activate the environment:
@@ -144,13 +148,13 @@ conda create -n chemvault_env python=3.12
 conda activate chemvault_env
 ```
 
-3. Install the pinned dependencies:
+3. Install CHEMVAULT and its declared dependencies:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install .
 ```
 
-4. Run CHEMVAULT:
+4. Run CHEMVAULT from the source checkout:
 
 ```bash
 streamlit run app.py
@@ -159,20 +163,18 @@ streamlit run app.py
 Open `http://localhost:8501` in your browser.
 
 > Do not install HARMONSMILE or MOLRAPTOR separately for normal
-> CHEMVAULT use. The compatible versions are defined in `requirements.txt`.
+> CHEMVAULT use. The compatible versions are defined in `pyproject.toml`.
 
-### Updating an existing clone
+### Updating a development checkout
 
 ```bash
 cd path/to/chemvault
-git fetch --tags origin
-git checkout v0.14.6
+git fetch origin
+git checkout dev/v0.14.7
+git pull --ff-only origin dev/v0.14.7
 conda activate chemvault_env
-python -m pip install -r requirements.txt
+python -m pip install .
 ```
-
-A release checkout is normally in a detached `HEAD` state. That is expected
-when running a tagged version.
 
 ---
 

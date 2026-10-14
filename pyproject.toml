@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ChemVault"
-dynamic = ["version"]
+version = "0.14.7"
 description = "A Cheminformatics Application for Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment"
 readme = "README.md"
 license = "LGPL-3.0-or-later"
@@ -19,10 +19,68 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Scientific/Engineering :: Cheminformatics",
+    "Topic :: Scientific/Engineering :: Chemistry",
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.12"
+dependencies = [
+    "streamlit>=1.58.0",
+    "numpy>=2.5.0",
+    "pandas>=3.0.3",
+    "pillow>=12.2.0",
+    "requests>=2.34.2",
+    "fastapi>=0.138.1",
+    "httpx2>=2.5.0",
+    "uvicorn==0.49.0",
+    "harmonsmile==0.3.4",
+    "molraptor==0.4.1",
+]
+
+[tool.hatch.build]
+exclude = [
+    "/.mypy_cache",
+    "/.pytest_cache",
+    "/.ruff_cache",
+    "/.vscode",
+    "/SQL",
+    "/analysis_artifacts",
+    "/build",
+    "/dist",
+    "/tempFilesHarmonsile",
+    "**/__pycache__",
+    "**/*.db",
+    "**/*.egg-info",
+    "**/*.py[cod]",
+]
+
+[tool.hatch.build.targets.wheel]
+only-include = [
+    ".streamlit",
+    "api",
+    "application",
+    "clients",
+    "services",
+    "ui",
+    "app.py",
+    "docs/assets/chemvault-logo.jpeg",
+]
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+    ".streamlit",
+    "api",
+    "application",
+    "clients",
+    "services",
+    "ui",
+    "app.py",
+    "docs",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+    "COPYING",
+    "COPYING.LESSER",
+]
 
 [tool.ruff]
 line-length = 100
@@ -39,3 +97,7 @@ files = ["api", "application", "clients", "services", "ui", "app.py"]
 no_site_packages = true
 show_error_codes = true
 incremental = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

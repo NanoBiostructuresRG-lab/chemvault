@@ -56,6 +56,13 @@ from ui.state_keys import (
     SET_TEXT_INPUT_LOCKED,
 )
 
+CHEMVAULT_LOGO_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "docs"
+    / "assets"
+    / "chemvault-logo.jpeg"
+)
+
 ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Type",
     "Activity_Value",
@@ -238,7 +245,7 @@ def render_app_identity(container):
     col_logo, col_titulo = container.columns([0.12, 0.88], vertical_alignment="center")
 
     with col_logo:
-        st.image("assets/logo.jpeg", use_container_width=True)
+        st.image(CHEMVAULT_LOGO_PATH, use_container_width=True)
 
     with col_titulo:
         st.markdown(

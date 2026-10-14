@@ -14,6 +14,7 @@ from services.sql_utils import (
 )
 from ui.dialogs import select_proteins
 from ui.main_page import (
+    CHEMVAULT_LOGO_PATH,
     create_main_layout,
     render_app_identity,
     render_columns_card,
@@ -51,7 +52,7 @@ def verify_directories():
 
 initialize_session_state(st.session_state, verify_directories)
 
-logo = Image.open("assets/logo.jpeg")
+logo = Image.open(CHEMVAULT_LOGO_PATH)
 
 st.set_page_config(
     page_title="ChemVault",
