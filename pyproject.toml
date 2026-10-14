@@ -36,6 +36,9 @@ dependencies = [
     "molraptor==0.4.1",
 ]
 
+[project.scripts]
+chemvault = "ui.launcher:main"
+
 [tool.hatch.build]
 exclude = [
     "/.mypy_cache",

@@ -154,7 +154,14 @@ conda activate chemvault_env
 python -m pip install .
 ```
 
-4. Run CHEMVAULT from the source checkout:
+4. Launch the installed application:
+
+```bash
+chemvault
+```
+
+Use `chemvault --help` for CLI help or `chemvault --version` to display the
+installed version. For development directly from the source checkout, use:
 
 ```bash
 streamlit run app.py
