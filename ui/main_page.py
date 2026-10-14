@@ -245,7 +245,7 @@ def render_app_identity(container):
     col_logo, col_titulo = container.columns([0.12, 0.88], vertical_alignment="center")
 
     with col_logo:
-        st.image(CHEMVAULT_LOGO_PATH, use_container_width=True)
+        st.image(CHEMVAULT_LOGO_PATH, width="stretch")
 
     with col_titulo:
         st.markdown(
@@ -952,7 +952,7 @@ def render_operation_history(database_id):
     st.dataframe(
         _build_operation_history_dataframe(operations),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -1188,7 +1188,7 @@ def render_structured_activity_section(connection):
             f"Showing {activity_count} structured activity "
             f"row{'s' if activity_count != 1 else ''}."
         )
-    st.dataframe(preview_df, hide_index=True, use_container_width=True)
+    st.dataframe(preview_df, hide_index=True, width="stretch")
     st.download_button(
         "Download structured activity CSV",
         data=get_activity_csv_bytes(connection),
@@ -1303,7 +1303,7 @@ def render_structured_activity_section(connection):
             f"Showing {filtered_count} filtered activity "
             f"row{'s' if filtered_count != 1 else ''}."
         )
-    st.dataframe(filtered_preview_df, hide_index=True, use_container_width=True)
+    st.dataframe(filtered_preview_df, hide_index=True, width="stretch")
 
     filtered_cids = get_activity_cids(connection, **filter_kwargs)
     filter_signature = _structured_activity_filter_signature(
@@ -1631,7 +1631,7 @@ def render_table_manager_card(container):
         st.dataframe(
             _build_table_manager_dataframe(profiles),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
         with st.container(border=True):
             st.markdown("**Database maintenance**")

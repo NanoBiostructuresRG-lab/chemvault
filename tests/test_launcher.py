@@ -118,6 +118,51 @@ def test_no_arguments_launches_installed_app_and_propagates_exit_status(
     assert not (tmp_path / "SQL").exists()
 
 
+def test_keyboard_interrupt_returns_130_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PYTHONPATH", "caller-python-path")
+    initial_cwd = Path.cwd()
+    initial_environment = dict(os.environ)
+
+    def interrupt(command: list[str], **kwargs: object) -> None:
+        assert command == [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(Path(launcher.__file__).resolve().parent.parent / "app.py"),
+        ]
+        assert kwargs == {"check": False}
+        assert Path.cwd() == initial_cwd
+        assert dict(os.environ) == initial_environment
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(launcher.subprocess, "run", interrupt)
+
+    assert launcher.main([]) == 130
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert Path.cwd() == initial_cwd
+    assert dict(os.environ) == initial_environment
+
+
+def test_unrelated_subprocess_exception_is_not_suppressed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*args: object, **kwargs: object) -> None:
+        raise OSError("subprocess failure")
+
+    monkeypatch.setattr(launcher.subprocess, "run", fail)
+
+    with pytest.raises(OSError, match="subprocess failure"):
+        launcher.main([])
+
+
 def test_missing_installed_app_returns_failure_without_starting_streamlit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

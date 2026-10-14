@@ -43,7 +43,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"chemvault: application file not found: {app_path}", file=sys.stderr)
         return 1
 
-    completed = subprocess.run(_streamlit_command(app_path), check=False)
+    try:
+        completed = subprocess.run(_streamlit_command(app_path), check=False)
+    except KeyboardInterrupt:
+        return 130
     return completed.returncode
 
 

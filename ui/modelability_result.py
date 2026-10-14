@@ -412,7 +412,7 @@ def render_modelability_result_card(session_state, database_id, table_name):
         st.dataframe(
             list(diagnostics)[:DIAGNOSTICS_PREVIEW_ROWS],
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
         analysis_identity = provenance.get("chemvault_analysis_hash")
         result_fingerprint_type = provenance.get(
@@ -476,6 +476,6 @@ def render_modelability_result_card(session_state, database_id, table_name):
             st.dataframe(
                 analysis_detail_rows(provenance),
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
     return True
