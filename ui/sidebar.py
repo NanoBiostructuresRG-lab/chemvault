@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 import html
+import importlib.metadata
+import tomllib
+from pathlib import Path
 
 import streamlit as st
 
@@ -60,6 +63,80 @@ STRUCTURE_CONSOLIDATION_REQUIRED_COLUMNS = frozenset(
         "Unit",
     }
 )
+GITHUB_REPOSITORY_URL = "https://github.com/NanoBiostructuresRG-lab/chemvault"
+_GITHUB_MARK_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" '
+    'viewBox="0 0 16 16" role="img" aria-label="GitHub">'
+    "<title>GitHub</title>"
+    '<path fill="currentColor" d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 '
+    "6.64 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.5-2.01.38-2.53-"
+    ".5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.52-.01-.53.63-.01 "
+    "1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-"
+    ".21-3.64-.91-3.64-4.02 0-.89.31-1.62.82-2.19-.08-.21-.36-1.07.08-2.16 "
+    "0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.87c.68 0 1.36.09 2 .27 1.53-1.06 "
+    "2.2-.84 2.2-.84.44 1.09.16 1.95.08 2.16.51.57.82 1.3.82 2.19 0 "
+    "3.12-1.87 3.81-3.65 4.02.29.26.54.75.54 1.52 0 1.1-.01 1.99-.01 "
+    '2.27 0 .21.15.47.55.39A8.04 8.04 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/>'
+    "</svg>"
+)
+
+
+def resolve_application_version() -> str:
+    """Resolve the source or installed CHEMVAULT version."""
+    project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    if project_path.is_file():
+        try:
+            with project_path.open("rb") as project_file:
+                metadata = tomllib.load(project_file)
+        except (OSError, tomllib.TOMLDecodeError) as error:
+            raise RuntimeError(
+                "CHEMVAULT source version metadata is invalid."
+            ) from error
+
+        project = metadata.get("project")
+        if not isinstance(project, dict) or project.get("name") != "ChemVault":
+            raise RuntimeError(
+                "The source project metadata does not identify CHEMVAULT."
+            )
+        version = project.get("version")
+        if (
+            not isinstance(version, str)
+            or not version
+            or version != version.strip()
+        ):
+            raise RuntimeError(
+                "CHEMVAULT source version metadata is unavailable."
+            )
+        return version
+
+    try:
+        version = importlib.metadata.version("ChemVault")
+    except importlib.metadata.PackageNotFoundError as error:
+        raise RuntimeError(
+            "CHEMVAULT distribution version metadata is unavailable."
+        ) from error
+    if not version or version != version.strip():
+        raise RuntimeError(
+            "CHEMVAULT distribution version metadata is invalid."
+        )
+    return version
+
+
+def render_about_card():
+    with st.container(border=True):
+        st.subheader("About")
+        st.markdown(
+            (
+                f'<a href="{GITHUB_REPOSITORY_URL}" target="_blank" '
+                'rel="noopener noreferrer" '
+                'style="display: inline-flex; align-items: center; gap: 0.45rem;">'
+                f"{_GITHUB_MARK_SVG}"
+                "<span>GitHub repository</span>"
+                "</a>"
+            ),
+            unsafe_allow_html=True,
+        )
+        st.markdown(f"**Version:** v{resolve_application_version()}")
 
 
 def render_build_card(select_proteins_callback):
@@ -101,6 +178,7 @@ def render_sidebar(select_proteins_callback, clear_preview_callback, build_query
 
         render_curate_card()
         render_export_card()
+        render_about_card()
 
     if st.session_state.get(PUBCHEM_JOB_ID, ""):
         select_proteins_callback()

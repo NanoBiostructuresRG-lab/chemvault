@@ -260,7 +260,7 @@ def render_app_identity(container):
                     ChemVault
                 </div>
                 <div style="margin-top: 0.25rem; font-size: 0.98rem; color: var(--cv-muted);">
-                    Target-centered bioactivity dataset curation from PubChem
+                    Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment
                 </div>
             </div>
             """,
