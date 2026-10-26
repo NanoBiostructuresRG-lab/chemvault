@@ -35,6 +35,7 @@ def derive_murcko_scaffold(smiles: str) -> MurckoScaffoldResult:
             is_cyclic=False,
         )
 
+    Chem.RemoveStereochemistry(scaffold)
     scaffold_smiles = Chem.MolToSmiles(
         scaffold,
         isomericSmiles=False,
