@@ -255,7 +255,7 @@ def _diagnostics_section_heading_html():
 def _optional_metric_text(value):
     if value is None:
         return "N/A"
-    return f"{float(value):.3f}"
+    return f"{float(value):.4f}"
 
 
 def structural_context_metric_groups(result):
@@ -343,15 +343,15 @@ def _render_metrics(result):
     modelability_values = (
         (
             "Modelability Index",
-            f'{float(result.get("modelability_index", 0.0)):.3f}',
+            f'{float(result.get("modelability_index", 0.0)):.4f}',
         ),
         (
             "Active Concordance",
-            f'{float(result.get("active_concordance", 0.0)):.3f}',
+            f'{float(result.get("active_concordance", 0.0)):.4f}',
         ),
         (
             "Inactive Concordance",
-            f'{float(result.get("inactive_concordance", 0.0)):.3f}',
+            f'{float(result.get("inactive_concordance", 0.0)):.4f}',
         ),
     )
 

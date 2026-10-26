@@ -701,21 +701,45 @@ def test_structural_context_summary_uses_selected_murcko_metrics():
         (
             "Murcko population context",
             (
-                ("Murcko population coverage", "0.667"),
+                ("Murcko population coverage", "0.6667"),
                 ("Murcko scaffold count", "3"),
-                ("Shared-scaffold molecular coverage", "0.500"),
-                ("Adjusted scaffold effect (ε²)", "-0.500"),
+                ("Shared-scaffold molecular coverage", "0.5000"),
+                ("Adjusted scaffold effect (ε²)", "-0.5000"),
             ),
         ),
         (
             "Nearest-neighbor scaffold interface",
             (
-                ("Murcko nearest-neighbor coverage", "0.500"),
-                ("Same-scaffold nearest-neighbor fraction", "0.667"),
-                ("Same-scaffold concordance", "1.000"),
-                ("Different-scaffold concordance", "0.000"),
+                ("Murcko nearest-neighbor coverage", "0.5000"),
+                ("Same-scaffold nearest-neighbor fraction", "0.6667"),
+                ("Same-scaffold concordance", "1.0000"),
+                ("Different-scaffold concordance", "0.0000"),
             ),
         ),
+    )
+    assert result["structural_context"]["murcko_population"][
+        "murcko_coverage"
+    ] == 4 / 6
+    assert result["structural_context"]["murcko_metrics"][
+        "epsilon_squared"
+    ] == -1 / 2
+
+
+def test_structural_context_summary_preserves_na_for_missing_metrics():
+    result = _result()
+    result["structural_context"] = {
+        "murcko_population": {},
+        "murcko_metrics": {},
+        "nearest_neighbor_diagnostics": {},
+        "murcko_nn_interface": {},
+    }
+
+    groups = modelability_result.structural_context_metric_groups(result)
+
+    assert all(
+        value == "N/A"
+        for _title, values in groups
+        for _label, value in values
     )
 
 
@@ -926,14 +950,19 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "**Modelability Index result**",
         "Modelability",
         "Modelability Index",
-        "0.750",
+        "0.7500",
         "Active Concordance",
-        "0.500",
+        "0.5000",
         "Inactive Concordance",
-        "1.000",
+        "1.0000",
         "<strong>Nearest-neighbor diagnostics</strong>",
     ):
         assert text in rendered_html
+    for value in ("0.7500", "0.5000", "1.0000"):
+        assert f">\n        {value}\n    </div>" in rendered_html
+    assert result["modelability_index"] == 0.75
+    assert result["active_concordance"] == 0.5
+    assert result["inactive_concordance"] == 1.0
     for removed_text in (
         "Structures",
         "Total structures",
