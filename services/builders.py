@@ -23,7 +23,7 @@ def build_from_csv(uploaded_file, database_id, current_table=""):
 
     table = current_table or "main"
 
-    df = pd.read_csv(uploaded_file)
+    df = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False)
 
     df.columns = [col.strip().replace(" ", "_") for col in df.columns]
 
@@ -45,7 +45,7 @@ def build_from_csv(uploaded_file, database_id, current_table=""):
     placeholders = ", ".join(["?"] * len(df.columns))
     cursor.executemany(
         f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders})",
-        df.astype(str).values.tolist()
+        df.values.tolist(),
     )
 
     conn.commit()

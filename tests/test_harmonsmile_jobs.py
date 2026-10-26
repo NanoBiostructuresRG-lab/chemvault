@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
+import io
 import sqlite3
 from pathlib import Path
 from threading import Event, Thread
@@ -13,6 +14,7 @@ from application.harmonsmile_jobs import (
     launch_harmonsmile_job,
     recover_orphaned_harmonsmile_jobs,
 )
+from services.builders import build_from_csv
 from services.harmonsmile_cache import (
     merge_harmonsmile_cache_to_table,
     upsert_harmonsmile_cache,
@@ -62,6 +64,77 @@ def test_harmonsmile_job_runs_merges_and_remains_queryable(tmp_path, monkeypatch
         "SELECT operation_type, status FROM _chemvault_operation_log"
     ).fetchone()
     assert operation == ("harmonsmile_run", "success")
+
+
+def test_csv_imported_cids_merge_without_changing_source_fields(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "SQL").mkdir()
+    csv_file = io.StringIO(
+        "ID,CID,Action_PubChem,Action_Our_label,Binary_action\n"
+        "001,1977,NULL,NA,01\n"
+        "002,NULL,Not available,Other text,0\n"
+        "003,2125,Antagonist,Antagonist,0\n"
+    )
+    source_rows = [
+        ("001", "1977", "NULL", "NA", "01"),
+        ("002", "NULL", "Not available", "Other text", "0"),
+        ("003", "2125", "Antagonist", "Antagonist", "0"),
+    ]
+    requested_cids = []
+
+    build_from_csv(csv_file, "test_db")
+
+    def runner(frame):
+        requested_cids.extend(frame["CID"].tolist())
+        return pd.DataFrame({
+            "PubChem_CID": frame["CID"],
+            "PubChem_Acquisition_Status": ["ok"] * len(frame),
+            "Canonical_SMILES": [
+                f"SIMULATED-{cid}" for cid in frame["CID"]
+            ],
+        })
+
+    completed = launch_harmonsmile_job(
+        "test_db",
+        "main",
+        "CID",
+        runner=runner,
+    )
+
+    connection = sqlite3.connect(tmp_path / "SQL" / "test_db.db")
+    rows = connection.execute(
+        """
+        SELECT
+            ID,
+            CID,
+            Action_PubChem,
+            Action_Our_label,
+            Binary_action,
+            Canonical_SMILES
+        FROM main
+        ORDER BY primary_id
+        """
+    ).fetchall()
+    cached = connection.execute(
+        "SELECT COUNT(*) FROM _chemvault_harmonsmile_cache"
+    ).fetchone()[0]
+    connection.close()
+
+    assert completed.status == JobStatus.COMPLETED
+    assert completed.result["processed_cids"] == 2
+    assert completed.result["invalid_cids"] == 1
+    assert completed.result["merged_rows"] == 2
+    assert requested_cids == ["1977", "2125"]
+    assert cached == 2
+    assert [row[:5] for row in rows] == source_rows
+    assert [row[5] for row in rows] == [
+        "SIMULATED-1977",
+        None,
+        "SIMULATED-2125",
+    ]
 
 
 def test_harmonsmile_job_records_runner_failure(tmp_path, monkeypatch):
