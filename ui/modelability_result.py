@@ -138,7 +138,7 @@ def analysis_detail_rows(provenance):
                 {
                     "Group": "Fingerprint",
                     "Field": "Radius",
-                    "Value": radius,
+                    "Value": str(radius),
                 }
             )
 

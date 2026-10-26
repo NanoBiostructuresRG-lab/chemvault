@@ -5,6 +5,7 @@ import json
 from contextlib import nullcontext
 from types import SimpleNamespace
 
+import pyarrow as pa
 import pytest
 from molraptor import FINGERPRINT_TYPES
 
@@ -781,6 +782,22 @@ def test_analysis_details_include_murcko_provenance():
     ]
 
 
+def test_analysis_details_are_arrow_serializable_without_mutating_profile():
+    provenance = _result()["provenance"]
+
+    rows = modelability_result.analysis_detail_rows(provenance)
+    table = pa.Table.from_pylist(rows)
+
+    assert table.schema.field("Value").type == pa.string()
+    assert next(
+        row["Value"]
+        for row in rows
+        if row["Field"] == "Radius"
+    ) == "2"
+    assert provenance["fingerprint_profile"]["radius"] == 2
+    assert isinstance(provenance["fingerprint_profile"]["radius"], int)
+
+
 def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     monkeypatch,
 ):
@@ -980,7 +997,7 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "Algorithm": "Morgan",
         "Output type": "Binary bit vector",
         "Fingerprint size": "2048 bits",
-        "Radius": 2,
+        "Radius": "2",
         "Chirality": "Not included",
         "Ring membership": "Included",
         "Bond types": "Used",
