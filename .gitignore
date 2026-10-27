@@ -16,6 +16,7 @@ tempFilesHarmonsile/
 *.egg-info/
 dist/
 build/
+/site/
 
 # Environments
 .env

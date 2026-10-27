@@ -107,5 +107,5 @@ Use [CITATION.cff](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/mai
 ## License
 
 **ChemVault** is licensed under the
-[GNU Lesser General Public License v3.0 or later](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/dev/v0.14.7/LICENSE).
+[GNU Lesser General Public License v3.0 or later](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/main/LICENSE).
 The SPDX identifier is `LGPL-3.0-or-later`.

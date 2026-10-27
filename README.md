@@ -81,7 +81,10 @@ Direct UniProt accession -------------+
                  MODELABILITY INDEX (MOLRAPTOR fingerprints)
                                       |
                                       v
-             Nearest-neighbor CSV, analysis JSON, and fingerprint .npz exports
+                         Four analysis downloads
+                                      |
+              Nearest-neighbor report (.csv) | Murcko relationships (.csv)
+                     Analysis report (.json) | Fingerprints (.npz)
 ```
 
 CHEMVAULT keeps source tables available and records derived-table provenance so
@@ -341,9 +344,9 @@ independently of this catalog.
 9. Select the resulting consolidated table.
 10. Choose a fingerprint in **MODELABILITY INDEX** and run the analysis.
 11. Inspect the score, class concordance, structural context, provenance, and
-    nearest-neighbor report.
-12. Download the nearest-neighbor CSV, analysis JSON, or fingerprint `.npz`
-    export.
+    nearest-neighbor relationships.
+12. Download the **Nearest-neighbor report (.csv)**, **Murcko relationships
+    (.csv)**, **Analysis report (.json)**, and **Fingerprints (.npz)** exports.
 
 > Databases are stored in `SQL/` and can be reopened in later sessions. Use a
 > different database name when a completely fresh run is required.
@@ -506,6 +509,14 @@ The result card provides:
 - a complete nearest-neighbor CSV report containing the selected molecular
   comparisons together with the fingerprint type, analysis identity, and
   population identity;
+- a Murcko relationships CSV containing one selected nearest-neighbor
+  relationship per structure, the source and neighbor scaffold identities,
+  and explicit `CC`, `CA`, `AC`, `AA`, `NS`, and `ND` classification columns.
+  `CC`, `CA`, `AC`, and `AA` distinguish cyclic-to-cyclic,
+  cyclic-to-acyclic, acyclic-to-cyclic, and acyclic-to-acyclic transitions;
+  cyclic-to-cyclic (`CC`) rows are further classified as same-scaffold (`NS`)
+  or different-scaffold (`ND`). The numeric 0/1 columns can be summed for
+  aggregation;
 - a JSON analysis report containing the MODELABILITY INDEX summary metrics,
   analysis provenance, nearest-neighbor tie and ambiguity diagnostics, and the
   existing Murcko population, structural metrics, and nearest-neighbor
@@ -514,9 +525,15 @@ The result card provides:
   matrix, ordered harmonized SMILES, binary outcomes and labels, stable
   structure identifiers, and canonical provenance metadata.
 
-The nearest-neighbor CSV and analysis JSON filenames include the fingerprint
-type and the first eight characters of the CHEMVAULT analysis identity so that
-outputs from different molecular representations remain distinguishable.
+The Murcko relationships CSV projects the single neighbor already selected for
+each structure by the persisted MODELABILITY INDEX result. It does not
+calculate additional neighbors or modify the MODELABILITY INDEX.
+
+The nearest-neighbor CSV, Murcko relationships CSV, and analysis JSON filenames
+include the fingerprint type and the first eight characters of the CHEMVAULT
+analysis identity so that outputs from different molecular representations
+remain distinguishable. The Murcko relationships filename also includes the
+first eight characters of the MOLRAPTOR profile hash.
 
 The `.npz` filename contract is:
 

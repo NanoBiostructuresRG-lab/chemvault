@@ -2,27 +2,34 @@
 
 ## Prerequisites
 
-CHEMVAULT v0.14.7 requires Python 3.12. Git and Conda are recommended for a
-source installation. The compatible HARMONSMILE and MOLRAPTOR releases are
-declared as project dependencies and do not need to be installed separately.
+The released CHEMVAULT v0.14.7 and the current `dev/v0.14.8` development branch
+require Python 3.12. Git and Conda are recommended for a source installation.
+The compatible HARMONSMILE and MOLRAPTOR releases are declared as project
+dependencies and do not need to be installed separately.
 
 ## Installation
 
-Version 0.14.7 is under development on `dev/v0.14.7` and is not published to
-PyPI. Install it from the selected source checkout:
+Version 0.14.7 is released and published on PyPI. Install that release with:
+
+```bash
+python -m pip install "ChemVault==0.14.7"
+```
+
+Version 0.14.8 is under development on `dev/v0.14.8` and is not a published
+release. Install the development branch from its source checkout:
 
 ```bash
 git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
 cd chemvault
-git checkout dev/v0.14.7
+git checkout dev/v0.14.8
 
 conda create -n chemvault_env python=3.12
 conda activate chemvault_env
 python -m pip install .
 ```
 
-The published GitHub release `v0.14.6` uses the installation procedure in that
-release's
+The historical GitHub release `v0.14.6` uses the installation procedure in
+that release's
 [tagged README](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/v0.14.6/README.md).
 
 ## Starting the application
@@ -264,10 +271,17 @@ Available outputs depend on the active workflow and include:
 - UTF-8 CSV for complete tables or selected table columns;
 - complete CSV for a filtered Structured activity population;
 - nearest-neighbor CSV with molecular comparisons and analysis identity;
+- Murcko relationships CSV with one persisted selected-neighbor relationship
+  per structure, source and neighbor scaffold identities, and numeric 0/1
+  `CC`, `CA`, `AC`, `AA`, `NS`, and `ND` classifications for aggregation;
 - JSON analysis report with summary, provenance, diagnostics, and Murcko
   structural context;
 - fingerprint `.npz` containing the ordered structures, labels, matrix, and
   canonical provenance required by the export contract.
+
+The Murcko relationships CSV projects the selected relationships already
+present in the MODELABILITY INDEX result. It does not calculate additional
+neighbors or modify the index.
 
 Completed MODELABILITY INDEX results and compatible fingerprint artifacts can
 be restored for the same database, source table, analysis identity, and
