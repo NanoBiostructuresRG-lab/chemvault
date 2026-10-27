@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
 title: "CHEMVAULT — Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment"
-version: "0.14.7"
-date-released: "2026-10-14"
+version: "0.14.8"
+date-released: "2026-10-27"
 authors:
   - family-names: "Contreras-Torres"
     given-names: "Flavio F."
