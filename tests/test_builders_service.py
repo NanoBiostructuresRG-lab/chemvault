@@ -29,6 +29,33 @@ def test_build_from_csv_creates_main_table_from_uploaded_csv(monkeypatch):
     assert cursor.fetchall() == [("csv_loaded",)]
 
 
+def test_build_from_csv_preserves_source_field_text(monkeypatch):
+    connection = sqlite3.connect(":memory:")
+    csv_file = io.StringIO(
+        "ID,CID,Action_PubChem,Action_Our_label,Binary_action\n"
+        "001,1977,NULL,NA,01\n"
+        "002,NULL,Not available,Other text,0\n"
+    )
+
+    monkeypatch.setattr(builders, "get_connection", lambda db_name: connection)
+    monkeypatch.setattr(builders.os.path, "isfile", lambda path: False)
+
+    builders.build_from_csv(csv_file, "test_db", "")
+
+    rows = connection.execute(
+        """
+        SELECT ID, CID, Action_PubChem, Action_Our_label, Binary_action
+        FROM main
+        ORDER BY primary_id
+        """
+    ).fetchall()
+
+    assert rows == [
+        ("001", "1977", "NULL", "NA", "01"),
+        ("002", "NULL", "Not available", "Other text", "0"),
+    ]
+
+
 def test_build_from_csv_uses_current_table_when_present(monkeypatch):
     connection = sqlite3.connect(":memory:")
     csv_file = io.StringIO("CID\n1\n")

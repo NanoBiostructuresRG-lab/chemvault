@@ -1,104 +1,117 @@
 # Usage
 
-## Prerequisites
+## Requirements
 
-CHEMVAULT v0.14.7 requires Python 3.12. Git and Conda are recommended for a
-source installation. The compatible HARMONSMILE and MOLRAPTOR releases are
-declared as project dependencies and do not need to be installed separately.
+Use Python 3.12, the supported release environment. A virtual environment is
+recommended to isolate dependencies. Git and Conda are not required for a PyPI
+installation. Compatible versions of HARMONSMILE and MOLRAPTOR are installed as
+package dependencies.
 
 ## Installation
 
-Version 0.14.7 is under development on `dev/v0.14.7` and is not published to
-PyPI. Install it from the selected source checkout:
+Install CHEMVAULT from [PyPI](https://pypi.org/project/ChemVault/):
 
 ```bash
-git clone https://github.com/NanoBiostructuresRG-lab/chemvault.git
-cd chemvault
-git checkout dev/v0.14.7
-
-conda create -n chemvault_env python=3.12
-conda activate chemvault_env
-python -m pip install .
+python -m pip install chemvault
 ```
 
-The published GitHub release `v0.14.6` uses the installation procedure in that
-release's
-[tagged README](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/v0.14.6/README.md).
+To upgrade an existing installation:
+
+```bash
+python -m pip install --upgrade chemvault
+```
+
+For editable installations and contributor setup, see the
+[Contributing guide](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/main/CONTRIBUTING.md).
 
 ## Starting the application
 
-An installed source checkout provides the console command:
+Run:
 
 ```bash
 chemvault
 ```
 
-The launcher preserves the caller's working directory and starts the packaged
-Streamlit application with the active Python interpreter. Informational CLI
-options do not start Streamlit:
+The interface is normally available at `http://localhost:8501`. The installed
+launcher starts the packaged Streamlit application; it does not require a
+source checkout or a direct `streamlit run app.py` command.
+
+To display command-line help or check the installed version:
 
 ```bash
 chemvault --help
 chemvault --version
 ```
 
-For development directly from the repository root, run:
-
-```bash
-streamlit run app.py
-```
-
-The interface is normally available at `http://localhost:8501`.
-
 ## Execution modes
 
 ### Local mode
 
-Local mode is selected when `CHEMVAULT_API_URL` is unset. Streamlit calls the
-application and service layers in the same installation and accesses the
+Local mode is the default. When `CHEMVAULT_API_URL` is not set, the Streamlit
+interface calls the application and service layers directly and accesses the
 selected SQLite database locally.
 
 ```text
 Streamlit UI -> application/services -> SQLite
 ```
 
-This is the default mode for routine use.
+FastAPI is not required for normal use.
 
-### API-client mode
+### API-client mode (optional)
 
-API-client mode routes the operations supported by the backend gateway through
-FastAPI. Start the API from the same working directory as Streamlit:
+API-client mode sends supported operations through a FastAPI backend. This mode
+is intended for development and validation of the HTTP interface. Start the
+backend in one terminal:
 
 ```bash
 python -m uvicorn api.main:app --reload
 ```
 
-Then set the backend URL before starting the application.
+From the same working directory, set the backend URL and start CHEMVAULT in a
+second terminal:
 
 === "Windows PowerShell"
 
     ```powershell
     $env:CHEMVAULT_API_URL = "http://127.0.0.1:8000"
-    streamlit run app.py
+    chemvault
     ```
 
 === "macOS / Linux"
 
     ```bash
     export CHEMVAULT_API_URL="http://127.0.0.1:8000"
-    streamlit run app.py
+    chemvault
     ```
 
 ```text
 Streamlit UI -> HTTP client -> FastAPI -> application/services -> SQLite
 ```
 
-The HTTP path covers database inspection and export, UniProt target resolution,
-PubChem jobs, scientific runtime activation, HARMONSMILE and MODELABILITY INDEX
-jobs, structure consolidation, and fingerprint artifact export. Unsupported
-table mutations remain local. If the configured backend is unavailable,
-CHEMVAULT reports the transport error and does not silently switch to local
-mode. See the [API Reference](api.md) for the exact endpoints.
+The HTTP path covers the supported database inspection and export operations,
+UniProt target resolution, PubChem jobs, scientific runtime activation,
+HARMONSMILE and MODELABILITY INDEX jobs, structure consolidation, and fingerprint
+artifact export. Unsupported table mutations remain local. An unavailable
+configured backend produces a transport error; CHEMVAULT does not silently
+switch to local execution. See the [API Reference](api.md) for endpoint
+contracts and limitations.
+
+To return to local mode, stop the running application, remove
+`CHEMVAULT_API_URL`, and start it again:
+
+=== "Windows PowerShell"
+
+    ```powershell
+    Remove-Item Env:CHEMVAULT_API_URL -ErrorAction SilentlyContinue
+    chemvault
+    ```
+
+=== "macOS / Linux"
+
+    ```bash
+    unset CHEMVAULT_API_URL
+    chemvault
+    ```
 
 ## Storage and working-directory behavior
 
@@ -117,6 +130,15 @@ SQLite database. They are not written into the installed package directory.
     Use a new database name when a scientifically independent run is required.
     Reopening a name deliberately reuses its persisted tables and job history.
 
+## Table Manager
+
+The **Table Manager** lists user-facing tables with their provenance, row and
+column counts, and inferred status. Its database-maintenance controls expose
+the supported management actions and can delete a selected non-`main` table
+after explicit `DELETE` confirmation. The `main` table and internal SQLite or
+CHEMVAULT tables are protected; a successful deletion also removes the table's
+CHEMVAULT metadata and records the operation.
+
 ## Constructing a dataset from CSV
 
 1. Enter a value in **SQL Database name**.
@@ -127,10 +149,11 @@ SQLite database. They are not written into the installed package directory.
 5. Preserve a selection as a new table when needed.
 6. Export the active table or selected columns as CSV.
 
-CSV import constructs a SQLite table from the supplied records; it does not
-claim PubChem target provenance. A row may describe a compound, molecular
-structure, activity observation, or another user-defined entity depending on
-the imported columns.
+CSV import creates a SQLite table from the supplied data; it does not
+establish PubChem target provenance or the eligible Structured activity source
+required for ACTIVITY LABELS and the subsequent MODELABILITY INDEX workflow.
+The scientific meaning of each imported record depends on the supplied
+columns.
 
 ## Constructing a target-centered PubChem dataset
 
@@ -143,25 +166,41 @@ The **Select Target** dialog supports two input modes:
 - **UniProt accession** accepts one direct accession independently of the gene
   resolver.
 
+The gene-symbol resolver supports this curated organism catalog:
+
+| Scientific name | Common name | NCBI taxonomy ID |
+|---|---|---:|
+| *Homo sapiens* | Human | `9606` |
+| *Mus musculus* | Mouse | `10090` |
+| *Rattus norvegicus* | Rat | `10116` |
+| *Oryctolagus cuniculus* | Rabbit | `9986` |
+| *Mesocricetus auratus* | Golden hamster | `10036` |
+
+*Homo sapiens* (`9606`) is the default organism for gene-symbol resolution.
+
 Confirm the resolved identity before launching the search. When available,
 CHEMVAULT persists the input mode, UniProt accession, gene symbol, organism,
 entry name, protein name, common name, and reviewed status as target provenance.
 
 ### Run the PubChem protein search
 
-The PubChem search runs as a persisted job in a separate local process. The
+The PubChem search runs as a persisted job in a separate process. The
 progress dialog reports its stage, progress, message, and terminal state and
-allows active searches to be cancelled. A successful build creates distinct
-populations rather than collapsing them into one ambiguous row set:
+allows active searches to be cancelled. A completed build persists distinct
+populations:
 
 - `main` contains the compound-centered molecular records;
 - `compound_assays` records CID-to-AID associations and assay context;
 - `compound_activities` contains structured activity observations.
 
-The build also records the same-run `(protein, AID)` source enumeration used for
-AID-population correspondence. That correspondence evaluates persisted assay
-identities and explicit row-level target exclusions; it is not a certification
-that every source CID, property, or activity row is complete.
+CHEMVAULT records the `(protein, AID)` identities enumerated from the source
+in the same run. AID-population correspondence is certified only when source
+enumeration succeeds and every enumerated identity is accounted for by a
+persisted terminal completion or an admissible, predefined row-level exclusion
+for zero target-matching activity, supported by target evidence and a nonempty
+CID set. Transport, parsing, or execution failures are not admissible
+exclusions. This check concerns the AID population, not completeness of
+individual CIDs, molecular properties, or activity records.
 
 Completed jobs are finalized once to register the base table and operation
 history. Existing target databases can use **Repair activity records** to
@@ -241,11 +280,14 @@ necessary.
 
 ## MODELABILITY INDEX
 
-The **MODELABILITY INDEX** measures local agreement between the preserved binary
-labels and molecular similarity. For every eligible structure, CHEMVAULT finds
-its nearest neighbor by Tanimoto similarity and calculates same-class
-concordance separately for Active and Inactive structures. The reported index
-is their macro average.
+The **MODELABILITY INDEX** measures local agreement between preserved binary
+activity labels and similarity in molecular fingerprint space. For each eligible
+structure, CHEMVAULT selects one nearest neighbor by Tanimoto similarity and
+calculates same-class concordance separately for Active and Inactive
+structures. The reported index is the macro average of these two concordances.
+When multiple structures have exactly the same maximum Tanimoto similarity,
+CHEMVAULT selects the neighbor with the lowest index in the ordered analysis
+population.
 
 A value nearer to 1 indicates stronger local label agreement in the selected
 fingerprint space. It is a dataset diagnostic, not evidence that a predictive
@@ -253,21 +295,92 @@ model has been trained or a guarantee of predictive performance.
 
 MOLRAPTOR generates the requested fingerprint representation. CHEMVAULT
 consumes that output, persists compatible artifacts, and calculates the
-concordance metrics. The application also reports atom- and bond-aware
-Bemis-Murcko scaffold context, including acyclic coverage and same- versus
-different-scaffold nearest-neighbor behavior, without altering the index.
+concordance metrics.
+
+### Fingerprint representations
+
+The fingerprint selector exposes seven representations:
+
+| Display name | Fingerprint identifier |
+|---|---|
+| Morgan | `morgan` |
+| Feature Morgan | `featmorgan` |
+| Atom Pair | `atompair` |
+| RDKit Topological | `rdk` |
+| Topological Torsion | `torsion` |
+| Layered | `layered` |
+| MACCS | `maccs` |
+
+Morgan is the default. Analyses and persisted artifacts remain scoped to the
+resolved fingerprint profile and identity.
+
+### Murcko structural context
+
+The result card reports atom- and bond-aware Bemis-Murcko context separately
+from the MODELABILITY INDEX calculation. Acyclic structures have no Murcko
+scaffold assignment and remain explicit in the population counts.
+
+**Murcko population context** reports:
+
+- **Murcko population coverage**: cyclic structures with a scaffold divided by
+  the complete structure population;
+- **Murcko scaffold count**: distinct scaffold identities among cyclic
+  structures;
+- **Shared-scaffold molecular coverage**: cyclic structures belonging to a
+  scaffold containing both outcomes, divided by the cyclic population;
+- **Adjusted scaffold effect (ε²)**: the persisted
+  finite-population-adjusted scaffold effect derived from within-scaffold label
+  balance, or `N/A` when its required denominator is unavailable.
+
+**Nearest-neighbor scaffold interface** classifies the already selected
+nearest-neighbor relationship for every structure as cyclic-to-cyclic (`CC`),
+cyclic-to-acyclic (`CA`), acyclic-to-cyclic (`AC`), or acyclic-to-acyclic
+(`AA`). It reports:
+
+- **Murcko nearest-neighbor coverage**: `CC` relationships divided by the
+  complete structure population;
+- **Same-scaffold nearest-neighbor fraction**: same-scaffold relationships
+  divided by `CC` relationships;
+- **Same-scaffold concordance**: label concordance among same-scaffold `CC`
+  relationships;
+- **Different-scaffold concordance**: label concordance among
+  different-scaffold `CC` relationships.
+
+These metrics characterize the persisted relationships; they neither choose
+another neighbor nor alter the MODELABILITY INDEX.
 
 ## Exports and persisted results
 
-Available outputs depend on the active workflow and include:
+Available public downloads use these filename contracts:
 
-- UTF-8 CSV for complete tables or selected table columns;
-- complete CSV for a filtered Structured activity population;
-- nearest-neighbor CSV with molecular comparisons and analysis identity;
-- JSON analysis report with summary, provenance, diagnostics, and Murcko
-  structural context;
-- fingerprint `.npz` containing the ordered structures, labels, matrix, and
-  canonical provenance required by the export contract.
+| Download | Format | Filename |
+|---|---|---|
+| Active table or selected columns | UTF-8 CSV | `<table>_export.csv` |
+| Filtered subgroup | CSV | `<table>_subgroup.csv` |
+| Filtered Structured activity population | CSV | `chemvault_structured_activity.csv` |
+| Nearest-neighbor report | CSV | `<table>_<fingerprint>_<analysis8>_modelability_diagnostics.csv` |
+| Murcko relationships | CSV | `<table>_<fingerprint>_<analysis8>_profile_<profile8>_murcko_relationships.csv` |
+| Analysis report | JSON | `<table>_<fingerprint>_<analysis8>_modelability_analysis.json` |
+| Fingerprints | Compressed NumPy archive | `<database_id>_<activity_type>_fingerprints_<analysis8>.npz` |
+
+The four Modelability downloads shown in the result card are **Nearest-neighbor
+report (.csv)**, **Murcko relationships (.csv)**, **Analysis report (.json)**,
+and **Fingerprints (.npz)**. Here, `<analysis8>` is the first eight characters
+of the CHEMVAULT analysis identity and `<profile8>` is the first eight
+characters of the MOLRAPTOR profile hash.
+
+The nearest-neighbor CSV carries the fingerprint type, analysis identity, and
+population identity with each molecular comparison. The Murcko relationships
+CSV adds the source and selected-neighbor scaffold identities, the Murcko
+contract provenance, and numeric 0/1 `CC`, `CA`, `AC`, `AA`, `NS`, and `ND`
+columns for aggregation. The JSON preserves the full analysis summary,
+provenance, diagnostics, and structural context. The NPZ preserves the ordered
+fingerprint matrix, structures, outcomes, labels, stable structure identifiers,
+and canonical metadata.
+
+The Murcko relationships CSV projects the selected relationships already
+present in the MODELABILITY INDEX result. It does not calculate additional
+neighbors or modify the index.
 
 Completed MODELABILITY INDEX results and compatible fingerprint artifacts can
 be restored for the same database, source table, analysis identity, and

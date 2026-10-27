@@ -78,7 +78,7 @@ jobs:
           required_files = {
               "app.py",
               ".streamlit/config.toml",
-              "docs/assets/chemvault-logo.jpeg",
+              "docs/assets/logo_cyan.svg",
           }
 
           for artifact in (*wheels, *source_distributions):
@@ -132,7 +132,7 @@ jobs:
           app = launcher._resolve_app_path()
           assert app.is_file()
           assert (app.parent / ".streamlit" / "config.toml").is_file()
-          assert (app.parent / "docs" / "assets" / "chemvault-logo.jpeg").is_file()
+          assert (app.parent / "docs" / "assets" / "logo_cyan.svg").is_file()
           assert "site-packages" in str(Path(launcher.__file__).resolve())
           assert sidebar.resolve_application_version() == version
           assert not (Path.cwd() / "SQL").exists()
@@ -171,7 +171,7 @@ jobs:
           app = launcher._resolve_app_path()
           assert app.is_file()
           assert (app.parent / ".streamlit" / "config.toml").is_file()
-          assert (app.parent / "docs" / "assets" / "chemvault-logo.jpeg").is_file()
+          assert (app.parent / "docs" / "assets" / "logo_cyan.svg").is_file()
           assert "site-packages" in str(Path(launcher.__file__).resolve())
           assert sidebar.resolve_application_version() == version
           assert not (Path.cwd() / "SQL").exists()

@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 
+import copy
+import csv
 import inspect
+import io
 import json
 from contextlib import nullcontext
 from types import SimpleNamespace
 
+import pyarrow as pa
 import pytest
 from molraptor import FINGERPRINT_TYPES
 
@@ -13,10 +17,12 @@ from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from services.job_models import JobStatus
 from ui import main_page, modelability_card, modelability_result
 from ui.modelability_state import (
+    MurckoRelationshipsExportError,
     analysis_report_json,
     diagnostics_csv,
     launch_modelability_job,
     modelability_scope_matches,
+    murcko_relationships_csv,
     poll_modelability_job,
 )
 
@@ -113,18 +119,104 @@ def _result():
     }
 
 
+def _murcko_relationship_result():
+    result = _result()
+    smiles = ("S0", "S1", "S2", "S3", "S4", "S5")
+    outcomes = (
+        "Active",
+        "Active",
+        "Inactive",
+        "Active",
+        "Inactive",
+        "Inactive",
+    )
+    neighbor_indices = (1, 2, 3, 2, 5, 4)
+    similarities = (0.9123456789012345, 0.8, 0.7, 0.7, 0.6, 0.6)
+    assignments = ("SCAFFOLD-1", "SCAFFOLD-1", "SCAFFOLD-2", None, None, None)
+    result.update({
+        "structure_count": 6,
+        "active_count": 3,
+        "inactive_count": 3,
+        "active_concordance": 1 / 3,
+        "inactive_concordance": 2 / 3,
+        "modelability_index": 0.5,
+        "diagnostics": [
+            {
+                "smiles": smiles[index],
+                "outcome": outcomes[index],
+                "nearest_neighbor_smiles": smiles[neighbor_index],
+                "nearest_neighbor_outcome": outcomes[neighbor_index],
+                "tanimoto_similarity": similarities[index],
+                "concordant": outcomes[index] == outcomes[neighbor_index],
+            }
+            for index, neighbor_index in enumerate(neighbor_indices)
+        ],
+    })
+    result["provenance"].update({
+        "molraptor_profile_hash": (
+            "67a59787be47c622ba3dec767773eff1105a92d3e7750f0e774c8a118685f001"
+        ),
+        "murcko_context_contract_version": "murcko_modelability_context/v1",
+        "murcko_scaffold_definition": "bemis_murcko_atom_bond_aware",
+        "murcko_scaffold_chirality": False,
+    })
+    result["structural_context"] = {
+        "nearest_neighbor_diagnostics": {
+            "maximum_neighbor_indices": [[1], [2, 3], [3], [2], [5], [4]],
+            "maximum_similarities": list(similarities),
+            "tied_neighbor_counts": [1, 2, 1, 1, 1, 1],
+        },
+        "murcko_population": {
+            "total_count": 6,
+            "cyclic_count": 3,
+            "acyclic_count": 3,
+            "murcko_coverage": 0.5,
+            "scaffold_count": 2,
+            "assignments": list(assignments),
+            "scaffold_outcome_counts": {},
+        },
+        "murcko_nn_interface": {
+            "cc_count": 2,
+            "ca_count": 1,
+            "ac_count": 1,
+            "aa_count": 2,
+            "murcko_nn_coverage": 1 / 3,
+            "same_scaffold_count": 1,
+            "different_scaffold_count": 1,
+            "same_scaffold_nn_fraction": 0.5,
+            "same_scaffold_concordance": 1.0,
+            "different_scaffold_concordance": 0.0,
+            "reconstructed_active_concordance": 1 / 3,
+            "reconstructed_inactive_concordance": 2 / 3,
+            "reconstructed_modelability_index": 0.5,
+            "transition_counts": {"CC": 2, "CA": 1, "AC": 1, "AA": 2},
+        },
+    }
+    return result
+
+
 def _metadata(origin, source_table):
     return SimpleNamespace(origin=origin, source_table=source_table)
 
 
 def _patch_placeholder_rendering(monkeypatch):
-    rendered = {"containers": [], "markdown": [], "captions": []}
+    rendered = {
+        "containers": [],
+        "subheaders": [],
+        "markdown": [],
+        "captions": [],
+    }
     monkeypatch.setattr(
         modelability_result.st,
         "container",
         lambda **kwargs: (
             rendered["containers"].append(kwargs) or nullcontext()
         ),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "subheader",
+        rendered["subheaders"].append,
     )
     monkeypatch.setattr(
         modelability_result.st,
@@ -403,6 +495,180 @@ def test_diagnostics_csv_is_generated_in_memory():
         "tanimoto_similarity": 0.5,
         "concordant": False,
     }
+
+
+def test_murcko_relationships_csv_has_stable_schema_rows_and_flags():
+    result = _murcko_relationship_result()
+    expected_columns = (
+        "source_table",
+        "fingerprint_type",
+        "molraptor_profile_hash",
+        "fingerprint_identity",
+        "fingerprint_artifact_sha256",
+        "population_identity",
+        "chemvault_analysis_hash",
+        "similarity_metric",
+        "neighbor_rule",
+        "tie_policy",
+        "murcko_context_contract_version",
+        "murcko_scaffold_definition",
+        "murcko_scaffold_chirality",
+        "structure_index",
+        "structure_smiles",
+        "structure_outcome",
+        "structure_murcko_scaffold",
+        "structure_is_cyclic",
+        "nearest_neighbor_index",
+        "nearest_neighbor_smiles",
+        "nearest_neighbor_outcome",
+        "nearest_neighbor_murcko_scaffold",
+        "nearest_neighbor_is_cyclic",
+        "tanimoto_similarity",
+        "concordant",
+        "transition_category",
+        "cc_scaffold_relationship",
+        "CC",
+        "CA",
+        "AC",
+        "AA",
+        "NS",
+        "ND",
+    )
+
+    first = murcko_relationships_csv(result)
+    second = murcko_relationships_csv(result)
+    reader = csv.DictReader(io.StringIO(first))
+    rows = list(reader)
+
+    assert first == second
+    assert tuple(reader.fieldnames or ()) == expected_columns
+    assert len(rows) == result["structure_count"]
+    assert [int(row["structure_index"]) for row in rows] == list(range(6))
+    assert [int(row["nearest_neighbor_index"]) for row in rows] == [
+        1, 2, 3, 2, 5, 4,
+    ]
+    assert [row["transition_category"] for row in rows] == [
+        "CC", "CC", "CA", "AC", "AA", "AA",
+    ]
+    assert [row["cc_scaffold_relationship"] for row in rows] == [
+        "NS", "ND", "", "", "", "",
+    ]
+    for row in rows:
+        for field in (
+            "structure_is_cyclic",
+            "nearest_neighbor_is_cyclic",
+            "concordant",
+            "CC",
+            "CA",
+            "AC",
+            "AA",
+            "NS",
+            "ND",
+        ):
+            assert row[field] in {"0", "1"}
+    assert rows[0]["tanimoto_similarity"] == "0.9123456789012345"
+    assert [sum(int(row[field]) for row in rows) for field in (
+        "CC", "CA", "AC", "AA", "NS", "ND",
+    )] == [2, 1, 1, 2, 1, 1]
+    assert sum(int(row["CC"]) for row in rows) + sum(
+        int(row["CA"]) + int(row["AC"]) + int(row["AA"])
+        for row in rows
+    ) == 6
+    assert sum(int(row["NS"]) + int(row["ND"]) for row in rows) == sum(
+        int(row["CC"]) for row in rows
+    )
+    for field in expected_columns[:13]:
+        assert all(row[field] == str(result["provenance"][field]) for row in rows)
+
+
+def test_murcko_relationships_csv_is_identical_after_persistence_round_trip():
+    result = _murcko_relationship_result()
+    restored = json.loads(json.dumps(result))
+
+    assert murcko_relationships_csv(restored) == murcko_relationships_csv(result)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "length",
+        "duplicate_smiles",
+        "unresolved_neighbor",
+        "self_neighbor",
+        "neighbor_outcome",
+        "concordance",
+        "tie_policy",
+        "similarity",
+        "transition_count",
+        "same_scaffold_count",
+        "missing_provenance",
+        "contradictory_tie_policy",
+        "incompatible_neighbor_rule",
+        "incompatible_similarity_metric",
+        "incompatible_murcko_contract",
+        "incompatible_scaffold_definition",
+        "incompatible_scaffold_chirality",
+        "empty_analysis_identity",
+        "empty_profile_identity",
+        "empty_fingerprint_identity",
+        "empty_population_identity",
+        "empty_artifact_identity",
+    ],
+)
+def test_murcko_relationships_csv_rejects_incomplete_or_inconsistent_data(case):
+    result = copy.deepcopy(_murcko_relationship_result())
+    diagnostics = result["diagnostics"]
+    context = result["structural_context"]
+
+    if case == "length":
+        context["murcko_population"]["assignments"].pop()
+    elif case == "duplicate_smiles":
+        diagnostics[1]["smiles"] = diagnostics[0]["smiles"]
+    elif case == "unresolved_neighbor":
+        diagnostics[0]["nearest_neighbor_smiles"] = "missing"
+    elif case == "self_neighbor":
+        diagnostics[0]["nearest_neighbor_smiles"] = diagnostics[0]["smiles"]
+    elif case == "neighbor_outcome":
+        diagnostics[0]["nearest_neighbor_outcome"] = "Inactive"
+    elif case == "concordance":
+        diagnostics[0]["concordant"] = False
+    elif case == "tie_policy":
+        context["nearest_neighbor_diagnostics"]["maximum_neighbor_indices"][1] = [0, 2]
+    elif case == "similarity":
+        context["nearest_neighbor_diagnostics"]["maximum_similarities"][0] = 0.1
+    elif case == "transition_count":
+        context["murcko_nn_interface"]["transition_counts"]["CC"] = 3
+    elif case == "same_scaffold_count":
+        context["murcko_nn_interface"]["same_scaffold_count"] = 2
+    elif case == "missing_provenance":
+        result["provenance"].pop("fingerprint_identity")
+    elif case == "contradictory_tie_policy":
+        result["provenance"]["tie_policy"] = "highest_ordered_index"
+    elif case == "incompatible_neighbor_rule":
+        result["provenance"]["neighbor_rule"] = "all_nearest_neighbors"
+    elif case == "incompatible_similarity_metric":
+        result["provenance"]["similarity_metric"] = "cosine"
+    elif case == "incompatible_murcko_contract":
+        result["provenance"]["murcko_context_contract_version"] = (
+            "murcko_modelability_context/v2"
+        )
+    elif case == "incompatible_scaffold_definition":
+        result["provenance"]["murcko_scaffold_definition"] = "generic_framework"
+    elif case == "incompatible_scaffold_chirality":
+        result["provenance"]["murcko_scaffold_chirality"] = True
+    elif case == "empty_analysis_identity":
+        result["provenance"]["chemvault_analysis_hash"] = ""
+    elif case == "empty_profile_identity":
+        result["provenance"]["molraptor_profile_hash"] = ""
+    elif case == "empty_fingerprint_identity":
+        result["provenance"]["fingerprint_identity"] = ""
+    elif case == "empty_population_identity":
+        result["provenance"]["population_identity"] = ""
+    else:
+        result["provenance"]["fingerprint_artifact_sha256"] = ""
+
+    with pytest.raises(MurckoRelationshipsExportError):
+        murcko_relationships_csv(result)
 
 
 def test_analysis_report_json_serializes_existing_result_exactly():
@@ -700,21 +966,45 @@ def test_structural_context_summary_uses_selected_murcko_metrics():
         (
             "Murcko population context",
             (
-                ("Murcko population coverage", "0.667"),
+                ("Murcko population coverage", "0.6667"),
                 ("Murcko scaffold count", "3"),
-                ("Shared-scaffold molecular coverage", "0.500"),
-                ("Adjusted scaffold effect (ε²)", "-0.500"),
+                ("Shared-scaffold molecular coverage", "0.5000"),
+                ("Adjusted scaffold effect (ε²)", "-0.5000"),
             ),
         ),
         (
             "Nearest-neighbor scaffold interface",
             (
-                ("Murcko nearest-neighbor coverage", "0.500"),
-                ("Same-scaffold nearest-neighbor fraction", "0.667"),
-                ("Same-scaffold concordance", "1.000"),
-                ("Different-scaffold concordance", "0.000"),
+                ("Murcko nearest-neighbor coverage", "0.5000"),
+                ("Same-scaffold nearest-neighbor fraction", "0.6667"),
+                ("Same-scaffold concordance", "1.0000"),
+                ("Different-scaffold concordance", "0.0000"),
             ),
         ),
+    )
+    assert result["structural_context"]["murcko_population"][
+        "murcko_coverage"
+    ] == 4 / 6
+    assert result["structural_context"]["murcko_metrics"][
+        "epsilon_squared"
+    ] == -1 / 2
+
+
+def test_structural_context_summary_preserves_na_for_missing_metrics():
+    result = _result()
+    result["structural_context"] = {
+        "murcko_population": {},
+        "murcko_metrics": {},
+        "nearest_neighbor_diagnostics": {},
+        "murcko_nn_interface": {},
+    }
+
+    groups = modelability_result.structural_context_metric_groups(result)
+
+    assert all(
+        value == "N/A"
+        for _title, values in groups
+        for _label, value in values
     )
 
 
@@ -738,6 +1028,27 @@ def test_metric_group_html_can_render_rows_of_three():
     assert rendered.count("background: var(--cv-muted-bg)") == 6
     assert "margin-top: 0;" in rendered
     assert "margin-top: 0.4rem;" in rendered
+
+
+def test_scientific_metric_tiles_share_internal_card_presentation():
+    activity_labels_tile = main_page._structure_consolidation_metric_tile_html(
+        "Metric",
+        "1.0000",
+    )
+    modelability_tile = modelability_result._metric_tile_html(
+        "Metric",
+        "1.0000",
+    )
+
+    assert activity_labels_tile == modelability_tile
+    for style in (
+        "padding: 0.45rem 0.55rem;",
+        "border: 1px solid var(--cv-border);",
+        "border-radius: 0.4rem;",
+        "background: var(--cv-muted-bg);",
+        "font-size: 0.68rem;",
+    ):
+        assert style in activity_labels_tile
 
 
 def test_analysis_details_include_murcko_provenance():
@@ -781,6 +1092,22 @@ def test_analysis_details_include_murcko_provenance():
     ]
 
 
+def test_analysis_details_are_arrow_serializable_without_mutating_profile():
+    provenance = _result()["provenance"]
+
+    rows = modelability_result.analysis_detail_rows(provenance)
+    table = pa.Table.from_pylist(rows)
+
+    assert table.schema.field("Value").type == pa.string()
+    assert next(
+        row["Value"]
+        for row in rows
+        if row["Field"] == "Radius"
+    ) == "2"
+    assert provenance["fingerprint_profile"]["radius"] == 2
+    assert isinstance(provenance["fingerprint_profile"]["radius"], int)
+
+
 def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     monkeypatch,
 ):
@@ -801,6 +1128,7 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
             return False
 
     rendered = {
+        "subheaders": [],
         "markdown": [],
         "markdown_kwargs": [],
         "captions": [],
@@ -809,6 +1137,7 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "download_columns": [],
         "column_calls": [],
         "expanders": [],
+        "warnings": [],
     }
     monkeypatch.setattr(
         modelability_result.st,
@@ -820,7 +1149,7 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "columns",
         lambda spec: (
             rendered["column_calls"].append(spec)
-            or (Context(0), Context(1), Context(2))
+            or tuple(Context(index) for index in range(spec))
         ),
     )
 
@@ -829,6 +1158,11 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         rendered["markdown_kwargs"].append(kwargs)
 
     monkeypatch.setattr(modelability_result.st, "markdown", markdown)
+    monkeypatch.setattr(
+        modelability_result.st,
+        "subheader",
+        rendered["subheaders"].append,
+    )
     monkeypatch.setattr(
         modelability_result.st,
         "caption",
@@ -853,6 +1187,11 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         lambda label, **kwargs: (
             rendered["expanders"].append((label, kwargs)) or Context()
         ),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "warning",
+        rendered["warnings"].append,
     )
     gateway_calls = []
 
@@ -884,12 +1223,8 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         lambda: Gateway(),
     )
 
-    result = _result()
+    result = _murcko_relationship_result()
     result["provenance"]["fingerprint_source"] = "restored"
-    result["diagnostics"] = [
-        {**result["diagnostics"][0], "smiles": f"structure-{index}"}
-        for index in range(12)
-    ]
     state = {
         "modelability_job_database_id": DATABASE_ID,
         "modelability_job_table_name": TABLE_NAME,
@@ -904,19 +1239,26 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     )
 
     assert rendered_result is True
+    assert rendered["subheaders"] == [
+        ":material/scatter_plot: Modelability Index Result"
+    ]
     rendered_html = "\n".join(rendered["markdown"])
     for text in (
-        "**Modelability Index result**",
         "Modelability",
         "Modelability Index",
-        "0.750",
+        "0.5000",
         "Active Concordance",
-        "0.500",
+        "0.3333",
         "Inactive Concordance",
-        "1.000",
+        "0.6667",
         "<strong>Nearest-neighbor diagnostics</strong>",
     ):
         assert text in rendered_html
+    for value in ("0.5000", "0.3333", "0.6667"):
+        assert f">\n        {value}\n    </div>" in rendered_html
+    assert result["modelability_index"] == 0.5
+    assert result["active_concordance"] == 1 / 3
+    assert result["inactive_concordance"] == 2 / 3
     for removed_text in (
         "Structures",
         "Total structures",
@@ -938,8 +1280,8 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "Preview of nearest-neighbor comparisons used in the "
         "Modelability Index calculation.",
     ]
-    assert len(rendered["frames"][0]) == 10
-    assert rendered["frames"][0] == result["diagnostics"][:10]
+    assert len(rendered["frames"][0]) == 6
+    assert rendered["frames"][0] == result["diagnostics"]
 
     analysis_frame = rendered["frames"][1]
     assert {row["Field"] for row in analysis_frame} == {
@@ -956,6 +1298,9 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "Aggregation method",
         "MOLRAPTOR version",
         "RDKit version",
+        "Scaffold definition",
+        "Scaffold chirality",
+        "Contract",
     }
     assert next(
         row["Value"]
@@ -980,7 +1325,7 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "Algorithm": "Morgan",
         "Output type": "Binary bit vector",
         "Fingerprint size": "2048 bits",
-        "Radius": 2,
+        "Radius": "2",
         "Chirality": "Not included",
         "Ring membership": "Included",
         "Bond types": "Used",
@@ -996,16 +1341,35 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         "analysis-hash",
     ):
         assert hidden_value not in visible_details
-    assert rendered["downloads"][0][0] == (
-        "Download nearest-neighbor report",
-    )
-    assert len(rendered["downloads"]) == 3
-    assert rendered["downloads"][0][1]["data"] == diagnostics_csv(result)
-    assert rendered["downloads"][0][1]["file_name"] == (
-        f"{TABLE_NAME}_morgan_441d8c24_modelability_diagnostics.csv"
+    assert "**Download**" in rendered["markdown"]
+    assert len(rendered["downloads"]) == 4
+    assert rendered["downloads"][0] == (
+        ("Nearest-neighbor report (.csv)",),
+        {
+            "data": diagnostics_csv(result),
+            "file_name": (
+                f"{TABLE_NAME}_morgan_441d8c24_modelability_diagnostics.csv"
+            ),
+            "mime": "text/csv",
+            "key": f"download_modelability_diagnostics_{TABLE_NAME}",
+            "icon": ":material/table_view:",
+        },
     )
     assert rendered["downloads"][1] == (
-        ("Download analysis report (.json)",),
+        ("Murcko relationships (.csv)",),
+        {
+            "data": murcko_relationships_csv(result),
+            "file_name": (
+                f"{TABLE_NAME}_morgan_441d8c24_profile_67a59787"
+                "_murcko_relationships.csv"
+            ),
+            "mime": "text/csv",
+            "key": f"download_murcko_relationships_{TABLE_NAME}",
+            "icon": ":material/account_tree:",
+        },
+    )
+    assert rendered["downloads"][2] == (
+        ("Analysis report (.json)",),
         {
             "data": analysis_report_json(result),
             "file_name": (
@@ -1013,19 +1377,21 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
             ),
             "mime": "application/json",
             "key": f"download_modelability_analysis_{TABLE_NAME}",
+            "icon": ":material/description:",
         },
     )
-    assert rendered["downloads"][2] == (
-        ("Download fingerprints (.npz)",),
+    assert rendered["downloads"][3] == (
+        ("Fingerprints (.npz)",),
         {
             "data": b"npz-bytes",
             "file_name": "test_db_IC50_fingerprints_analysis.npz",
             "mime": "application/octet-stream",
             "key": f"download_modelability_fingerprints_{TABLE_NAME}",
+            "icon": ":material/fingerprint:",
         },
     )
-    assert rendered["column_calls"] == [3]
-    assert rendered["download_columns"] == [0, 1, 2]
+    assert rendered["column_calls"] == [2, 2]
+    assert rendered["download_columns"] == [0, 1, 0, 1]
     assert gateway_calls == [
         (
             DATABASE_ID,
@@ -1034,7 +1400,8 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
             "morgan",
         )
     ]
-    assert len(diagnostics_csv(result).splitlines()) == 13
+    assert len(diagnostics_csv(result).splitlines()) == 7
+    assert rendered["warnings"] == []
     assert rendered["expanders"] == [
         ("Analysis details", {"expanded": False}),
     ]
@@ -1047,7 +1414,9 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     assert result["provenance"]["fingerprint_profile"][
         "profile_schema_version"
     ] == "1.0"
-    assert result["provenance"]["molraptor_profile_hash"] == "profile-hash"
+    assert result["provenance"]["molraptor_profile_hash"].startswith(
+        "67a59787"
+    )
     assert result["provenance"]["molraptor_ordered_input_hash"] == "input-hash"
     assert result["provenance"]["chemvault_analysis_hash"].startswith(
         "441d8c24"
@@ -1082,7 +1451,7 @@ def test_modelability_npz_export_failure_is_visible(monkeypatch):
     monkeypatch.setattr(
         modelability_result.st,
         "columns",
-        lambda _spec: (Context(), Context(), Context()),
+        lambda _spec: (Context(), Context()),
     )
     monkeypatch.setattr(
         modelability_result.st,
@@ -1090,8 +1459,10 @@ def test_modelability_npz_export_failure_is_visible(monkeypatch):
         lambda *_args, **_kwargs: Context(),
     )
     monkeypatch.setattr(modelability_result.st, "markdown", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "subheader", lambda *_a, **_k: None)
     monkeypatch.setattr(modelability_result.st, "caption", lambda *_a, **_k: None)
     monkeypatch.setattr(modelability_result.st, "dataframe", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "warning", lambda *_a, **_k: None)
     monkeypatch.setattr(
         modelability_result.st,
         "download_button",
@@ -1115,6 +1486,76 @@ def test_modelability_npz_export_failure_is_visible(monkeypatch):
     ]
 
 
+def test_invalid_murcko_export_warns_without_blocking_other_downloads(monkeypatch):
+    class Context:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class Gateway:
+        def export_modelability_fingerprints(self, *_args, **_kwargs):
+            return b"npz-bytes", "fingerprints.npz"
+
+    downloads = []
+    warnings = []
+    monkeypatch.setattr(
+        modelability_result,
+        "get_backend_gateway",
+        lambda: Gateway(),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "container",
+        lambda **_kwargs: Context(),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "columns",
+        lambda _spec: (Context(), Context()),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "expander",
+        lambda *_args, **_kwargs: Context(),
+    )
+    monkeypatch.setattr(modelability_result.st, "markdown", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "subheader", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "caption", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "dataframe", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        modelability_result.st,
+        "download_button",
+        lambda label, **_kwargs: downloads.append(label),
+    )
+    monkeypatch.setattr(modelability_result.st, "warning", warnings.append)
+    monkeypatch.setattr(modelability_result.st, "error", lambda *_a, **_k: None)
+    result = _murcko_relationship_result()
+    result["provenance"]["tie_policy"] = "highest_ordered_index"
+    state = {
+        "modelability_job_database_id": DATABASE_ID,
+        "modelability_job_table_name": TABLE_NAME,
+        "modelability_result": result,
+    }
+
+    assert modelability_result.render_modelability_result_card(
+        state,
+        DATABASE_ID,
+        TABLE_NAME,
+    ) is True
+    assert downloads == [
+        "Nearest-neighbor report (.csv)",
+        "Analysis report (.json)",
+        "Fingerprints (.npz)",
+    ]
+    assert len(warnings) == 1
+    assert warnings[0].startswith(
+        "Murcko relationships download is unavailable: "
+    )
+    assert "tie_policy" in warnings[0]
+
+
 def test_scope_mismatch_does_not_render_stale_result(monkeypatch):
     rendered = _patch_placeholder_rendering(monkeypatch)
     state = {
@@ -1130,7 +1571,8 @@ def test_scope_mismatch_does_not_render_stale_result(monkeypatch):
     ) is False
     assert rendered == {
         "containers": [{"border": True}],
-        "markdown": ["**Modelability Index result**"],
+        "subheaders": [":material/scatter_plot: Modelability Index Result"],
+        "markdown": [],
         "captions": [
             "No Modelability Index result is available for this table."
         ],
@@ -1172,16 +1614,19 @@ def test_matching_scope_without_result_renders_placeholder(monkeypatch):
     ) is False
     assert rendered == {
         "containers": [{"border": True}],
-        "markdown": ["**Modelability Index result**"],
+        "subheaders": [":material/scatter_plot: Modelability Index Result"],
+        "markdown": [],
         "captions": [
             "No Modelability Index result is available for this table."
         ],
     }
 
 
-def test_table_manager_places_modelability_after_advanced_maintenance():
-    source = inspect.getsource(main_page.render_table_manager_card)
+def test_modelability_result_uses_independent_main_section():
+    manager_source = inspect.getsource(main_page.render_table_manager_card)
+    section_source = inspect.getsource(
+        main_page.render_modelability_result_section
+    )
 
-    maintenance = source.index("render_activity_enrichment_action(activity_conn)")
-    result = source.index("render_modelability_result_card(")
-    assert maintenance < result
+    assert "render_modelability_result_card(" not in manager_source
+    assert "render_modelability_result_card(" in section_source

@@ -20,12 +20,17 @@ def test_build_card_uses_singular_target_language():
 
 def test_application_identity_uses_approved_subtitle(monkeypatch):
     rendered = []
+    images = []
 
     class Container:
         def columns(self, *_args, **_kwargs):
             return nullcontext(), nullcontext()
 
-    monkeypatch.setattr(main_page.st, "image", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main_page.st,
+        "image",
+        lambda *args, **kwargs: images.append((args, kwargs)),
+    )
     monkeypatch.setattr(
         main_page.st,
         "markdown",
@@ -34,6 +39,10 @@ def test_application_identity_uses_approved_subtitle(monkeypatch):
 
     main_page.render_app_identity(Container())
 
+    assert images == [
+        ((main_page.CHEMVAULT_LOGO_PATH,), {"width": "stretch"}),
+    ]
+    assert main_page.CHEMVAULT_LOGO_PATH.name == "logo_cyan.svg"
     identity = "\n".join(rendered)
     assert (
         "Traceable Target-Centered Bioactivity Dataset Construction "
@@ -187,3 +196,5 @@ def test_application_version_is_not_hardcoded_in_sidebar():
 
     assert '"v0.14.7"' not in source
     assert "'v0.14.7'" not in source
+    assert '"v0.14.8"' not in source
+    assert "'v0.14.8'" not in source

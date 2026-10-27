@@ -52,6 +52,94 @@ def test_stereoisomers_share_scaffold_when_chirality_is_excluded():
 
 
 @pytest.mark.parametrize(
+    ("smiles", "expected_scaffold"),
+    [
+        (
+            "N/C(=N/C(=N/S(=O)(=O)N1CCCCC1)N1CC(c2ccccc2)"
+            "C(c2ccc(Cl)cc2)=N1)c1ccc(Cl)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCCCC1",
+        ),
+        (
+            "N/C(=N/C(=N/S(=O)(=O)N1CCCCC1)N1CC(c2ccccc2)"
+            "C(c2ccc(Cl)cc2)=N1)c1ccc(F)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCCCC1",
+        ),
+        (
+            "N/C(=N\\C(=N\\S(=O)(=O)N1CCC(C(F)(F)F)CC1)"
+            "N1CC(c2ccccc2)C(c2ccc(Cl)cc2)=N1)c1ccc(Cl)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCCCC1",
+        ),
+        (
+            "N/C(=N\\C(=N\\S(=O)(=O)N1CCC(C(F)(F)F)CC1)"
+            "N1CC(c2ccccc2)C(c2ccc(Cl)cc2)=N1)c1ccc(F)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCCCC1",
+        ),
+        (
+            "N/C(=N\\C(=N\\S(=O)(=O)N1CCC(F)(F)CC1)"
+            "N1CC(c2ccccc2)C(c2ccc(Cl)cc2)=N1)c1ccc(Cl)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCCCC1",
+        ),
+        (
+            "N/C(=N\\C(=N\\S(=O)(=O)N1CCC(F)(F)CC1)"
+            "N1CC(c2ccccc2)C(c2ccc(Cl)cc2)=N1)c1ccc(F)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCCCC1",
+        ),
+        (
+            "N/C(=N\\C(=N\\S(=O)(=O)N1CCCC1)N1CC(c2ccccc2)"
+            "C(c2ccc(Cl)cc2)=N1)c1ccc(Cl)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCCC1",
+        ),
+        (
+            "N/C(=N\\C(=N\\S(=O)(=O)N1CCCC1)N1CC(c2ccccc2)"
+            "C(c2ccc(Cl)cc2)=N1)c1ccc(F)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCCC1",
+        ),
+        (
+            "N/C(=N\\C(=N\\S(=O)(=O)N1CCOCC1)N1CC(c2ccccc2)"
+            "C(c2ccc(Cl)cc2)=N1)c1ccc(Cl)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCOCC1",
+        ),
+        (
+            "N/C(=N\\C(=N\\S(=O)(=O)N1CCOCC1)N1CC(c2ccccc2)"
+            "C(c2ccc(Cl)cc2)=N1)c1ccc(F)cc1",
+            "O=S(=O)(N=C(N=Cc1ccccc1)N1CC(c2ccccc2)"
+            "C(c2ccccc2)=N1)N1CCOCC1",
+        ),
+    ],
+)
+def test_cnr1_scaffolds_with_removed_stereo_atoms_are_serialized(
+    smiles,
+    expected_scaffold,
+):
+    result = service.derive_murcko_scaffold(smiles)
+
+    assert result.is_cyclic is True
+    assert result.scaffold_smiles == expected_scaffold
+
+
+@pytest.mark.parametrize(
+    "smiles",
+    [
+        "c1ccccc1/C=C/c1ccccc1",
+        "c1ccccc1/C=C\\c1ccccc1",
+    ],
+)
+def test_successful_nonisomeric_scaffold_serialization_is_preserved(smiles):
+    result = service.derive_murcko_scaffold(smiles)
+
+    assert result.scaffold_smiles == "C(=Cc1ccccc1)c1ccccc1"
+
+
+@pytest.mark.parametrize(
     "smiles",
     [
         "",

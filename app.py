@@ -2,7 +2,6 @@
 import os
 
 import streamlit as st
-from PIL import Image
 
 from services.selection import (
     get_active_selected_headers,
@@ -14,13 +13,16 @@ from services.sql_utils import (
 )
 from ui.dialogs import select_proteins
 from ui.main_page import (
-    CHEMVAULT_LOGO_PATH,
+    CHEMVAULT_FAVICON_PATH,
     create_main_layout,
+    render_activity_labels_summary_card,
     render_app_identity,
     render_columns_card,
     render_database_card,
     render_footer,
+    render_modelability_result_section,
     render_operation_history_card,
+    render_structured_activity_card,
     render_table_maintenance_card,
     render_table_manager_card,
 )
@@ -52,11 +54,9 @@ def verify_directories():
 
 initialize_session_state(st.session_state, verify_directories)
 
-logo = Image.open(CHEMVAULT_LOGO_PATH)
-
 st.set_page_config(
     page_title="ChemVault",
-    page_icon=logo,
+    page_icon=str(CHEMVAULT_FAVICON_PATH),
     layout="wide"
 )
 
@@ -127,11 +127,24 @@ def construir_linea_query():
 
 render_sidebar(select_proteins, clear_depurado_preview, construir_linea_query)
 
-container0, container1, container2, container3, container4, container5 = create_main_layout()
+(
+    container0,
+    container1,
+    container2,
+    container3,
+    container4,
+    container5,
+    container6,
+    container7,
+    container8,
+) = create_main_layout()
 render_app_identity(container0)
 render_database_card(container1)
 render_columns_card(container2)
 render_table_manager_card(container3)
-render_table_maintenance_card(container4)
-render_operation_history_card(container5)
+render_structured_activity_card(container4)
+render_activity_labels_summary_card(container5)
+render_modelability_result_section(container6)
+render_table_maintenance_card(container7)
+render_operation_history_card(container8)
 render_footer()

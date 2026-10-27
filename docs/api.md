@@ -1,25 +1,30 @@
 # API Reference
 
-CHEMVAULT exposes a FastAPI boundary for supported database reads and exports,
-UniProt resolution, PubChem protein-search jobs, scientific runtime activation,
-HARMONSMILE and MODELABILITY INDEX jobs, structure consolidation, and
-fingerprint artifact export.
+ChemVault exposes an optional FastAPI interface for supported database reads,
+exports, UniProt gene-symbol resolution, PubChem protein-search jobs, scientific
+jobs, structure consolidation, and fingerprint artifact retrieval. The API does
+not expose every operation available in the Streamlit interface. Routine use
+through `chemvault` does not require starting FastAPI; see the [Usage guide](usage.md).
 
 ## Starting FastAPI
 
-From the working directory that contains the `SQL/` database directory:
+From the working directory containing the `SQL/` database directory, run
+FastAPI in the Python environment where ChemVault is installed:
 
 ```bash
-python -m uvicorn api.main:app --reload
+python -m uvicorn api.main:app
 ```
 
-The default base URL is `http://127.0.0.1:8000`. Interactive OpenAPI
-documentation is available at
+The `--reload` option may be added for source development. It is not required
+to operate the API. The default base URL is `http://127.0.0.1:8000`, and
+interactive OpenAPI documentation is available at
 [`http://127.0.0.1:8000/docs`](http://127.0.0.1:8000/docs).
 
-Database identifiers are path-safe names containing letters, numbers,
-underscores, or hyphens. Most database endpoints require an existing
-`SQL/<database_id>.db`; the API does not provide a database-creation endpoint.
+Database identifiers may contain letters, numbers, underscores, and hyphens.
+Database operations require an existing `SQL/<database_id>.db` in the active
+working directory; the API does not provide an endpoint for creating databases.
+When using the Streamlit API-client mode, start both processes from the same
+working directory so that they refer to the same SQLite databases.
 
 ## Endpoint inventory
 
@@ -47,7 +52,8 @@ underscores, or hyphens. Most database endpoints require an existing
 | `GET` | `/databases/{database_id}/tables/{table_name}/modelability-index/fingerprints/export` | Download one validated fingerprint artifact as `.npz`. |
 
 The route definitions in `api/main.py` and response models in `api/schemas.py`
-are authoritative.
+define the HTTP contract. The routes listed here are the implemented endpoints;
+the API is not a general-purpose interface for all Streamlit operations.
 
 ## UniProt target resolution
 
@@ -76,8 +82,9 @@ separate resolver endpoint.
 
 ## Public persisted-job status
 
-Scientific and PubChem status responses use the same stable public field
-shape:
+Scientific and PubChem job-status endpoints use a shared response schema.
+The following JSON illustrates its fields; the values are examples, not an
+observed job:
 
 ```json
 {
@@ -99,10 +106,13 @@ shape:
 ```
 
 Supported lifecycle states are `pending`, `running`, `completed`, `failed`, and
-`cancelled`. A terminal success has `status=completed`, `progress=1.0`, and its
-stable result summary in `result`. Workflow failure is persisted as
-`status=failed` with `error`. Internal request metadata, worker process IDs,
-heartbeats, and cancellation timestamps are not public status fields.
+`cancelled`. HTTP 201 alone does not establish workflow completion: inspect
+the returned `status`, which can already be `completed` for a reused result.
+Successful completion has `status=completed`, `progress=1.0`, and a result
+summary in `result`; a persisted workflow failure has `status=failed` and an
+`error`.
+Internal request metadata, worker process IDs, heartbeats, and cancellation
+timestamps are not public status fields.
 
 `cancellable` describes the persisted job's current capability; it is not a
 promise that every job type has a public cancellation endpoint. PubChem has an
@@ -131,28 +141,32 @@ Content-Type: application/json
 }
 ```
 
-`target_identity` is optional, but when supplied it must agree with the single
-protein accession. Launch returns 201 with the persisted status. Use the
-PubChem-specific status endpoint while the worker runs.
+`proteins` is a non-empty list of accession strings. The target-centered UI
+uses one biological target. The optional `target_identity` payload is permitted
+only when `proteins` contains exactly one accession and must identify that same
+target. Launch returns HTTP 201 with the persisted job status; inspect the
+PubChem-specific status endpoint to determine the workflow outcome.
 
-Cancellation is safe for active jobs and idempotently returns an already
-terminal status. Finalization accepts only a completed PubChem job and records
-the base-table metadata and build operation exactly once. Invalid job type or
-state returns 409; invalid launch input returns 422.
+Cancellation is supported for active PubChem jobs; repeated cancellation of an
+already terminal job returns its terminal status. Finalization requires a
+completed job and registers its base-table metadata and build operation exactly
+once. Finalization is not a separate certification of source-record
+completeness. Invalid job type or state returns 409; invalid launch input
+returns 422.
 
 ### Generic scientific jobs
 
-`application.scientific_jobs` is the generic application boundary used by the
-HARMONSMILE and MODELABILITY INDEX workflows. Each registered job type supplies
-create and execute hooks. The launch route creates a persisted job, claims one
-in-process daemon-thread executor, and returns immediately. The generic status
-endpoint reads the persisted record without dispatching to a workflow-specific
-status function.
+`application.scientific_jobs` is the application boundary for HARMONSMILE
+and MODELABILITY INDEX jobs. Each registered workflow supplies creation and
+execution hooks. Launch returns a persisted job status and starts an in-process
+executor for pending work. A compatible completed MODELABILITY INDEX result may
+be returned without another calculation. The generic status endpoint reads the
+persisted job record.
 
-This mechanism is not identical to PubChem execution: PubChem uses its own
-specific routes and separate worker process, while generic scientific jobs run
-through registered hooks in the active Streamlit or FastAPI process. They share
-the public status projection and SQLite persistence, not an execution engine.
+PubChem uses a separate worker process and dedicated routes. HARMONSMILE and
+MODELABILITY INDEX use registered scientific-job execution in the active
+Streamlit or FastAPI process. They share a public status schema and SQLite
+persistence, but not an execution engine.
 
 #### HARMONSMILE launch
 
@@ -206,19 +220,23 @@ POST /databases/example/scientific-runtime/activate
 
 Activation runs once per database path in the current process. It marks
 orphaned MODELABILITY INDEX jobs according to their non-resumable contract,
-requeues resumable HARMONSMILE jobs, starts their executors, and returns the
+requeues eligible HARMONSMILE jobs, starts their executors, and returns
 recovered HARMONSMILE job snapshots with `table_name`. It does not create a
 distributed worker service.
 
 ## Local and API-client semantics
 
-`clients.backend_gateway.BackendGateway` presents the same interface to
-Streamlit in both modes:
+`clients.backend_gateway.BackendGateway` provides Streamlit with a common
+interface for supported operations:
 
-- with no `CHEMVAULT_API_URL`, the local backend calls application and service
-  functions directly;
-- with `CHEMVAULT_API_URL`, the HTTP backend calls the endpoints above and
-  converts payloads into the same contracts.
+- when `CHEMVAULT_API_URL` is unset, the local backend calls application and
+  service functions directly;
+- when `CHEMVAULT_API_URL` is set, the HTTP backend calls the corresponding
+  FastAPI endpoints.
+
+API-client mode covers only operations implemented by the HTTP backend; it does
+not make all local Streamlit functionality available over HTTP. See the
+[Usage guide](usage.md) for configuration and launch instructions.
 
 Local HARMONSMILE and MODELABILITY launches run a daemon thread in the
 Streamlit process. HTTP launches run one in the FastAPI process. PubChem launch
@@ -235,10 +253,12 @@ silently falls back to local execution.
 
 ### Tables and operation history
 
-`GET /databases/{database_id}/tables` returns the user-visible table names.
-`GET /databases/{database_id}/operations` returns persisted operation records
-newest first, including operation type, source and target table, source columns,
-timestamp, status, and details when available.
+`GET /databases/{database_id}/tables` returns user-visible table names.
+`GET /databases/{database_id}/operations` returns recorded processing
+operations, newest first, including operation type, source and target table,
+source columns, timestamp, status, and details when available. Processing
+history records application operations; it is distinct from the provenance of
+the source data.
 
 ### Metadata and schema
 
@@ -271,12 +291,18 @@ GET /databases/example/tables/main/metadata
 }
 ```
 
-Target identity and consolidation summary are included only when valid
-persisted provenance exists.
+This response is an illustrative schema example, not the output of a specific
+dataset. The `read_only` field describes the HTTP table interface; it does not
+mean that the underlying SQLite database cannot be changed through other
+supported workflows. Target identity and consolidation summaries are returned
+only when supported by persisted metadata. Their presence documents provenance
+or processing results, not independent source-data completeness.
 
 `GET /metrics` returns `row_count` and `group_count`; the optional
-`group_column` query parameter selects a valid grouping column. `GET /preview`
-accepts repeated `columns` parameters and returns at most ten rows.
+`group_column` parameter selects a valid grouping column. These counts refer
+to database records or groups, not necessarily to distinct compounds, bioassays,
+or molecular structures. `GET /preview` accepts repeated `columns` parameters
+and returns at most ten records.
 
 ## Structure consolidation
 
@@ -284,11 +310,14 @@ accepts repeated `columns` parameters and returns at most ten rows.
 POST /databases/example/tables/activity_subset_IC50/structure-consolidation
 ```
 
-The endpoint creates the ACTIVITY LABELS structure-level table and returns its
-generated name plus source, valid, unique, created, Active, Inactive,
-conflicting, non-binary, unusable, duplicated, represented, reference, and
-no-eligible-activity counts. Missing resources return 404; scientific
-ineligibility returns 422.
+The endpoint creates an eligible ACTIVITY LABELS structure-level table and
+returns its generated name and a summary of source activity records, eligible
+records, distinct molecular structures, consolidated structures, class counts,
+exclusions, contributing observations, and quantitative-reference selection.
+The response fields use different populations and denominators; these counts
+must not be interpreted as interchangeable. Their exact names are defined by
+`StructureConsolidationResponse` in `api/schemas.py`. Missing resources return
+404; scientific ineligibility returns 422.
 
 ## Downloads
 
@@ -298,10 +327,10 @@ ineligibility returns 422.
 GET /databases/example/tables/main/export?columns=CID&columns=SMILES
 ```
 
-The response is UTF-8 `text/csv` and contains every row for the requested
-columns in request order. Omitting `columns` exports the complete table. Unknown
-columns return 422. Filtered subgroup and Structured activity exports are UI
-workflows outside this endpoint.
+The response is UTF-8 `text/csv` and includes all records for the requested
+columns in request order. Omitting `columns` exports the complete table.
+Unknown columns return 422. This endpoint does not apply the UI's filtered
+subgroup or Structured activity filters.
 
 ### Fingerprint artifact
 
@@ -310,19 +339,22 @@ GET /databases/example/tables/activity_subset_IC50_structure_consolidated/modela
 ```
 
 The response is `application/octet-stream` with the backend-generated `.npz`
-filename. The endpoint only reads an existing artifact validated against the
-source table, analysis identity, and fingerprint type; it never calculates new
-fingerprints. A stale identity or missing, corrupt, or incompatible artifact
-returns 409.
+filename. The endpoint retrieves an existing fingerprint artifact only after
+validating the source table, analysis identity, and fingerprint type. It does
+not generate new fingerprints. A stale identity or a missing, corrupt, or
+incompatible artifact returns 409.
+
+The other three MODELABILITY INDEX downloads—nearest-neighbor CSV, Murcko
+relationships CSV, and analysis JSON—are available from the Streamlit result
+card; they are not separate HTTP endpoints in this API.
 
 ## Current boundary
 
-The API does not create or delete databases, provide general table mutation,
-or act as a distributed worker platform. Filtered subgroup export and complete
-Structured activity export remain application workflows rather than table
-export endpoint variants. These limits do not apply to the explicitly supported
-PubChem execution, PubChem cancellation, structure consolidation, or scientific
-jobs documented above.
+The API does not create or delete databases, expose general table mutation,
+or operate as a distributed worker platform. Filtered subgroup export and
+Structured activity CSV export remain Streamlit workflows. The supported
+PubChem jobs, scientific jobs, structure consolidation, and fingerprint
+artifact retrieval are explicit exceptions to a read-oriented HTTP interface.
 
 The `api/`, `application/`, and `services/` layers remain independent of
 Streamlit and `st.session_state`.

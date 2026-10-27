@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.14.8] - 2026-10-27
+
+### Added
+
+- Added a Murcko relationships CSV export for completed MODELABILITY INDEX analyses. Each structure contributes its single selected nearest-neighbor relationship, with scaffold identities, cyclicity, CC/CA/AC/AA transitions, and NS/ND classifications within CC. The export preserves fingerprint and analysis provenance without selecting additional neighbors or changing MODI.
+- Added official ChemVault logos in black, white, and cyan SVG variants.
+
+### Changed
+
+- Organized MODELABILITY INDEX downloads into two rows and two columns, with explicit file extensions and native Streamlit icons for the nearest-neighbor CSV, Murcko relationships CSV, analysis JSON, and fingerprint NPZ.
+- Displayed MODELABILITY INDEX metrics to four decimal places in the interface without reducing persisted or exported numerical precision.
+- Replaced the research-group JPEG logo with official SVG assets in Streamlit, the browser favicon, and MkDocs; included all three SVG variants in wheel and source distributions.
+- Updated the README and MkDocs usage guidance for the four exports and published installation instructions, and excluded generated MkDocs `site/` output from Git.
+
+### Fixed
+
+- Removed stale stereochemical annotations from generated Bemis–Murcko scaffolds to prevent RDKit failures in affected structures.
+- Prevented an Arrow serialization warning in MODELABILITY INDEX details by representing the fingerprint radius as text for display.
+- Preserved literal CSV field values during import, including `NULL` strings, without implicit numeric or missing-value conversion.
+
+---
+
 ## [v0.14.7] - 2026-10-14
 
 ### Added
@@ -34,9 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made `pyproject.toml` authoritative for project metadata and runtime
   dependencies, and consolidated pytest discovery plus Ruff and mypy settings
   there; the redundant `requirements.txt` and `pytest.ini` files were removed.
-- Relocated the CHEMVAULT logo to `docs/assets/chemvault-logo.jpeg`, resolved
-  it relative to the installed modules, and included it in both wheel and
-  source distributions while excluding generated databases and caches.
+- Relocated the CHEMVAULT branding asset under `docs/assets`, resolved it
+  relative to the installed modules, and included it in both wheel and source
+  distributions while excluding generated databases and caches.
 - Relocated the active HARMONSMILE ingest adapter from `modules/` to
   `services/harmonsmile_ingest.py` and updated its canonical consumers.
 - Established clean Ruff and mypy baselines through targeted import cleanup
@@ -1301,6 +1323,8 @@ First formal tagged release of CHEMVAULT as a local Streamlit + SQLite applicati
 
 ---
 
+[v0.14.8]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.7...v0.14.8
+[v0.14.7]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.6...v0.14.7
 [v0.14.6]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.5...v0.14.6
 [v0.14.5]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.4...v0.14.5
 [v0.14.4]: https://github.com/NanoBiostructuresRG-lab/chemvault/compare/v0.14.3...v0.14.4
