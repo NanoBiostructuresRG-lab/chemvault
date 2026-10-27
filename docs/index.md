@@ -24,18 +24,21 @@
 
 ## Scientific purpose
 
-**ChemVault** is a visual application for constructing, curating, tracing, and
-exporting molecular and bioactivity datasets. A dataset can begin with a CSV
-table or with one biological target resolved to a reviewed UniProt accession.
-The target-centered path retrieves compounds, bioassays, and structured
-activity observations from PubChem and persists them in SQLite.
+**ChemVault** is a Python application for constructing and curating molecular
+datasets and assessing the modelability of eligible bioactivity datasets. It
+supports CSV imports and target-centered bioactivity dataset construction from
+PubChem.
 
-Subsequent workflows harmonize molecular structures through HARMONSMILE,
-preserve and consolidate PubChem activity labels at the harmonized-structure
-level, and assess whether those labels are locally consistent in molecular
-fingerprint space. **ChemVault** records source identity, derived-table provenance,
-operation history, and scientific-job state so results remain connected to the
-inputs and processing steps that produced them.
+In the target-centered workflow, a biological target is specified by a UniProt
+accession or resolved from a gene symbol and supported organism. ChemVault
+retrieves associated compounds, bioassays, and structured activity records and
+stores their relationships in SQLite.
+
+Eligible PubChem-derived activity data can undergo molecular structure
+harmonization through HARMONSMILE, consolidation of preserved activity outcomes,
+and fingerprint-based modelability assessment. Importing a CSV alone does not
+establish the PubChem provenance and structure-level consolidation required for
+the MODELABILITY INDEX workflow.
 
 !!! note "Scientific boundary"
 
@@ -58,6 +61,10 @@ These concepts are deliberately separate. A CID count is not an activity-record
 count, an AID is not a compound, and repeated activity observations do not
 automatically represent distinct harmonized structures.
 
+Source provenance identifies where the data originated. Processing history
+records operations performed within ChemVault. Both support traceability, but
+neither establishes the completeness of retrieved source data by itself.
+
 ## Traceable workflow
 
 <section class="cv-panel">
@@ -65,25 +72,36 @@ automatically represent distinct harmonized structures.
     <article class="cv-card">
       <span class="cv-card__tag">01</span>
       <h3>Construct</h3>
-      <p>Import a CSV dataset or construct a target-centered PubChem dataset from a gene symbol and organism or a direct UniProt accession.</p>
+      <p>Import a CSV dataset for inspection and export, or construct a target-centered PubChem dataset using a gene symbol and organism or a UniProt accession.</p>
     </article>
     <article class="cv-card">
       <span class="cv-card__tag">02</span>
       <h3>Curate</h3>
-      <p>Inspect structured activity, harmonize structures, preserve binary PubChem outcomes, and consolidate repeated observations by structure.</p>
+      <p>For eligible PubChem data, select structured activity, harmonize molecular structures, and consolidate preserved activity outcomes by structure.</p>
     </article>
     <article class="cv-card">
       <span class="cv-card__tag">03</span>
       <h3>Assess</h3>
-      <p>Calculate the MODELABILITY INDEX from MOLRAPTOR fingerprints and interpret it alongside Murcko structural context and provenance.</p>
+      <p>For eligible consolidated datasets, calculate the MODELABILITY INDEX using MOLRAPTOR fingerprints and inspect Murcko structural context.</p>
     </article>
   </div>
 </section>
 
-**ChemVault** keeps source tables available while derived tables carry their source
-relationship and processing summary. Persisted jobs expose progress and
-terminal outcomes, while export contracts preserve the selected scientific
-population and its analysis identity.
+
+
+The following diagram illustrates the target-centered PubChem workflow.
+CSV import is a separate entry path and does not, by itself, establish
+eligibility for activity-label consolidation or modelability assessment.
+
+![Schematic of the target-centered ChemVault bioactivity workflow](assets/chemvault-workflow.jpeg)
+
+*Figure 1. Target-centered bioactivity workflow in ChemVault.*
+
+
+**ChemVault** retains source tables and records the origins and operations of
+derived tables. Persisted jobs expose progress and terminal outcomes. Analysis
+exports include identifiers and provenance for their associated populations
+and fingerprint representations.
 
 ## Documentation
 
@@ -96,13 +114,11 @@ population and its analysis identity.
 
 ## Citation
 
-
 ```text
 Contreras-Torres, F. F., Murrieta, A. C., Castro-Flores, D., Saldívar-González, F. I. (2026). CHEMVAULT — Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment. Zenodo. https://doi.org/10.5281/zenodo.23378448
 ```
 
 Use [CITATION.cff](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/main/CITATION.cff) as the authoritative machine-readable citation metadata for **ChemVault**. Citation metadata is updated with each release.
-
 
 ## License
 
