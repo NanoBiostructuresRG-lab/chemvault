@@ -62,7 +62,7 @@ def resolve_brand_asset(filename: str) -> Path:
     return Path(__file__).resolve().parents[1] / "docs" / "assets" / filename
 
 
-CHEMVAULT_LOGO_PATH = resolve_brand_asset("logo_black.svg")
+CHEMVAULT_LOGO_PATH = resolve_brand_asset("logo_cyan.svg")
 CHEMVAULT_FAVICON_PATH = resolve_brand_asset("logo_cyan.svg")
 
 ACTIVITY_SUMMARY_COLUMNS = {
@@ -191,11 +191,78 @@ def load_database_target_identity(database_id):
 
 
 def create_main_layout():
+    st.html("""
+        <style>
+            .st-key-chemvault_app_identity {
+                background-color: var(--cv-muted-bg);
+            }
+
+            :is(
+                .st-key-chemvault_database_table_controls,
+                .st-key-chemvault_table_manager_maintenance
+            ) {
+                background-color: var(--cv-sidebar-bg);
+                border-radius: 0.4rem;
+            }
+
+            :is(
+                .st-key-chemvault_database_table_controls,
+                .st-key-chemvault_table_manager_maintenance
+            ) [data-testid="stVerticalBlockBorderWrapper"] {
+                background-color: var(--cv-sidebar-bg);
+                border-color: var(--cv-border);
+                border-radius: 0.4rem;
+            }
+
+            :is(
+                .st-key-chemvault_database_table_controls,
+                .st-key-chemvault_table_manager_maintenance
+            ) [data-testid="stVerticalBlockBorderWrapper"]
+              > [data-testid="stVerticalBlock"] {
+                gap: 0.5rem;
+                padding: 0.75rem 0.85rem;
+            }
+
+            .st-key-chemvault_database_table_controls
+              [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+                background-color: var(--cv-panel-bg) !important;
+                border: 1px solid var(--cv-border-strong) !important;
+                color: var(--cv-text) !important;
+            }
+
+            .st-key-chemvault_database_table_controls
+              [data-testid="stSelectbox"] div[data-baseweb="select"] * {
+                color: var(--cv-text);
+            }
+
+            .st-key-chemvault_database_table_controls
+              [data-testid="stSelectbox"] div[data-baseweb="select"] svg {
+                color: var(--cv-muted);
+                fill: var(--cv-muted);
+                opacity: 1;
+            }
+
+            .st-key-chemvault_table_manager_maintenance
+              details[data-testid="stExpander"] {
+                background-color: var(--cv-panel-bg);
+                border: 1px solid var(--cv-border-strong);
+                border-radius: 0.4rem;
+            }
+
+            .st-key-chemvault_table_manager_maintenance
+              details[data-testid="stExpander"] summary,
+            .st-key-chemvault_table_manager_maintenance
+              details[data-testid="stExpander"] summary * {
+                color: var(--cv-text);
+            }
+        </style>
+        """)
     container0 = st.container(
         horizontal=True,
         horizontal_alignment="distribute",
         gap="large",
         border=True,
+        key="chemvault_app_identity",
     )
     st.html("""
         <div style="
@@ -227,10 +294,28 @@ def create_main_layout():
             border: none;
             height: 2px;
             background-color: var(--cv-border);
-            margin: 32px 0 24px 0;
+            margin: 12px 0;
         ">
         """)
-    container4 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+    container4 = st.container(horizontal=False, horizontal_alignment="left", border=False)
+    st.html("""
+        <hr style="
+            border: none;
+            height: 2px;
+            background-color: var(--cv-border);
+            margin: 12px 0;
+        ">
+        """)
+    container5 = st.container(horizontal=False, horizontal_alignment="left", border=False)
+    st.html("""
+        <hr style="
+            border: none;
+            height: 2px;
+            background-color: var(--cv-border);
+            margin: 12px 0;
+        ">
+        """)
+    container6 = st.container(horizontal=False, horizontal_alignment="left", border=False)
     st.html("""
         <hr style="
             border: none;
@@ -239,12 +324,31 @@ def create_main_layout():
             margin: 32px 0 24px 0;
         ">
         """)
-    container5 = st.container(horizontal=False, horizontal_alignment="left", border=True)
-    return container0, container1, container2, container3, container4, container5
+    container7 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+    st.html("""
+        <hr style="
+            border: none;
+            height: 2px;
+            background-color: var(--cv-border);
+            margin: 32px 0 24px 0;
+        ">
+        """)
+    container8 = st.container(horizontal=False, horizontal_alignment="left", border=True)
+    return (
+        container0,
+        container1,
+        container2,
+        container3,
+        container4,
+        container5,
+        container6,
+        container7,
+        container8,
+    )
 
 
 def render_app_identity(container):
-    col_logo, col_titulo = container.columns([0.12, 0.88], vertical_alignment="center")
+    col_logo, col_titulo = container.columns([0.236, 0.764], vertical_alignment="center")
 
     with col_logo:
         st.image(CHEMVAULT_LOGO_PATH, width="stretch")
@@ -924,7 +1028,7 @@ def render_table_manager_actions(database_id, profiles):
 
 
 def render_operation_history(database_id):
-    st.markdown("#### Operation history")
+    st.markdown("#### :material/history: Operation history")
     st.caption("Review recorded database events such as builds, derived tables, and table cleanup.")
     try:
         operations = get_backend_gateway().get_operation_history(database_id)
@@ -961,7 +1065,7 @@ def render_operation_history(database_id):
 def render_operation_history_card(container):
     with container:
         if st.session_state[DATABASE_ID] == "":
-            st.markdown("#### Operation history")
+            st.markdown("#### :material/history: Operation history")
             st.caption(
                 "Review recorded database events such as builds, derived tables, "
                 "and table cleanup."
@@ -978,6 +1082,109 @@ def _format_activity_option_list(values):
     if len(values) > 8:
         preview = f"{preview}, +{len(values) - 8} more"
     return preview
+
+
+def _structured_activity_metric_card_html(label, value):
+    return dedent(
+        f"""
+        <div data-cv-structured-activity-metric style="
+            min-width: 0;
+            min-height: 5rem;
+            padding: 0.65rem 0.75rem;
+            border: 1px solid var(--cv-border);
+            border-radius: 0.4rem;
+            background: var(--cv-sidebar-bg);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        ">
+            <div style="font-size: 0.72rem; color: var(--cv-muted);">
+                {html.escape(str(label))}
+            </div>
+            <div style="
+                margin-top: 0.3rem;
+                font-size: 1.35rem;
+                line-height: 1.15;
+                font-weight: 600;
+                color: var(--cv-heading);
+            ">{int(value):,}</div>
+        </div>
+        """
+    ).strip()
+
+
+def _structured_activity_information_row_html(label, values):
+    complete_values = ", ".join(str(value) for value in values) if values else "-"
+    return dedent(
+        f"""
+        <div data-cv-structured-activity-information-row style="
+            display: grid;
+            grid-template-columns: minmax(145px, 190px) minmax(0, 1fr);
+            gap: 0.75rem;
+            padding: 0.65rem 0;
+            border-bottom: 1px solid var(--cv-border);
+        ">
+            <div style="
+                font-size: 0.78rem;
+                font-weight: 600;
+                color: var(--cv-muted);
+            ">{html.escape(str(label))}</div>
+            <div style="
+                min-width: 0;
+                font-size: 0.9rem;
+                line-height: 1.45;
+                color: var(--cv-text);
+                overflow-wrap: anywhere;
+            ">{html.escape(complete_values)}</div>
+        </div>
+        """
+    ).strip()
+
+
+def _structured_activity_summary_html(summary):
+    metrics = (
+        ("Structured activity records", summary["total_rows"]),
+        ("CIDs with structured activity", summary["unique_cids"]),
+        ("AIDs with structured activity", summary["unique_aids"]),
+    )
+    metric_cards = "".join(
+        _structured_activity_metric_card_html(label, value)
+        for label, value in metrics
+    )
+    information_rows = "".join(
+        _structured_activity_information_row_html(label, values)
+        for label, values in (
+            ("Reported activity types", summary["activity_types"]),
+            ("Outcomes", summary["outcomes"]),
+            ("Units", summary["units"]),
+            ("Source columns", summary["source_columns"]),
+        )
+    )
+    return dedent(
+        f"""
+        <div data-cv-structured-activity-summary>
+            <div style="
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 0.6rem;
+                margin: 0.2rem 0 0.9rem 0;
+            ">{metric_cards}</div>
+            <div style="
+                margin: 0.95rem 0 0.9rem 0;
+                padding-top: 0.8rem;
+                border-top: 1px solid var(--cv-border);
+            ">
+                <div style="
+                    margin-bottom: 0.15rem;
+                    font-size: 1.05rem;
+                    font-weight: 600;
+                    color: var(--cv-heading);
+                ">Activity Characteristics</div>
+                {information_rows}
+            </div>
+        </div>
+        """
+    ).strip()
 
 
 def _activity_filter_metadata(
@@ -1107,12 +1314,13 @@ def _create_filtered_activity_table(
     return table_name
 
 
-def render_structured_activity_section(connection):
-    summary = get_activity_summary(connection)
+def render_structured_activity_section(connection, summary=None):
+    if summary is None:
+        summary = get_activity_summary(connection)
     if summary is None:
         return
 
-    st.markdown("#### Structured quantitative activity")
+    st.subheader(":material/science: Structured Quantitative Activity")
     st.caption(
         "Inspect and export structured quantitative activity records stored in this database."
     )
@@ -1121,54 +1329,7 @@ def render_structured_activity_section(connection):
         return
 
     st.markdown(
-        f"""
-        <div style="
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
-            gap: 0.35rem 1rem;
-            margin: 0.2rem 0 0.9rem 0;
-            padding: 0.75rem 0;
-            border-top: 1px solid var(--cv-border);
-            border-bottom: 1px solid var(--cv-border);
-        ">
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Structured activity records</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["total_rows"]}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">CIDs with structured activity</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_cids"]}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">AIDs with structured activity</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text);">{summary["unique_aids"]}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Reported activity types</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
-                    {html.escape(_format_activity_option_list(summary["activity_types"]))}
-                </div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Outcomes</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
-                    {html.escape(_format_activity_option_list(summary["outcomes"]))}
-                </div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Units</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
-                    {html.escape(_format_activity_option_list(summary["units"]))}
-                </div>
-            </div>
-            <div>
-                <div style="font-size: 0.72rem; color: var(--cv-muted);">Source columns</div>
-                <div style="font-size: 0.93rem; color: var(--cv-text); overflow-wrap: anywhere;">
-                    {html.escape(_format_activity_option_list(summary["source_columns"]))}
-                </div>
-            </div>
-        </div>
-        """,
+        _structured_activity_summary_html(summary),
         unsafe_allow_html=True,
     )
 
@@ -1200,7 +1361,10 @@ def render_structured_activity_section(connection):
         key="download_structured_activity_csv",
     )
 
-    st.markdown("##### Filter")
+    st.markdown(
+        _nested_card_heading_html("Filter"),
+        unsafe_allow_html=True,
+    )
     with st.expander("Filter structured activity", expanded=False):
         col_a, col_b = st.columns(2)
         with col_a:
@@ -1401,6 +1565,20 @@ def _structure_consolidation_metric_tile_html(label, value):
     ).strip()
 
 
+def _nested_card_heading_html(title):
+    return dedent(
+        f"""
+        <div style="
+            margin-bottom: 0.45rem;
+            font-size: 1.1rem;
+            line-height: 1.3;
+            font-weight: 600;
+            color: var(--cv-heading);
+        ">{html.escape(str(title))}</div>
+        """
+    ).strip()
+
+
 def _structure_consolidation_metric_grid_html(values):
     tiles = "".join(
         _structure_consolidation_metric_tile_html(label, value)
@@ -1493,7 +1671,19 @@ def _structure_consolidation_outcome_evidence_html(summary):
 
 
 def render_structure_consolidation_summary(database_id, table_name):
-    if not database_id or not table_name:
+    if not database_id:
+        with st.container(border=True):
+            st.subheader(":material/layers: Activity Labels Summary")
+            st.caption(
+                "Select or create a database to inspect consolidated activity labels."
+            )
+        return
+    if not table_name:
+        with st.container(border=True):
+            st.subheader(":material/layers: Activity Labels Summary")
+            st.caption(
+                "Select a table to inspect its consolidated activity labels."
+            )
         return
     try:
         metadata = get_backend_gateway().get_table_metadata(
@@ -1501,11 +1691,13 @@ def render_structure_consolidation_summary(database_id, table_name):
             table_name,
         )
     except BackendGatewayError as error:
-        st.warning(f"Unable to load structure consolidation summary: {error}")
+        with st.container(border=True):
+            st.subheader(":material/layers: Activity Labels Summary")
+            st.warning(f"Unable to load structure consolidation summary: {error}")
         return
 
     with st.container(border=True):
-        st.markdown("**Activity labels summary**")
+        st.subheader(":material/layers: Activity Labels Summary")
         if metadata.origin != "structure_consolidation":
             st.caption(
                 "No structure-consolidation summary is available for this "
@@ -1602,9 +1794,72 @@ def render_structure_consolidation_summary(database_id, table_name):
         )
 
 
+def render_structured_activity_card(container):
+    database_id = st.session_state.get(DATABASE_ID, "")
+    with container:
+        with st.container(border=True):
+            if not database_id:
+                st.subheader(":material/science: Structured Quantitative Activity")
+                st.caption(
+                    "Select or create a database to inspect structured activity data."
+                )
+                return
+
+            db_path = Path("SQL") / f"{database_id}.db"
+            if not db_path.is_file():
+                st.subheader(":material/science: Structured Quantitative Activity")
+                st.caption(
+                    "Structured activity data is unavailable because the active "
+                    "database could not be opened."
+                )
+                return
+
+            with sqlite3.connect(db_path) as activity_conn:
+                summary = get_activity_summary(activity_conn)
+                if summary is None:
+                    st.subheader(":material/science: Structured Quantitative Activity")
+                    st.caption(
+                        "No structured quantitative activity data is available "
+                        "for this database."
+                    )
+                    return
+                render_structured_activity_section(activity_conn, summary)
+
+
+def render_activity_labels_summary_card(container):
+    with container:
+        render_structure_consolidation_summary(
+            st.session_state.get(DATABASE_ID, ""),
+            st.session_state.get(CURRENT_TABLE, ""),
+        )
+
+
+def render_modelability_result_section(container):
+    database_id = st.session_state.get(DATABASE_ID, "")
+    table_name = st.session_state.get(CURRENT_TABLE, "")
+    with container:
+        if not database_id:
+            with st.container(border=True):
+                st.subheader(":material/scatter_plot: Modelability Index Result")
+                st.caption(
+                    "Select or create a database to inspect Modelability Index results."
+                )
+            return
+        if not table_name:
+            with st.container(border=True):
+                st.subheader(":material/scatter_plot: Modelability Index Result")
+                st.caption("Select a table to inspect its Modelability Index result.")
+            return
+        render_modelability_result_card(
+            st.session_state,
+            database_id,
+            table_name,
+        )
+
+
 def render_table_manager_card(container):
     with container:
-        st.subheader("Table Manager")
+        st.subheader(":material/table_view: Table Manager")
         st.caption("Review tables, provenance, and cleanup options.")
         if st.session_state[DATABASE_ID] == "":
             st.info("Select or create a database to review its tables.")
@@ -1617,10 +1872,6 @@ def render_table_manager_card(container):
             profiles = get_user_table_profiles(db_path)
         except FileNotFoundError as e:
             st.warning(str(e))
-            render_structure_consolidation_summary(
-                database_id,
-                st.session_state.get(CURRENT_TABLE, ""),
-            )
             return
 
         if len(profiles) == 0:
@@ -1635,27 +1886,22 @@ def render_table_manager_card(container):
             hide_index=True,
             width="stretch",
         )
-        with st.container(border=True):
-            st.markdown("**Database maintenance**")
+        with st.container(
+            border=True,
+            key="chemvault_table_manager_maintenance",
+        ):
+            st.markdown(
+                _nested_card_heading_html("Database Maintenance"),
+                unsafe_allow_html=True,
+            )
             render_table_manager_actions(database_id, profiles)
             with sqlite3.connect(db_path) as activity_conn:
                 render_activity_enrichment_action(activity_conn)
-        with sqlite3.connect(db_path) as activity_conn:
-            render_structured_activity_section(activity_conn)
-            render_structure_consolidation_summary(
-                database_id,
-                st.session_state.get(CURRENT_TABLE, ""),
-            )
-            render_modelability_result_card(
-                st.session_state,
-                database_id,
-                st.session_state.get(CURRENT_TABLE, ""),
-            )
 
 
 def render_database_card(container):
     if st.session_state[DATABASE_ID] == "":
-        container.subheader("Database")
+        container.subheader(":material/database: Database")
         container.caption("Create or select the active molecular database.")
         container.text_input(
             label="SQL Database name",
@@ -1680,7 +1926,7 @@ def render_database_card(container):
     recovery_notice = st.session_state.get(SCIENTIFIC_RECOVERY_NOTICE, "")
     if recovery_notice:
         container.warning(recovery_notice)
-    container.subheader("Database")
+    container.subheader(":material/database: Database")
     table_options = st.session_state.get(ALL_TABLES, [])
     if len(table_options) == 0:
         container.warning("The database does not contain tables.")
@@ -1716,24 +1962,32 @@ def render_database_card(container):
         target_identity=target_identity,
         target_identity_error=target_identity_error,
     )
-    container.markdown("#### Table controls")
-    container.selectbox(
-        "Select table",
-        table_options,
-        key=CURRENT_TABLE,
-        on_change=_refresh_database_state,
-    )
-    if len(st.session_state.get(HEADERS, [])) > 0:
-        container.selectbox(
-            "Count unique groups by",
-            st.session_state[HEADERS],
-            key=GROUP_COUNT_COLUMN,
-        )
+    with container:
+        with st.container(
+            border=True,
+            key="chemvault_database_table_controls",
+        ):
+            st.markdown(
+                _nested_card_heading_html("Table Controls"),
+                unsafe_allow_html=True,
+            )
+            st.selectbox(
+                "Select table",
+                table_options,
+                key=CURRENT_TABLE,
+                on_change=_refresh_database_state,
+            )
+            if len(st.session_state.get(HEADERS, [])) > 0:
+                st.selectbox(
+                    "Count unique groups by",
+                    st.session_state[HEADERS],
+                    key=GROUP_COUNT_COLUMN,
+                )
 
 
 def render_columns_card(container):
     with container:
-        st.subheader("Columns")
+        st.subheader(":material/view_column: Columns")
         st.caption("Select columns to preview, refine, curate, or export.")
         options, st.session_state[SELECTED_HEADERS] = _filter_visible_column_options(
             st.session_state[HEADERS],
@@ -1842,7 +2096,7 @@ def _is_identifier_like_column(column):
 
 def render_table_maintenance_card(container):
     with container:
-        st.subheader("Table Maintenance")
+        st.subheader(":material/build: Table Maintenance")
         st.caption("Inspect schema and apply advanced type changes for the active table.")
         if st.session_state[DATABASE_ID] == "" or len(st.session_state[HEADERS]) == 0:
             st.info("Select a database with columns to view additional information.")

@@ -78,6 +78,7 @@ def test_structured_activity_summary_uses_quantitative_database_labels(monkeypat
         "aids": ["100", "200"],
     }
     markdown_calls = []
+    subheaders = []
     captions = []
 
     class Context:
@@ -96,6 +97,7 @@ def test_structured_activity_summary_uses_quantitative_database_labels(monkeypat
         "markdown",
         lambda value, **kwargs: markdown_calls.append((value, kwargs)),
     )
+    monkeypatch.setattr(main_page.st, "subheader", subheaders.append)
     monkeypatch.setattr(main_page.st, "caption", captions.append)
     monkeypatch.setattr(main_page.st, "dataframe", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -121,7 +123,7 @@ def test_structured_activity_summary_uses_quantitative_database_labels(monkeypat
 
     main_page.render_structured_activity_section(object())
 
-    assert markdown_calls[0] == ("#### Structured quantitative activity", {})
+    assert subheaders == [":material/science: Structured Quantitative Activity"]
     assert captions[0] == (
         "Inspect and export structured quantitative activity records stored in this database."
     )
@@ -134,13 +136,15 @@ def test_structured_activity_summary_uses_quantitative_database_labels(monkeypat
         ("Structured activity records", "73"),
         ("CIDs with structured activity", "11"),
         ("AIDs with structured activity", "5"),
+    )
+    expected_information = (
         ("Reported activity types", "IC50, Ki"),
         ("Outcomes", "Active, Inactive"),
         ("Units", "NANOMOLAR"),
         ("Source columns", "PubChem Standard Value"),
     )
     metric_positions = [
-        summary_markup.index(f">{label}</div>")
+        summary_markup.index(label)
         for label, _value in expected_metrics
     ]
     assert metric_positions == sorted(metric_positions)
@@ -148,9 +152,68 @@ def test_structured_activity_summary_uses_quantitative_database_labels(monkeypat
         metric_end = (
             metric_positions[index + 1]
             if index + 1 < len(metric_positions)
-            else len(summary_markup)
+            else summary_markup.index("Activity Characteristics")
         )
         assert value in summary_markup[metric_positions[index]:metric_end]
+    information_positions = [
+        summary_markup.index(label)
+        for label, _value in expected_information
+    ]
+    assert information_positions == sorted(information_positions)
+    for index, (_label, value) in enumerate(expected_information):
+        row_end = (
+            information_positions[index + 1]
+            if index + 1 < len(information_positions)
+            else len(summary_markup)
+        )
+        assert value in summary_markup[information_positions[index]:row_end]
+    assert summary_markup.count("data-cv-structured-activity-metric") == 3
+    assert summary_markup.count("data-cv-structured-activity-information-row") == 4
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in summary_markup
+    assert "Activity Characteristics" in summary_markup
+    assert summary_markup.count("background: var(--cv-sidebar-bg);") == 3
+
+
+def test_structured_activity_summary_keeps_complete_long_categorical_lists():
+    summary = {
+        "total_rows": 20553,
+        "unique_cids": 12220,
+        "unique_aids": 1422,
+        "activity_types": [
+            "% Ctrl",
+            "% Inhibition",
+            "AC50",
+            "EC50",
+            "IC50",
+            "Kd",
+            "Ki",
+            "Potency",
+            "Percent activity",
+            "Response ratio",
+        ],
+        "outcomes": ["Active", "Inactive", "Unspecified"],
+        "units": ["%", "MICROMOLAR", "NANOMOLAR", "PICOMOLAR"],
+        "source_columns": [
+            "EC50",
+            "IC50",
+            "Kd",
+            "Ki",
+            "PubChem Standard Value",
+            "Very long source column retained at the end",
+        ],
+    }
+
+    rendered = main_page._structured_activity_summary_html(summary)
+
+    assert rendered.count("data-cv-structured-activity-metric") == 3
+    assert rendered.count("data-cv-structured-activity-information-row") == 4
+    assert "20,553" in rendered
+    assert "12,220" in rendered
+    assert "1,422" in rendered
+    assert "Response ratio" in rendered
+    assert "Very long source column retained at the end" in rendered
+    assert "+2 more" not in rendered
+    assert "overflow-wrap: anywhere;" in rendered
 
 
 def test_main_column_options_hide_only_legacy_activity_summary_columns():
@@ -621,6 +684,218 @@ def test_database_summary_uses_active_table_semantic_labels(monkeypatch):
     assert "Active table and row summary." not in inspect.getsource(
         main_page.render_database_card
     )
+
+
+def test_database_card_groups_existing_table_controls_in_one_inner_card(
+    monkeypatch,
+):
+    events = []
+    selectboxes = []
+    state = {
+        main_page.DATABASE_ID: "test_db",
+        main_page.ALL_TABLES: ["main", "derived"],
+        main_page.CURRENT_TABLE: "main",
+        main_page.HEADERS: ["CID", "Outcome"],
+        main_page.GROUP_COUNT_COLUMN: "Outcome",
+        main_page.SCIENTIFIC_RECOVERY_NOTICE: "",
+    }
+
+    class Context:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class ParentContainer(Context):
+        def subheader(self, value):
+            events.append(("database_heading", value))
+
+        def warning(self, value):
+            events.append(("warning", value))
+
+        def error(self, value):
+            events.append(("error", value))
+
+    def refresh_state():
+        return DatabaseState(
+            database_id="test_db",
+            current_table="main",
+            headers=("CID", "Outcome"),
+            all_tables=("main", "derived"),
+        )
+
+    def inner_container(**kwargs):
+        events.append(("inner_container", kwargs))
+        return Context()
+
+    def selectbox(label, options, **kwargs):
+        selectboxes.append((label, list(options), kwargs))
+
+    monkeypatch.setattr(main_page.st, "session_state", state)
+    monkeypatch.setattr(
+        main_page,
+        "_apply_pending_structured_activity_subset_selection",
+        lambda _state: None,
+    )
+    monkeypatch.setattr(main_page, "_refresh_database_state", refresh_state)
+    monkeypatch.setattr(main_page, "get_connection", lambda _database_id: object())
+    monkeypatch.setattr(
+        main_page,
+        "load_database_metrics",
+        lambda *_args: (DatabaseMetrics(row_count=12, group_count=2), None),
+    )
+    monkeypatch.setattr(
+        main_page,
+        "load_database_target_identity",
+        lambda _database_id: (None, None),
+    )
+    monkeypatch.setattr(
+        main_page,
+        "render_database_summary",
+        lambda *_args, **_kwargs: events.append(("database_summary", {})),
+    )
+    monkeypatch.setattr(main_page.st, "container", inner_container)
+    monkeypatch.setattr(
+        main_page.st,
+        "markdown",
+        lambda value, **kwargs: events.append(
+            ("controls_heading", value, kwargs)
+        ),
+    )
+    monkeypatch.setattr(main_page.st, "selectbox", selectbox)
+
+    main_page.render_database_card(ParentContainer())
+
+    assert events[:3] == [
+        ("database_heading", ":material/database: Database"),
+        ("database_summary", {}),
+        (
+            "inner_container",
+            {
+                "border": True,
+                "key": "chemvault_database_table_controls",
+            },
+        ),
+    ]
+    assert events[3][0] == "controls_heading"
+    assert "Table Controls" in events[3][1]
+    assert "font-size: 1.1rem;" in events[3][1]
+    assert "font-weight: 600;" in events[3][1]
+    assert "color: var(--cv-heading);" in events[3][1]
+    assert events[3][2] == {"unsafe_allow_html": True}
+    assert selectboxes == [
+        (
+            "Select table",
+            ["main", "derived"],
+            {
+                "key": main_page.CURRENT_TABLE,
+                "on_change": refresh_state,
+            },
+        ),
+        (
+            "Count unique groups by",
+            ["CID", "Outcome"],
+            {"key": main_page.GROUP_COUNT_COLUMN},
+        ),
+    ]
+    assert state[main_page.CURRENT_TABLE] == "main"
+    assert state[main_page.GROUP_COUNT_COLUMN] == "Outcome"
+
+    layout_source = inspect.getsource(main_page.create_main_layout)
+    for key in (
+        "chemvault_database_table_controls",
+        "chemvault_table_manager_maintenance",
+    ):
+        assert key in layout_source
+    for style in (
+        "background-color: var(--cv-sidebar-bg);",
+        "border-color: var(--cv-border);",
+        "border-radius: 0.4rem;",
+        "padding: 0.75rem 0.85rem;",
+        "background-color: var(--cv-panel-bg) !important;",
+        "border: 1px solid var(--cv-border-strong) !important;",
+        "fill: var(--cv-muted);",
+    ):
+        assert style in layout_source
+
+
+def test_table_manager_selected_database_uses_distinct_maintenance_card(
+    monkeypatch,
+    tmp_path,
+):
+    database_dir = tmp_path / "SQL"
+    database_dir.mkdir()
+    database_path = database_dir / "test_db.db"
+    sqlite3.connect(database_path).close()
+    monkeypatch.chdir(tmp_path)
+
+    output = {
+        "subheaders": [],
+        "containers": [],
+        "markdown": [],
+        "actions": [],
+    }
+
+    class Context:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def container(**kwargs):
+        output["containers"].append(kwargs)
+        return Context()
+
+    profiles = [{"table": "main", "rows": 12, "columns": 4}]
+    monkeypatch.setattr(
+        main_page.st,
+        "session_state",
+        {main_page.DATABASE_ID: "test_db"},
+    )
+    monkeypatch.setattr(main_page.st, "subheader", output["subheaders"].append)
+    monkeypatch.setattr(main_page.st, "caption", lambda _value: None)
+    monkeypatch.setattr(main_page.st, "container", container)
+    monkeypatch.setattr(
+        main_page.st,
+        "markdown",
+        lambda value, **kwargs: output["markdown"].append((value, kwargs)),
+    )
+    monkeypatch.setattr(main_page.st, "dataframe", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_page, "get_user_table_profiles", lambda _path: profiles)
+    monkeypatch.setattr(main_page, "render_database_model_help", lambda: None)
+    monkeypatch.setattr(
+        main_page,
+        "render_table_manager_actions",
+        lambda database_id, received_profiles: output["actions"].append(
+            (database_id, received_profiles)
+        ),
+    )
+    monkeypatch.setattr(
+        main_page,
+        "render_activity_enrichment_action",
+        lambda _connection: output["actions"].append("repair"),
+    )
+
+    main_page.render_table_manager_card(Context())
+
+    assert output["subheaders"] == [":material/table_view: Table Manager"]
+    assert output["containers"] == [
+        {
+            "border": True,
+            "key": "chemvault_table_manager_maintenance",
+        }
+    ]
+    maintenance_heading = next(
+        value
+        for value, kwargs in output["markdown"]
+        if kwargs == {"unsafe_allow_html": True}
+    )
+    assert "Database Maintenance" in maintenance_heading
+    assert "font-size: 1.1rem;" in maintenance_heading
+    assert "font-weight: 600;" in maintenance_heading
+    assert output["actions"] == [("test_db", profiles), "repair"]
 
 
 def test_database_summary_groups_pubchem_provenance_and_activity_status(

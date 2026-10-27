@@ -376,9 +376,9 @@ def _render_metrics(result):
 
 
 def render_modelability_result_card(session_state, database_id, table_name):
-    """Render the Modelability Index result subcard for the active table."""
+    """Render the Modelability Index result card for the active table."""
     with st.container(border=True):
-        st.markdown("**Modelability Index result**")
+        st.subheader(":material/scatter_plot: Modelability Index Result")
         fingerprint_type = session_state.get(
             MODELABILITY_FINGERPRINT_TYPE,
             DEFAULT_FINGERPRINT_TYPE,

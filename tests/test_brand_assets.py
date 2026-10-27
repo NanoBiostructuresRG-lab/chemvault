@@ -44,7 +44,7 @@ def test_brand_asset_paths_are_cwd_independent_and_available(monkeypatch, tmp_pa
 
     assert main_page.CHEMVAULT_LOGO_PATH.is_absolute()
     assert main_page.CHEMVAULT_FAVICON_PATH.is_absolute()
-    assert main_page.CHEMVAULT_LOGO_PATH.name == "logo_black.svg"
+    assert main_page.CHEMVAULT_LOGO_PATH.name == "logo_cyan.svg"
     assert main_page.CHEMVAULT_FAVICON_PATH.name == "logo_cyan.svg"
     assert main_page.CHEMVAULT_LOGO_PATH.is_file()
     assert main_page.CHEMVAULT_FAVICON_PATH.is_file()

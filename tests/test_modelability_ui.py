@@ -200,13 +200,23 @@ def _metadata(origin, source_table):
 
 
 def _patch_placeholder_rendering(monkeypatch):
-    rendered = {"containers": [], "markdown": [], "captions": []}
+    rendered = {
+        "containers": [],
+        "subheaders": [],
+        "markdown": [],
+        "captions": [],
+    }
     monkeypatch.setattr(
         modelability_result.st,
         "container",
         lambda **kwargs: (
             rendered["containers"].append(kwargs) or nullcontext()
         ),
+    )
+    monkeypatch.setattr(
+        modelability_result.st,
+        "subheader",
+        rendered["subheaders"].append,
     )
     monkeypatch.setattr(
         modelability_result.st,
@@ -1020,6 +1030,27 @@ def test_metric_group_html_can_render_rows_of_three():
     assert "margin-top: 0.4rem;" in rendered
 
 
+def test_scientific_metric_tiles_share_internal_card_presentation():
+    activity_labels_tile = main_page._structure_consolidation_metric_tile_html(
+        "Metric",
+        "1.0000",
+    )
+    modelability_tile = modelability_result._metric_tile_html(
+        "Metric",
+        "1.0000",
+    )
+
+    assert activity_labels_tile == modelability_tile
+    for style in (
+        "padding: 0.45rem 0.55rem;",
+        "border: 1px solid var(--cv-border);",
+        "border-radius: 0.4rem;",
+        "background: var(--cv-muted-bg);",
+        "font-size: 0.68rem;",
+    ):
+        assert style in activity_labels_tile
+
+
 def test_analysis_details_include_murcko_provenance():
     provenance = dict(_result()["provenance"])
     provenance.update(
@@ -1097,6 +1128,7 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
             return False
 
     rendered = {
+        "subheaders": [],
         "markdown": [],
         "markdown_kwargs": [],
         "captions": [],
@@ -1126,6 +1158,11 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
         rendered["markdown_kwargs"].append(kwargs)
 
     monkeypatch.setattr(modelability_result.st, "markdown", markdown)
+    monkeypatch.setattr(
+        modelability_result.st,
+        "subheader",
+        rendered["subheaders"].append,
+    )
     monkeypatch.setattr(
         modelability_result.st,
         "caption",
@@ -1202,9 +1239,11 @@ def test_completed_result_renders_summary_diagnostics_and_analysis_details(
     )
 
     assert rendered_result is True
+    assert rendered["subheaders"] == [
+        ":material/scatter_plot: Modelability Index Result"
+    ]
     rendered_html = "\n".join(rendered["markdown"])
     for text in (
-        "**Modelability Index result**",
         "Modelability",
         "Modelability Index",
         "0.5000",
@@ -1420,6 +1459,7 @@ def test_modelability_npz_export_failure_is_visible(monkeypatch):
         lambda *_args, **_kwargs: Context(),
     )
     monkeypatch.setattr(modelability_result.st, "markdown", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "subheader", lambda *_a, **_k: None)
     monkeypatch.setattr(modelability_result.st, "caption", lambda *_a, **_k: None)
     monkeypatch.setattr(modelability_result.st, "dataframe", lambda *_a, **_k: None)
     monkeypatch.setattr(modelability_result.st, "warning", lambda *_a, **_k: None)
@@ -1481,6 +1521,7 @@ def test_invalid_murcko_export_warns_without_blocking_other_downloads(monkeypatc
         lambda *_args, **_kwargs: Context(),
     )
     monkeypatch.setattr(modelability_result.st, "markdown", lambda *_a, **_k: None)
+    monkeypatch.setattr(modelability_result.st, "subheader", lambda *_a, **_k: None)
     monkeypatch.setattr(modelability_result.st, "caption", lambda *_a, **_k: None)
     monkeypatch.setattr(modelability_result.st, "dataframe", lambda *_a, **_k: None)
     monkeypatch.setattr(
@@ -1530,7 +1571,8 @@ def test_scope_mismatch_does_not_render_stale_result(monkeypatch):
     ) is False
     assert rendered == {
         "containers": [{"border": True}],
-        "markdown": ["**Modelability Index result**"],
+        "subheaders": [":material/scatter_plot: Modelability Index Result"],
+        "markdown": [],
         "captions": [
             "No Modelability Index result is available for this table."
         ],
@@ -1572,16 +1614,19 @@ def test_matching_scope_without_result_renders_placeholder(monkeypatch):
     ) is False
     assert rendered == {
         "containers": [{"border": True}],
-        "markdown": ["**Modelability Index result**"],
+        "subheaders": [":material/scatter_plot: Modelability Index Result"],
+        "markdown": [],
         "captions": [
             "No Modelability Index result is available for this table."
         ],
     }
 
 
-def test_table_manager_places_modelability_after_advanced_maintenance():
-    source = inspect.getsource(main_page.render_table_manager_card)
+def test_modelability_result_uses_independent_main_section():
+    manager_source = inspect.getsource(main_page.render_table_manager_card)
+    section_source = inspect.getsource(
+        main_page.render_modelability_result_section
+    )
 
-    maintenance = source.index("render_activity_enrichment_action(activity_conn)")
-    result = source.index("render_modelability_result_card(")
-    assert maintenance < result
+    assert "render_modelability_result_card(" not in manager_source
+    assert "render_modelability_result_card(" in section_source

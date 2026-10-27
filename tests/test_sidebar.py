@@ -42,7 +42,7 @@ def test_application_identity_uses_approved_subtitle(monkeypatch):
     assert images == [
         ((main_page.CHEMVAULT_LOGO_PATH,), {"width": "stretch"}),
     ]
-    assert main_page.CHEMVAULT_LOGO_PATH.name == "logo_black.svg"
+    assert main_page.CHEMVAULT_LOGO_PATH.name == "logo_cyan.svg"
     identity = "\n".join(rendered)
     assert (
         "Traceable Target-Centered Bioactivity Dataset Construction "
@@ -196,3 +196,5 @@ def test_application_version_is_not_hardcoded_in_sidebar():
 
     assert '"v0.14.7"' not in source
     assert "'v0.14.7'" not in source
+    assert '"v0.14.8"' not in source
+    assert "'v0.14.8'" not in source
