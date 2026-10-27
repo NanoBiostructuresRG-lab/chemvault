@@ -9,9 +9,11 @@ import streamlit as st
 from application.modelability_index import DEFAULT_FINGERPRINT_TYPE
 from clients.backend_gateway import BackendGatewayError, get_backend_gateway
 from ui.modelability_state import (
+    MurckoRelationshipsExportError,
     analysis_report_json,
     diagnostics_csv,
     modelability_scope_matches,
+    murcko_relationships_csv,
 )
 from ui.state_keys import MODELABILITY_FINGERPRINT_TYPE, MODELABILITY_RESULT
 
@@ -423,28 +425,58 @@ def render_modelability_result_card(session_state, database_id, table_name):
         download_name_prefix = (
             f"{table_name}_{result_fingerprint_type}_{analysis_hash_8}"
         )
-        diagnostics_column, analysis_column, fingerprints_column = (
-            st.columns(3)
-        )
+        profile_hash_8 = str(
+            provenance.get("molraptor_profile_hash") or ""
+        )[:8]
+        try:
+            murcko_csv = murcko_relationships_csv(result)
+        except MurckoRelationshipsExportError as error:
+            murcko_csv = None
+            murcko_csv_error = str(error)
+
+        st.markdown("**Download**")
+        diagnostics_column, murcko_column = st.columns(2)
         with diagnostics_column:
             st.download_button(
-                "Download nearest-neighbor report",
+                "Nearest-neighbor report (.csv)",
                 data=diagnostics_csv(result),
                 file_name=(
                     f"{download_name_prefix}_modelability_diagnostics.csv"
                 ),
                 mime="text/csv",
                 key=f"download_modelability_diagnostics_{table_name}",
+                icon=":material/table_view:",
             )
+        with murcko_column:
+            if murcko_csv is None:
+                st.warning(
+                    "Murcko relationships download is unavailable: "
+                    f"{murcko_csv_error}"
+                )
+            else:
+                st.download_button(
+                    "Murcko relationships (.csv)",
+                    data=murcko_csv,
+                    file_name=(
+                        f"{download_name_prefix}_profile_{profile_hash_8}"
+                        "_murcko_relationships.csv"
+                    ),
+                    mime="text/csv",
+                    key=f"download_murcko_relationships_{table_name}",
+                    icon=":material/account_tree:",
+                )
+
+        analysis_column, fingerprints_column = st.columns(2)
         with analysis_column:
             st.download_button(
-                "Download analysis report (.json)",
+                "Analysis report (.json)",
                 data=analysis_report_json(result),
                 file_name=(
                     f"{download_name_prefix}_modelability_analysis.json"
                 ),
                 mime="application/json",
                 key=f"download_modelability_analysis_{table_name}",
+                icon=":material/description:",
             )
         if isinstance(analysis_identity, str) and analysis_identity:
             try:
@@ -465,11 +497,12 @@ def render_modelability_result_card(session_state, database_id, table_name):
             else:
                 with fingerprints_column:
                     st.download_button(
-                        "Download fingerprints (.npz)",
+                        "Fingerprints (.npz)",
                         data=npz_bytes,
                         file_name=npz_filename,
                         mime="application/octet-stream",
                         key=f"download_modelability_fingerprints_{table_name}",
+                        icon=":material/fingerprint:",
                     )
 
         with st.expander("Analysis details", expanded=False):
