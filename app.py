@@ -2,7 +2,6 @@
 import os
 
 import streamlit as st
-from PIL import Image
 
 from services.selection import (
     get_active_selected_headers,
@@ -14,7 +13,7 @@ from services.sql_utils import (
 )
 from ui.dialogs import select_proteins
 from ui.main_page import (
-    CHEMVAULT_LOGO_PATH,
+    CHEMVAULT_FAVICON_PATH,
     create_main_layout,
     render_app_identity,
     render_columns_card,
@@ -52,11 +51,9 @@ def verify_directories():
 
 initialize_session_state(st.session_state, verify_directories)
 
-logo = Image.open(CHEMVAULT_LOGO_PATH)
-
 st.set_page_config(
     page_title="ChemVault",
-    page_icon=logo,
+    page_icon=str(CHEMVAULT_FAVICON_PATH),
     layout="wide"
 )
 

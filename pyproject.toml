@@ -74,7 +74,9 @@ only-include = [
     "services",
     "ui",
     "app.py",
-    "docs/assets/chemvault-logo.jpeg",
+    "docs/assets/logo_black.svg",
+    "docs/assets/logo_white.svg",
+    "docs/assets/logo_cyan.svg",
 ]
 
 [tool.hatch.build.targets.sdist]

@@ -56,12 +56,14 @@ from ui.state_keys import (
     SET_TEXT_INPUT_LOCKED,
 )
 
-CHEMVAULT_LOGO_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "docs"
-    / "assets"
-    / "chemvault-logo.jpeg"
-)
+
+def resolve_brand_asset(filename: str) -> Path:
+    """Resolve a packaged CHEMVAULT brand asset independently of the CWD."""
+    return Path(__file__).resolve().parents[1] / "docs" / "assets" / filename
+
+
+CHEMVAULT_LOGO_PATH = resolve_brand_asset("logo_black.svg")
+CHEMVAULT_FAVICON_PATH = resolve_brand_asset("logo_cyan.svg")
 
 ACTIVITY_SUMMARY_COLUMNS = {
     "Activity_Type",

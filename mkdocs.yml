@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
-site_name: CHEMVAULT
+site_name: ChemVault
 site_description: Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment
 site_url: https://nanobiostructuresrg-lab.github.io/chemvault/
 repo_url: https://github.com/NanoBiostructuresRG-lab/chemvault
@@ -7,8 +7,8 @@ repo_name: NanoBiostructuresRG-lab/chemvault
 
 theme:
   name: material
-  logo: assets/chemvault-logo.jpeg
-  favicon: assets/chemvault-logo.jpeg
+  logo: assets/logo_cyan.svg
+  favicon: assets/logo_cyan.svg
   palette:
     - scheme: default
       primary: custom

@@ -1,25 +1,30 @@
-# CHEMVAULT
+# ChemVault
 
 <section class="cv-hero">
   <div class="cv-hero__content">
-    <p class="cv-eyebrow">Cheminformatics dataset curation</p>
+    <p class="cv-eyebrow">Bioactivity datasets and modelability</p>
     <div class="cv-brand">
-      <img class="cv-brand__logo" src="assets/chemvault-logo.jpeg" alt="CHEMVAULT molecular logo">
-      <span class="cv-brand__wordmark">CHEMVAULT</span>
+      <img class="cv-brand__logo" src="assets/logo_cyan.svg" alt="CHEMVAULT molecular logo">
+      <span class="cv-brand__wordmark">ChemVault</span>
     </div>
-    <p class="cv-subtitle">Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment</p>
+    <p class="cv-subtitle">Traceable target-centered bioactivity dataset construction and modelability assessment</p>
     <div class="cv-actions">
-      <a class="md-button md-button--primary" href="usage/#installation">Installation</a>
-      <a class="md-button" href="usage/">Usage</a>
+      <a class="md-button md-button--primary" href="usage/">Usage</a>
       <a class="md-button" href="api/">API Reference</a>
       <a class="md-button" href="changelog/">Changelog</a>
+    </div>
+    <div class="ms-badges" aria-label="Project badges">
+      <a href="https://github.com/NanoBiostructuresRG-lab/chemvault/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-LGPL_v3-blue.svg" alt="License: LGPL v3+"></a>
+      <a href="https://pypi.org/project/chemvault/"><img src="https://img.shields.io/pypi/pyversions/chemvault" alt="Supported Python versions"></a>
+      <a href="https://pypi.org/project/chemvault/"><img src="https://img.shields.io/pypi/v/chemvault" alt="PyPI package version"></a>
+      <a href="https://github.com/NanoBiostructuresRG-lab/chemvault/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NanoBiostructuresRG-lab/chemvault/actions/workflows/ci.yml/badge.svg"></a>
     </div>
   </div>
 </section>
 
 ## Scientific purpose
 
-CHEMVAULT is a visual application for constructing, curating, tracing, and
+**ChemVault** is a visual application for constructing, curating, tracing, and
 exporting molecular and bioactivity datasets. A dataset can begin with a CSV
 table or with one biological target resolved to a reviewed UniProt accession.
 The target-centered path retrieves compounds, bioassays, and structured
@@ -28,20 +33,20 @@ activity observations from PubChem and persists them in SQLite.
 Subsequent workflows harmonize molecular structures through HARMONSMILE,
 preserve and consolidate PubChem activity labels at the harmonized-structure
 level, and assess whether those labels are locally consistent in molecular
-fingerprint space. CHEMVAULT records source identity, derived-table provenance,
+fingerprint space. **ChemVault** records source identity, derived-table provenance,
 operation history, and scientific-job state so results remain connected to the
 inputs and processing steps that produced them.
 
 !!! note "Scientific boundary"
 
-    CHEMVAULT is a dataset construction and assessment application, not a
+    **ChemVault** is a dataset construction and assessment application, not a
     predictive-model training system. Molecular fingerprint generation is
-    delegated to [MOLRAPTOR](https://pypi.org/project/molraptor/); CHEMVAULT
+    delegated to [MOLRAPTOR](https://pypi.org/project/molraptor/); **ChemVault**
     does not implement fingerprint algorithms.
 
 ## Core scientific entities
 
-| Entity | Meaning in CHEMVAULT |
+| Entity | Meaning in **ChemVault** |
 |---|---|
 | Compound | A source compound identity, normally represented by a PubChem CID. One compound can participate in multiple bioassays. |
 | Molecular structure | The chemical representation associated with a compound. `SMILES_Harmonized` is the downstream structure key after harmonization. |
@@ -75,7 +80,7 @@ automatically represent distinct harmonized structures.
   </div>
 </section>
 
-CHEMVAULT keeps source tables available while derived tables carry their source
+**ChemVault** keeps source tables available while derived tables carry their source
 relationship and processing summary. Persisted jobs expose progress and
 terminal outcomes, while export contracts preserve the selected scientific
 population and its analysis identity.
@@ -89,8 +94,18 @@ population and its analysis identity.
 - [Changelog](changelog.md) includes the authoritative root changelog without
   duplicating it.
 
+## Citation
+
+
+```text
+Contreras-Torres, F. F., Murrieta, A. C., Castro-Flores, D., Saldívar-González, F. I. (2026). CHEMVAULT — Traceable Target-Centered Bioactivity Dataset Construction and Modelability Assessment. Zenodo. https://doi.org/10.5281/zenodo.23378448
+```
+
+Use [CITATION.cff](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/main/CITATION.cff) as the authoritative machine-readable citation metadata for **ChemVault**. Citation metadata is updated with each release.
+
+
 ## License
 
-CHEMVAULT is licensed under the
+**ChemVault** is licensed under the
 [GNU Lesser General Public License v3.0 or later](https://github.com/NanoBiostructuresRG-lab/chemvault/blob/dev/v0.14.7/LICENSE).
 The SPDX identifier is `LGPL-3.0-or-later`.
